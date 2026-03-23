@@ -122,7 +122,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
       {/* Export hint */}
       <div className="mb-5 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/15 flex items-center justify-between">
         <p className="text-xs text-slate-400">
-          Showing your transaction history. Click "Load more" to view older transactions.
+          Showing your transaction history. Click &quot;Load more&quot; to view older transactions.
         </p>
         <a
           href={`https://stellar.expert/explorer/testnet/account/${publicKey}`}
