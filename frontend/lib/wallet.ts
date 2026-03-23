@@ -27,6 +27,30 @@ export interface WalletState {
   error: string | null;
 }
 
+// ─── Browser detection ───────────────────────────────────────────────────────
+
+export type SupportedBrowser = "chrome" | "firefox" | "other";
+
+/**
+ * Detect the user's browser to surface the correct extension store link.
+ */
+export function detectBrowser(): SupportedBrowser {
+  if (typeof navigator === "undefined") return "other";
+  const ua = navigator.userAgent;
+  if (ua.includes("Firefox")) return "firefox";
+  // Chrome, Edge, Brave, Arc all include "Chrome" in UA
+  if (ua.includes("Chrome")) return "chrome";
+  return "other";
+}
+
+export const EXTENSION_URLS: Record<SupportedBrowser, string> = {
+  chrome:
+    "https://chrome.google.com/webstore/detail/freighter/bcacfldlkkdogcmkkibnjlakofdplcbk",
+  firefox:
+    "https://addons.mozilla.org/en-US/firefox/addon/freighter/",
+  other: "https://freighter.app",
+};
+
 // ─── Wallet detection ─────────────────────────────────────────────────────────
 
 /**
