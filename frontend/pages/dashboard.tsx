@@ -9,9 +9,10 @@ import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
-import QRCodeModal from "@/components/QRCodeModal";
+import Toast from "@/components/Toast";
 import { getXLMBalance, shortenAddress } from "@/lib/stellar";
 import { formatXLM, formatUSD, copyToClipboard } from "@/utils/format";
+import { useToast } from "@/lib/useToast";
 
 interface DashboardProps {
   publicKey: string | null;
@@ -25,7 +26,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [showQRModal, setShowQRModal] = useState(false);
+  const { visible: toastVisible, message: toastMessage, showToast } = useToast();
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -54,7 +55,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
   const handleCopyAddress = async () => {
     if (!publicKey) return;
-    await copyToClipboard(publicKey);
+    const ok = await copyToClipboard(publicKey);
+    if (ok) showToast("Address copied!");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -101,31 +103,22 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                 {publicKey}
               </span>
             </div>
-            <div className="flex items-center gap-2 mt-2">
-              <button
-                onClick={handleCopyAddress}
-                className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5"
-              >
-                {copied ? (
-                  <>
-                    <CheckIcon className="w-3.5 h-3.5" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <CopyIcon className="w-3.5 h-3.5" />
-                    Copy address
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => setShowQRModal(true)}
-                className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5"
-              >
-                <QRIcon className="w-3.5 h-3.5" />
-                Show QR Code
-              </button>
-            </div>
+            <button
+              onClick={handleCopyAddress}
+              className="mt-2 text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5"
+            >
+              {copied ? (
+                <>
+                  <CheckIcon className="w-3.5 h-3.5" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <CopyIcon className="w-3.5 h-3.5" />
+                  Copy address
+                </>
+              )}
+            </button>
           </div>
 
           {/* Balance */}
@@ -221,13 +214,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           </div>
         </div>
       </div>
-
-      {/* QR Code Modal */}
-      <QRCodeModal
-        isOpen={showQRModal}
-        onClose={() => setShowQRModal(false)}
-        publicKey={publicKey}
-      />
+      <Toast message={toastMessage} visible={toastVisible} />
     </div>
   );
 }
@@ -262,18 +249,6 @@ function HistoryIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  );
-}
-
-function QRIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-      <rect x="7" y="11" width="3" height="3" rx="0.5" />
-      <rect x="14" y="11" width="3" height="3" rx="0.5" />
-      <rect x="7" y="16" width="3" height="3" rx="0.5" />
-      <rect x="14" y="16" width="3" height="3" rx="0.5" />
     </svg>
   );
 }
