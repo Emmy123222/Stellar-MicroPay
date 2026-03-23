@@ -37,8 +37,9 @@ export default function SendPaymentForm({
   const balance = parseFloat(xlmBalance);
   const amountNum = parseFloat(amount);
   const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
+  const MIN_STROOP = 0.0000001; // 1 stroop — Stellar's minimum transaction amount
   const isValidAmt =
-    !isNaN(amountNum) && amountNum > 0 && amountNum <= balance - 1; // keep 1 XLM reserve
+    !isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= balance - 1; // keep 1 XLM reserve
   const canSubmit =
     isValidDest && isValidAmt && status === "idle" && destination !== publicKey;
 
@@ -178,7 +179,7 @@ export default function SendPaymentForm({
             <p className="mt-1 text-xs text-red-400">
               {amountNum > balance - 1
                 ? "Insufficient balance (1 XLM reserve required)"
-                : "Amount must be greater than 0"}
+                : "Minimum amount is 0.0000001 XLM (1 stroop)"}
             </p>
           )}
         </div>
