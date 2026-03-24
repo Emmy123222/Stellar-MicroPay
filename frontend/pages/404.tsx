@@ -45,38 +45,39 @@ export default function Custom404() {
 
         {/* Error message */}
         <h2 className="font-display text-2xl font-semibold text-white mb-4">
-          Lost in the cosmos?
+          {`Lost in the cosmos?`}
         </h2>
 
         <p className="text-slate-400 text-base mb-8 leading-relaxed">
-          The stellar path you're looking for seems to have drifted into deep space. 
-          Let's get you back to safety.
+          {`The stellar path you're looking for seems to have drifted into deep space.`} 
+          <br />
+          {`Let's get you back to safety.`}
         </p>
 
         {/* Action buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link href="/" className="btn-primary text-base px-8 py-3.5">
-            Go Home →
+            {`Go Home →`}
           </Link>
           <button
             onClick={() => window.history.back()}
             className="btn-secondary text-base px-8 py-3.5"
           >
-            ← Go Back
+            {`← Go Back`}
           </button>
         </div>
 
         {/* Help text */}
         <div className="mt-12 pt-8 border-t border-white/5">
           <p className="text-slate-600 text-sm">
-            If you think this is an error, please{" "}
+            {`If you think this is an error, please `}
             <a
               href="https://github.com/your-org/stellar-micropay/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="text-stellar-400 hover:text-stellar-300 transition-colors"
             >
-              report an issue on GitHub
+              {`report an issue on GitHub`}
             </a>
           </p>
         </div>

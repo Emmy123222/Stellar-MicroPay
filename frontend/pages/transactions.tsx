@@ -43,9 +43,9 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16">
         <div className="text-center mb-10">
           <h1 className="font-display text-3xl font-bold text-white mb-3">
-            Transaction History
+            {`Transaction History`}
           </h1>
-          <p className="text-slate-400">Connect your wallet to view your payments</p>
+          <p className="text-slate-400">{`Connect your wallet to view your payments`}</p>
         </div>
         <WalletConnect onConnect={onConnect} />
       </div>
@@ -58,10 +58,10 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="font-display text-3xl font-bold text-white mb-1">
-            Transaction History
+            {`Transaction History`}
           </h1>
           <div className="flex items-center gap-2 text-sm text-slate-400">
-            <span>Account:</span>
+            <span>{`Account:`}</span>
             <span className="address-pill">{shortenAddress(publicKey)}</span>
           </div>
         </div>
@@ -87,7 +87,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
             {exporting ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                Exporting…
+                {`Exporting…`}
               </>
             ) : (
               <>
@@ -106,13 +106,13 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
                     d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
                   />
                 </svg>
-                Download CSV
+                {`Download CSV`}
               </>
             )}
           </button>
 
           <Link href="/dashboard" className="btn-secondary text-sm py-2 px-4">
-            ← Dashboard
+            {`← Dashboard`}
           </Link>
         </div>
       </div>
@@ -122,7 +122,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
       {/* Export hint */}
       <div className="mb-5 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/15 flex items-center justify-between">
         <p className="text-xs text-slate-400">
-          Showing your transaction history. Click "Load more" to view older transactions.
+          {`Showing your transaction history. Click "Load more" to view older transactions.`}
         </p>
         <a
           href={`https://stellar.expert/explorer/testnet/account/${publicKey}`}
@@ -130,7 +130,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
           rel="noopener noreferrer"
           className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors whitespace-nowrap ml-4"
         >
-          Full history →
+          {`Full history →`}
         </a>
       </div>
 

@@ -105,18 +105,19 @@ export default function SendPaymentForm({
           <CheckIcon className="w-7 h-7 text-emerald-400" />
         </div>
         <h3 className="font-display text-lg font-semibold text-white mb-1">
-          Payment sent!
+          {`Payment sent!`}
         </h3>
         <p className="text-slate-400 text-sm mb-4">
-          {formatXLM(amount)} sent successfully
+          {formatXLM(amount)} {`sent successfully`}
         </p>
         
-         href={explorerUrl(txHash)}
+        <a
+          href={explorerUrl(txHash)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 text-sm text-stellar-400 hover:text-stellar-300 transition-colors"
-        <a>
-          View on Stellar Expert
+        >
+          {`View on Stellar Expert`}
           <ExternalLinkIcon className="w-3.5 h-3.5" />
         </a>
       </div>
@@ -127,13 +128,13 @@ export default function SendPaymentForm({
     <div className="card animate-fade-in">
       <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
         <SendIcon className="w-5 h-5 text-stellar-400" />
-        Send Payment
+        {`Send Payment`}
       </h2>
 
       <div className="space-y-5">
         {/* Destination */}
         <div>
-          <label className="label">Recipient Address</label>
+          <label className="label">{`Recipient Address`}</label>
           <input
             type="text"
             value={destination}
@@ -146,17 +147,17 @@ export default function SendPaymentForm({
             disabled={status !== "idle"}
           />
           {destination.length > 0 && !isValidDest && (
-            <p className="mt-1 text-xs text-red-400">Invalid Stellar address</p>
+            <p className="mt-1 text-xs text-red-400">{`Invalid Stellar address`}</p>
           )}
           {destination === publicKey && (
-            <p className="mt-1 text-xs text-amber-400">You cannot send to yourself</p>
+            <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
           )}
         </div>
 
         {/* Amount */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="label mb-0">Amount (XLM)</label>
+            <label className="label mb-0">{`Amount (XLM)`}</label>
 
             {/* Issue #8 — info icon + pure CSS tooltip next to Max button */}
             <div className="flex items-center gap-1.5">
@@ -165,7 +166,7 @@ export default function SendPaymentForm({
                 className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors"
                 disabled={status !== "idle"}
               >
-                Max: {formatXLM(Math.max(0, balance - 1))}
+                {`Max: ${formatXLM(Math.max(0, balance - 1))}`}
               </button>
 
               <div className="relative group">
@@ -189,7 +190,7 @@ export default function SendPaymentForm({
                     "group-focus-within:opacity-100 group-focus-within:scale-100"
                   )}
                 >
-                  Stellar requires a 1 XLM minimum balance in your account. The Max amount excludes this reserve.
+                  {`Stellar requires a 1 XLM minimum balance in your account. The Max amount excludes this reserve.`}
                   <span className="absolute -bottom-1.5 right-3 w-3 h-3 rotate-45 border-r border-b border-stellar-500/20 bg-cosmos-800" />
                 </div>
               </div>
@@ -212,15 +213,15 @@ export default function SendPaymentForm({
           {amount && !isValidAmt && (
             <p className="mt-1 text-xs text-red-400">
               {amountNum > balance - 1
-                ? "Insufficient balance (1 XLM reserve required)"
-                : "Minimum amount is 0.0000001 XLM (1 stroop)"}
+                ? `Insufficient balance (1 XLM reserve required)`
+                : `Minimum amount is 0.0000001 XLM (1 stroop)`}
             </p>
           )}
         </div>
 
         {/* Memo (optional) */}
         <div>
-          <label className="label">Memo (optional)</label>
+          <label className="label">{`Memo (optional)`}</label>
           <input
             type="text"
             value={memo}
@@ -230,7 +231,7 @@ export default function SendPaymentForm({
             className="input-field"
             disabled={status !== "idle"}
           />
-          <p className="mt-1 text-xs text-slate-500">{memo.length}/28 characters</p>
+          <p className="mt-1 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
         </div>
 
         {/* Error */}
@@ -246,13 +247,13 @@ export default function SendPaymentForm({
           disabled={!canSubmit || status !== "idle"}
           className="btn-primary w-full flex items-center justify-center gap-2"
         >
-          {status === "building" && <><Spinner /> Building transaction...</>}
-          {status === "signing" && <><Spinner /> Sign in Freighter...</>}
-          {status === "submitting" && <><Spinner /> Submitting...</>}
+          {status === "building" && <><Spinner /> {`Building transaction...`}</>}
+          {status === "signing" && <><Spinner /> {`Sign in Freighter...`}</>}
+          {status === "submitting" && <><Spinner /> {`Submitting...`}</>}
           {status === "idle" && (
             <>
               <SendIcon className="w-4 h-4" />
-              Send {amount ? formatXLM(amountNum) : "XLM"}
+              {`Send ${amount ? formatXLM(amountNum) : "XLM"}`}
             </>
           )}
           {status === "error" && "Retry"}
@@ -261,7 +262,7 @@ export default function SendPaymentForm({
         {/* Status hint */}
         {status === "signing" && (
           <p className="text-center text-xs text-slate-400 animate-pulse">
-            Please confirm the transaction in your Freighter wallet...
+            {`Please confirm the transaction in your Freighter wallet...`}
           </p>
         )}
       </div>
