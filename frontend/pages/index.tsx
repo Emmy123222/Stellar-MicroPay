@@ -52,7 +52,8 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
   };
 
   return (
-    <div className="relative overflow-hidden">
+    // Added cursor-default and select-none to the main container
+    <div className="relative overflow-hidden cursor-default select-none">
       {/* Background glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-stellar-500/5 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute top-20 right-0 w-[300px] h-[300px] bg-stellar-600/5 rounded-full blur-2xl pointer-events-none" />
@@ -73,11 +74,11 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
 
           <p className="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
             Stellar MicroPay lets anyone send tiny payments across borders
-            instantly — for fractions of a cent. No bank. No borders. No
+            instant — for fractions of a cent. No bank. No borders. No
             friction.
           </p>
 
-          {/* CTA */}
+          {/* CTA - These are interactive, pointer will be handled by btn classes */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             {publicKey ? (
               <Link href="/dashboard" className="btn-primary text-base px-8 py-3.5">
@@ -103,8 +104,8 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-px bg-stellar-500/10 rounded-2xl overflow-hidden mb-24 border border-stellar-500/15">
+        {/* Stats - Grid forced to default cursor */}
+        <div className="grid grid-cols-3 gap-px bg-stellar-500/10 rounded-2xl overflow-hidden mb-24 border border-stellar-500/15 cursor-default">
           {STATS.map((stat) => (
             <div key={stat.label} className="bg-cosmos-900 text-center py-8 px-4">
               <div className="font-display text-3xl font-bold text-gradient mb-1">
@@ -120,7 +121,8 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
           {FEATURES.map((f) => (
             <div
               key={f.title}
-              className="card hover:border-stellar-500/30 transition-colors group"
+              // Added cursor-default to the cards
+              className="card hover:border-stellar-500/30 transition-colors group cursor-default"
             >
               <div className="text-2xl mb-3">{f.icon}</div>
               <h3 className="font-display font-semibold text-white mb-2 group-hover:text-stellar-300 transition-colors">
@@ -131,14 +133,15 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
           ))}
         </div>
 
-        {/* Connect wallet modal / inline */}
+        {/* Connect wallet modal */}
         {showConnect && !publicKey && (
           <div className="fixed inset-0 z-50 bg-cosmos-900/90 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="w-full max-w-md">
               <WalletConnect onConnect={handleWalletConnect} />
               <button
                 onClick={() => setShowConnect(false)}
-                className="mt-4 w-full text-center text-sm text-slate-500 hover:text-slate-300 transition-colors"
+                // Manually ensuring the cancel button is a pointer
+                className="mt-4 w-full text-center text-sm text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -154,7 +157,8 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
               href="https://github.com/your-org/stellar-micropay"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-stellar-400 transition-colors"
+              // Ensure footer links are clickable pointers
+              className="hover:text-stellar-400 transition-colors cursor-pointer"
             >
               Contribute on GitHub
             </a>

@@ -1,6 +1,6 @@
 /**
  * pages/transactions.tsx
- * Full transaction history page.
+ * Full transaction history page with UX cursor fixes.
  */
 
 import { useRouter } from "next/router";
@@ -10,7 +10,6 @@ import TransactionList from "@/components/TransactionList";
 import { shortenAddress, PaymentRecord } from "@/lib/stellar";
 import { exportToCSV } from "@/utils/format";
 import { useCallback, useState } from "react";
- 
 
 interface TransactionsProps {
   publicKey: string | null;
@@ -27,6 +26,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
   const handlePaymentsChange = useCallback((records: PaymentRecord[]) => {
     setPayments(records);
   }, []);
+
   const handleExport = () => {
     if (payments.length === 0) return;
     setExporting(true);
@@ -40,7 +40,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
 
   if (!publicKey) {
     return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 cursor-default select-none">
         <div className="text-center mb-10">
           <h1 className="font-display text-3xl font-bold text-white mb-3">
             {`Transaction History`}
@@ -53,7 +53,8 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
+    // Added cursor-default and select-none to the main page wrapper
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -62,7 +63,8 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
           </h1>
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <span>{`Account:`}</span>
-            <span className="address-pill">{shortenAddress(publicKey)}</span>
+            {/* Added select-text and cursor-text so the address pill remains functional */}
+            <span className="address-pill select-text cursor-text">{shortenAddress(publicKey)}</span>
           </div>
         </div>
 
@@ -81,7 +83,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
               "border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60",
               payments.length === 0 || exporting
                 ? "border-white/10 text-slate-600 cursor-not-allowed"
-                : "border-stellar-500/30 text-stellar-400 hover:bg-stellar-500/10 hover:border-stellar-500/50",
+                : "border-stellar-500/30 text-stellar-400 hover:bg-stellar-500/10 hover:border-stellar-500/50 cursor-pointer",
             ].join(" ")}
           >
             {exporting ? (
@@ -91,7 +93,6 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
               </>
             ) : (
               <>
-                {/* Download arrow icon */}
                 <svg
                   className="w-3.5 h-3.5"
                   viewBox="0 0 24 24"
@@ -111,13 +112,11 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
             )}
           </button>
 
-          <Link href="/dashboard" className="btn-secondary text-sm py-2 px-4">
+          <Link href="/dashboard" className="btn-secondary text-sm py-2 px-4 cursor-pointer">
             {`← Dashboard`}
           </Link>
         </div>
       </div>
-
-
 
       {/* Export hint */}
       <div className="mb-5 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/15 flex items-center justify-between">
@@ -128,18 +127,20 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
           href={`https://stellar.expert/explorer/testnet/account/${publicKey}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors whitespace-nowrap ml-4"
+          className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors whitespace-nowrap ml-4 cursor-pointer"
         >
           {`Full history →`}
         </a>
       </div>
 
-      {/* Full transaction list */}
-      <TransactionList
-        publicKey={publicKey}
-        limit={20}
-        onPaymentsChange={handlePaymentsChange}
-      />
+      {/* Transaction list - Wrapped in select-text so hashes can be copied */}
+      <div className="select-text">
+        <TransactionList
+          publicKey={publicKey}
+          limit={20}
+          onPaymentsChange={handlePaymentsChange}
+        />
+      </div>
     </div>
   );
 }
