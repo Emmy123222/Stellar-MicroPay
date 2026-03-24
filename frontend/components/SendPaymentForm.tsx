@@ -6,16 +6,16 @@
  * Emmy123222/Stellar-MicroPay
  */
 
-import { useState, useEffect } from "react";
 import {
   buildPaymentTransaction,
-  submitTransaction,
-  isValidStellarAddress,
   explorerUrl,
+  isValidStellarAddress,
+  submitTransaction,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLM } from "@/utils/format";
 import clsx from "clsx";
+import { useEffect, useState } from "react";
 
 interface SendPaymentFormProps {
   publicKey: string;
@@ -32,6 +32,8 @@ interface SendPaymentFormProps {
 
 type Status = "idle" | "building" | "signing" | "submitting" | "success" | "error";
 
+const ESTIMATED_NETWORK_FEE = "0.00001 XLM";
+
 export default function SendPaymentForm({
   publicKey,
   xlmBalance,
@@ -44,6 +46,7 @@ export default function SendPaymentForm({
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
   // Sync state if prefill data is provided (e.g., from a payment link)
   useEffect(() => {
@@ -63,7 +66,7 @@ export default function SendPaymentForm({
   const canSubmit =
     isValidDest && isValidAmt && status === "idle" && destination !== publicKey;
 
-  const handleSend = async () => {
+  const executeSend = async () => {
     if (!canSubmit) return;
     setError(null);
     setTxHash(null);
@@ -110,6 +113,23 @@ export default function SendPaymentForm({
     }
   };
 
+  const openConfirmation = () => {
+    if (!canSubmit) return;
+    setError(null);
+    setIsConfirmOpen(true);
+  };
+
+  const closeConfirmation = () => {
+    if (status !== "idle") return;
+    setIsConfirmOpen(false);
+  };
+
+  const confirmAndSend = async () => {
+    if (status !== "idle") return;
+    setIsConfirmOpen(false);
+    await executeSend();
+  };
+
   const setMaxAmount = () => {
     const max = Math.max(0, balance - 1).toFixed(7);
     setAmount(max);
@@ -127,7 +147,7 @@ export default function SendPaymentForm({
         <p className="text-slate-400 text-sm mb-4">
           {formatXLM(amount)} {`sent successfully`}
         </p>
-        
+
         <a
           href={explorerUrl(txHash)}
           target="_blank"
@@ -260,7 +280,7 @@ export default function SendPaymentForm({
 
         {/* Submit button */}
         <button
-          onClick={handleSend}
+          onClick={openConfirmation}
           disabled={!canSubmit || status !== "idle"}
           className="btn-primary w-full flex items-center justify-center gap-2"
         >
@@ -282,6 +302,111 @@ export default function SendPaymentForm({
             {`Please confirm the transaction in your Freighter wallet...`}
           </p>
         )}
+      </div>
+
+      <SendConfirmationModal
+        isOpen={isConfirmOpen}
+        destination={destination}
+        amount={amountNum}
+        memo={memo}
+        estimatedFee={ESTIMATED_NETWORK_FEE}
+        onCancel={closeConfirmation}
+        onConfirm={confirmAndSend}
+      />
+    </div>
+  );
+}
+
+interface SendConfirmationModalProps {
+  isOpen: boolean;
+  destination: string;
+  amount: number;
+  memo: string;
+  estimatedFee: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function SendConfirmationModal({
+  isOpen,
+  destination,
+  amount,
+  memo,
+  estimatedFee,
+  onCancel,
+  onConfirm,
+}: SendConfirmationModalProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onCancel]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="send-confirmation-title"
+        className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
+      >
+        <h3 id="send-confirmation-title" className="font-display text-lg font-semibold text-white">
+          Confirm payment
+        </h3>
+        <p className="mt-1 text-sm text-slate-400">
+          Review details before opening Freighter.
+        </p>
+
+        <dl className="mt-5 space-y-3 text-sm">
+          <div>
+            <dt className="text-slate-400">Destination</dt>
+            <dd className="mt-1 break-all rounded-lg border border-slate-700/80 bg-slate-950/50 px-3 py-2 text-slate-100">
+              {destination}
+            </dd>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <dt className="text-slate-400">Amount</dt>
+              <dd className="mt-1 text-slate-100">{formatXLM(amount)}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-400">Estimated fee</dt>
+              <dd className="mt-1 text-slate-100">{estimatedFee}</dd>
+            </div>
+          </div>
+          <div>
+            <dt className="text-slate-400">Memo</dt>
+            <dd className="mt-1 text-slate-100">{memo.trim() || "No memo"}</dd>
+          </div>
+        </dl>
+
+        <div className="mt-6 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-500 hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="btn-primary px-4 py-2 text-sm"
+            autoFocus
+          >
+            Confirm
+          </button>
+        </div>
       </div>
     </div>
   );
