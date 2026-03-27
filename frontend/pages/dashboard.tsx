@@ -13,6 +13,7 @@ import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
 import {
   getXLMBalance,
+  getUSDCBalance,
   fundWithFriendbot,
   ACCOUNT_NOT_FOUND_ERROR,
 } from "@/lib/stellar";
@@ -34,7 +35,8 @@ interface PaymentStats {
 }
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
-  const [xlmBalance, setXlmBalance] = useState<string | null>(null);
+  const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
@@ -56,8 +58,12 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setAccountNotFound(false);
 
     try {
-      const bal = await getXLMBalance(publicKey);
+      const [bal, usdc] = await Promise.all([
+        getXLMBalance(publicKey),
+        getUSDCBalance(publicKey),
+      ]);
       setXlmBalance(bal);
+      setUsdcBalance(usdc);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       if (
@@ -274,7 +280,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
           <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-amber-400/80">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-            You&apos;re on <strong>Testnet</strong> — funds are not real.{" "}
+            You&apos;re on <strong>Testnet</strong> ï¿½ funds are not real.{" "}
             <a
               href="https://friendbot.stellar.org"
               target="_blank"
@@ -287,12 +293,29 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         )}
       </div>
 
+      {/* USDC balance card â€” shown only when account has USDC trustline */}
+      {usdcBalance !== null && (
+        <div className="card mb-6 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-blue-500/20 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/5 rounded-full blur-2xl pointer-events-none" />
+          <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="label mb-1">USDC Balance</p>
+              <div className="font-display text-3xl font-bold text-white">
+                {parseFloat(usdcBalance).toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                <span className="text-blue-400 text-xl ml-2">USDC</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
           <SendPaymentForm
             key={refreshKey}
             publicKey={publicKey}
             xlmBalance={xlmBalance || "0"}
+            usdcBalance={usdcBalance}
             onSuccess={handlePaymentSuccess}
           />
         </div>

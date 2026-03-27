@@ -34,6 +34,13 @@ export const NETWORK_PASSPHRASE =
 /** Pre-configured Horizon server instance for the active network. */
 export const server = new Horizon.Server(HORIZON_URL);
 
+// USDC asset issued by Circle on Stellar
+export const USDC_ISSUER =
+  NETWORK === "mainnet"
+    ? "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+    : "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+export const USDC = new Asset("USDC", USDC_ISSUER);
+
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 /**
@@ -160,6 +167,22 @@ export async function getXLMBalance(publicKey: string): Promise<string> {
 }
 
 /**
+ * Fetch the USDC (Circle) balance for a Stellar account.
+ * Returns null if the account has no USDC trustline.
+ */
+export async function getUSDCBalance(publicKey: string): Promise<string | null> {
+  try {
+    const balances = await getBalances(publicKey);
+    const usdc = balances.find(
+      (b) => b.asset === `USDC:${USDC_ISSUER}`
+    );
+    return usdc ? usdc.balance : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
  *
  * This function loads the source account sequence number from Horizon,
@@ -193,13 +216,34 @@ export async function buildPaymentTransaction({
   toPublicKey,
   amount,
   memo,
+  asset = "XLM",
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
   memo?: string;
+  asset?: "XLM" | "USDC";
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  // For USDC, verify the recipient has a trustline before building the tx
+  if (asset === "USDC") {
+    const recipient = await server.loadAccount(toPublicKey).catch(() => null);
+    if (!recipient) {
+      throw new Error("Recipient account not found on the Stellar network.");
+    }
+    const hasTrustline = recipient.balances.some(
+      (b): b is Horizon.HorizonApi.BalanceLineAsset =>
+        b.asset_type !== "native" &&
+        (b as Horizon.HorizonApi.BalanceLineAsset).asset_code === "USDC" &&
+        (b as Horizon.HorizonApi.BalanceLineAsset).asset_issuer === USDC_ISSUER
+    );
+    if (!hasTrustline) {
+      throw new Error(
+        "Recipient has no USDC trustline. They must add USDC to their Stellar wallet first."
+      );
+    }
+  }
 
   const builder = new TransactionBuilder(sourceAccount, {
     fee: "100", // 100 stroops = 0.00001 XLM
@@ -208,7 +252,7 @@ export async function buildPaymentTransaction({
     .addOperation(
       Operation.payment({
         destination: toPublicKey,
-        asset: Asset.native(),
+        asset: asset === "USDC" ? USDC : Asset.native(),
         amount: amount,
       })
     )

@@ -14,7 +14,8 @@ require("dotenv").config();
 
 const accountRoutes = require("./routes/accounts");
 const paymentRoutes = require("./routes/payments");
-const healthRoutes = require("./routes/health");
+const healthRoutes  = require("./routes/health");
+const authRoutes    = require("./routes/auth");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -49,9 +50,17 @@ app.use(
       }
     },
     methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
   })
 );
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+app.use("/api/auth",     authRoutes);
+app.use("/api/accounts", accountRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/health",       healthRoutes);
 
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({

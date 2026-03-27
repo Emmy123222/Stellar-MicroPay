@@ -19,6 +19,38 @@ import {
 
 import { NETWORK_PASSPHRASE } from "./stellar";
 
+// ─── SEP-0010 helpers ────────────────────────────────────────────────────────
+
+let jwtToken: string | null = null;
+export function setJwtToken(token: string | null) { jwtToken = token; }
+export function getJwtToken() { return jwtToken; }
+
+async function fetchAuthChallenge(publicKey: string): Promise<string> {
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+  const res  = await fetch(`${base}/api/auth?account=${encodeURIComponent(publicKey)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to fetch SEP-0010 challenge");
+  const { transaction } = await res.json();
+  return transaction;
+}
+
+async function verifyAuthChallenge(signedXDR: string): Promise<string> {
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+  const res  = await fetch(`${base}/api/auth`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ transaction: signedXDR }),
+  });
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: "Auth failed" }));
+    throw new Error(error || "SEP-0010 verification failed");
+  }
+  const { token } = await res.json();
+  return token;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface WalletState {
@@ -151,6 +183,32 @@ export async function getConnectedPublicKey(): Promise<string | null> {
     return pk || null;
   } catch {
     return null;
+  }
+}
+
+// ─── SEP-0010 auth flow ──────────────────────────────────────────────────────
+
+/**
+ * Full SEP-0010 authentication flow:
+ * 1. Request a challenge transaction from the backend
+ * 2. Sign it with Freighter
+ * 3. Submit the signed transaction to receive a JWT
+ */
+export async function performSEP0010Auth(
+  publicKey: string
+): Promise<{ token: string | null; error: string | null }> {
+  try {
+    const challengeXDR = await fetchAuthChallenge(publicKey);
+    const { signedXDR, error: signError } = await signTransactionWithWallet(challengeXDR);
+    if (signError || !signedXDR) {
+      return { token: null, error: signError || "Failed to sign challenge transaction" };
+    }
+    const token = await verifyAuthChallenge(signedXDR);
+    setJwtToken(token);
+    return { token, error: null };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { token: null, error: `Authentication failed: ${msg}` };
   }
 }
 
