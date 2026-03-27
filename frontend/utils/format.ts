@@ -16,6 +16,21 @@ export function formatXLM(amount: string | number): string {
 }
 
 /**
+ * Converts a Soroban i128 (stroops) to a human-readable XLM string.
+ * @param stroops - The amount in stroops (i128 from Soroban).
+ */
+export function formatStroopsToXLM(stroops: bigint | string | number): string {
+  try {
+    if (stroops === null || stroops === undefined) return "0.0000000 XLM";
+    const s = typeof stroops === "bigint" ? stroops : BigInt(stroops);
+    const xlm = Number(s) / 10_000_000;
+    return `${xlm.toFixed(7)} XLM`;
+  } catch (err) {
+    return "0.0000000 XLM";
+  }
+}
+
+/**
  * Format a date string as relative time (e.g., "3 minutes ago").
  */
 export function timeAgo(dateString: string): string {

@@ -8,6 +8,8 @@
 
 import {
   buildPaymentTransaction,
+  buildSorobanTipTransaction,
+  CONTRACT_ID,
   explorerUrl,
   isValidStellarAddress,
   submitTransaction,
@@ -51,6 +53,7 @@ export default function SendPaymentForm({
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [isTipOnChain, setIsTipOnChain] = useState(false);
 
   // Sync state if prefill data is provided (e.g., from a payment link)
   useEffect(() => {
@@ -83,13 +86,18 @@ export default function SendPaymentForm({
     try {
       // Step 1: Build transaction
       setStatus("building");
-      const tx = await buildPaymentTransaction({
-        fromPublicKey: publicKey,
-        toPublicKey: destination,
-        amount: amountNum.toFixed(7),
-        memo: memo.trim() || undefined,
-        asset: selectedAsset,
-      });
+      const tx = isTipOnChain
+        ? await buildSorobanTipTransaction({
+            fromPublicKey: publicKey,
+            toPublicKey: destination,
+            amount: amountNum.toFixed(7),
+          })
+        : await buildPaymentTransaction({
+            fromPublicKey: publicKey,
+            toPublicKey: destination,
+            amount: amountNum.toFixed(7),
+            memo: memo.trim() || undefined,
+          });
 
       // Step 2: Sign with Freighter
       setStatus("signing");
@@ -306,6 +314,30 @@ export default function SendPaymentForm({
           <p className="mt-1 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
         </div>
 
+        {/* Record as Tip On-Chain (Soroban) */}
+        {CONTRACT_ID && (
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/10 transition-colors hover:bg-stellar-500/8">
+            <div className="flex items-center h-5">
+              <input
+                id="tip-on-chain"
+                type="checkbox"
+                checked={isTipOnChain}
+                onChange={(e) => setIsTipOnChain(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-stellar-500 focus:ring-stellar-500/20"
+                disabled={status !== "idle"}
+              />
+            </div>
+            <div className="flex flex-col">
+              <label htmlFor="tip-on-chain" className="text-sm font-medium text-slate-200 cursor-pointer">
+                {`Record as tip on-chain`}
+              </label>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {`This payment will be permanently recorded as a tip on the Soroban smart contract.`}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Error */}
         {status === "error" && error && (
           <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -345,6 +377,7 @@ export default function SendPaymentForm({
         amount={amountNum}
         memo={memo}
         estimatedFee={ESTIMATED_NETWORK_FEE}
+        isTipOnChain={isTipOnChain}
         onCancel={closeConfirmation}
         onConfirm={confirmAndSend}
       />
@@ -358,6 +391,7 @@ interface SendConfirmationModalProps {
   amount: number;
   memo: string;
   estimatedFee: string;
+  isTipOnChain: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -368,6 +402,7 @@ function SendConfirmationModal({
   amount,
   memo,
   estimatedFee,
+  isTipOnChain,
   onCancel,
   onConfirm,
 }: SendConfirmationModalProps) {
@@ -419,10 +454,18 @@ function SendConfirmationModal({
               <dd className="mt-1 text-slate-100">{estimatedFee}</dd>
             </div>
           </div>
-          <div>
-            <dt className="text-slate-400">Memo</dt>
-            <dd className="mt-1 text-slate-100">{memo.trim() || "No memo"}</dd>
-          </div>
+          {memo.trim() && (
+            <div>
+              <dt className="text-slate-400">Memo</dt>
+              <dd className="mt-1 text-slate-100">{memo.trim()}</dd>
+            </div>
+          )}
+          {isTipOnChain && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-stellar-500/10 border border-stellar-500/20 text-stellar-400">
+              <CheckIcon className="w-4 h-4" />
+              <span className="text-xs font-medium">Recorded on-chain via Soroban</span>
+            </div>
+          )}
         </dl>
 
         <div className="mt-6 flex items-center justify-end gap-3">

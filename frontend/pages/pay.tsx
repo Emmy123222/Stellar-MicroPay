@@ -7,19 +7,28 @@ import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
-import { getXLMBalance } from "@/lib/stellar";
+import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
+import { formatStroopsToXLM } from "@/utils/format";
 
 interface PayPageProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
 }
 
+interface PrefillData {
+  destination: string;
+  amount: string;
+  memo?: string;
+  validUntil?: number;
+}
+
 export default function PayPage({ publicKey, onConnect }: PayPageProps) {
   const router = useRouter();
   const { data } = router.query;
   
-  const [prefill, setPrefill] = useState(null);
+  const [prefill, setPrefill] = useState<PrefillData | null>(null);
   const [xlmBalance, setXlmBalance] = useState<string>("0");
+  const [tipTotal, setTipTotal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null); // New: Error state
 
   // Step 1: Decode and Validate URL data
@@ -59,6 +68,15 @@ export default function PayPage({ publicKey, onConnect }: PayPageProps) {
     }
   }, [publicKey]);
 
+  // Step 3: Fetch recipient's tip total
+  useEffect(() => {
+    if (prefill?.destination && CONTRACT_ID) {
+      getContractTipTotal(prefill.destination)
+        .then(setTipTotal)
+        .catch(() => setTipTotal("0"));
+    }
+  }, [prefill?.destination]);
+
   // UI: Error State (Graceful Degradation)
   if (error) {
     return (
@@ -89,6 +107,17 @@ export default function PayPage({ publicKey, onConnect }: PayPageProps) {
             ? "Review the details below to authorize the transaction." 
             : "You’ve received a payment request. Connect your wallet to proceed."}
         </p>
+        
+        {tipTotal !== null && CONTRACT_ID && (
+          <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stellar-500/10 border border-stellar-500/20">
+            <span className="text-xs font-medium text-stellar-400">
+              {`Recipient's Total Tips Recorded:`}
+            </span>
+            <span className="text-xs font-bold text-white">
+              {formatStroopsToXLM(tipTotal)}
+            </span>
+          </div>
+        )}
       </div>
 
       {!publicKey ? (
