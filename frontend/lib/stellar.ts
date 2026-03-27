@@ -1,4 +1,4 @@
-/**
+ /**
  * @file lib/stellar.ts
  * @description Core Stellar blockchain interaction helpers for Stellar MicroPay.
  * Uses the Horizon REST API — no private keys ever touch this module.
@@ -40,6 +40,19 @@ export const NETWORK_PASSPHRASE =
 
 /** Pre-configured Horizon server instance for the active network. */
 export const server = new Horizon.Server(HORIZON_URL);
+
+/**
+ * USDC issuer (Circle) for the active network.
+ *
+ * If you intend to use USDC features on testnet, set `NEXT_PUBLIC_USDC_ISSUER`.
+ */
+export const USDC_ISSUER =
+  process.env.NEXT_PUBLIC_USDC_ISSUER ||
+  // Default to mainnet Circle issuer. (App can still run without USDC usage.)
+  "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+
+/** USDC asset helper. */
+export const USDC = new Asset("USDC", USDC_ISSUER);
 
 /** Soroban RPC server URL. Defaults to testnet. */
 export const SOROBAN_RPC_URL =
@@ -102,6 +115,16 @@ export interface PaymentHistoryResponse {
   /** Cursor string to pass into the next {@link getPaymentHistory} call. */
   nextCursor?: string | (() => any);
 }
+
+/**
+ * Handle function invoked for each streamed payment operation.
+ */
+export type PaymentStreamHandler = (payment: PaymentRecord) => void;
+
+/**
+ * Function returned by {@link streamPayments} to stop the underlying EventSource.
+ */
+export type PaymentStreamUnsubscribe = () => void;
 
 // ─── Account helpers ────────────────────────────────────────────────────────
 
@@ -561,4 +584,83 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
     console.error("Failed to query tip total:", err);
     return "0";
   }
+}
+
+/**
+ * Start a server-sent events (SSE) stream of payment operations for an account.
+ *
+ * Uses Horizon's streaming support under the hood via the JS SDK. New payment
+ * operations are normalized into {@link PaymentRecord} objects and passed to
+ * the provided {@link PaymentStreamHandler}.
+ *
+ * The stream starts from `cursor("now")` so only *new* payments are delivered,
+ * and it is ordered ascending for consistent event ordering.
+ *
+ * @param publicKey - Stellar public key (G...) to stream payments for.
+ * @param onPayment - Callback fired for each normalized payment record.
+ * @param onError - Optional error handler for stream errors.
+ * @returns Function to close the underlying EventSource and stop streaming.
+ */
+export function streamPayments(
+  publicKey: string,
+  onPayment: PaymentStreamHandler,
+  onError?: (error: unknown) => void
+): PaymentStreamUnsubscribe {
+  const paymentsBuilder = server
+    .payments()
+    .forAccount(publicKey)
+    .order("asc")
+    .cursor("now");
+
+  const close = paymentsBuilder.stream({
+    onmessage: async (op: any) => {
+      if (op.type !== "payment") return;
+
+      const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
+
+      // Best-effort fetch of the parent transaction memo
+      let memo: string | undefined;
+      try {
+        const tx = await server
+          .transactions()
+          .transaction(payment.transaction_hash)
+          .call();
+        if (tx.memo && tx.memo_type === "text") {
+          memo = tx.memo;
+        }
+      } catch {
+        // memo is optional; ignore failures
+      }
+
+      const assetCode =
+        payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
+
+      const record: PaymentRecord = {
+        id: payment.id,
+        type: payment.from === publicKey ? "sent" : "received",
+        amount: payment.amount,
+        asset: assetCode,
+        from: payment.from,
+        to: payment.to,
+        memo,
+        createdAt: payment.created_at,
+        transactionHash: payment.transaction_hash,
+        pagingToken: payment.paging_token,
+      };
+
+      onPayment(record);
+    },
+    onerror: (error: unknown) => {
+      console.error("Payment stream error:", error);
+      onError?.(error);
+    },
+  });
+
+  return () => {
+    try {
+      close?.();
+    } catch {
+      // swallow errors on close
+    }
+  };
 }

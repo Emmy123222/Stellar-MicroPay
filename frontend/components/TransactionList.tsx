@@ -20,6 +20,8 @@ interface TransactionListProps {
   compact?: boolean;
   /** Called whenever the payments array changes so the parent can access it. */
   onPaymentsChange?: (payments: PaymentRecord[]) => void;
+  /** Optional single incoming payment to prepend in real-time. */
+  incomingPayment?: PaymentRecord | null;
 }
 
 export default function TransactionList({
@@ -27,6 +29,7 @@ export default function TransactionList({
   limit = 20,
   compact = false,
   onPaymentsChange,
+  incomingPayment,
 }: TransactionListProps) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,6 +99,19 @@ export default function TransactionList({
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  // Prepend a newly streamed payment if it doesn't already exist
+  useEffect(() => {
+    if (!incomingPayment) return;
+
+    setPayments((prev) => {
+      const exists = prev.some((p) => p.id === incomingPayment.id);
+      if (exists) return prev;
+      const next = [incomingPayment, ...prev];
+      onPaymentsChange?.(next);
+      return next;
+    });
+  }, [incomingPayment, onPaymentsChange]);
 
   if (loading) {
     return (

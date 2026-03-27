@@ -16,6 +16,8 @@ import {
   getUSDCBalance,
   fundWithFriendbot,
   ACCOUNT_NOT_FOUND_ERROR,
+  streamPayments,
+  PaymentRecord,
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
@@ -50,6 +52,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null);
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
+  const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -169,6 +172,38 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       setRefreshKey((k) => k + 1);
     }, 2000);
   };
+
+  // Start real-time payment streaming for the connected wallet
+  useEffect(() => {
+    if (!publicKey) return;
+
+    const unsubscribe = streamPayments(
+      publicKey,
+      async (payment) => {
+        // Only show toast / refresh balance for incoming payments
+        if (payment.type === "received") {
+          showToast(`Received ${payment.amount} ${payment.asset}`);
+
+          // Refresh XLM balance after an incoming payment
+          try {
+            const bal = await getXLMBalance(publicKey);
+            setXlmBalance(bal);
+          } catch {
+            // keep previous balance on failure
+          }
+        }
+
+        setIncomingPayment(payment);
+      },
+      (error) => {
+        console.error("Dashboard payment stream error:", error);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [publicKey, showToast]);
 
   if (!publicKey) {
     return (

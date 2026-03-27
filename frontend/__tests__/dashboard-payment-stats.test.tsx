@@ -18,8 +18,10 @@ jest.mock("@/components/SendPaymentForm", () => ({
 
 jest.mock("@/lib/stellar", () => ({
   getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
+  getUSDCBalance: jest.fn().mockResolvedValue(null),
   fundWithFriendbot: jest.fn(),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
+  streamPayments: jest.fn(() => jest.fn()),
 }));
 
 const PUBLIC_KEY = "GABC1234567890ABCDEF";
@@ -38,6 +40,8 @@ describe("Dashboard payment stats widget", () => {
 
     const stellar = require("@/lib/stellar");
     stellar.getXLMBalance.mockResolvedValue("500.0000000");
+    stellar.getUSDCBalance.mockResolvedValue(null);
+    stellar.streamPayments.mockImplementation(() => jest.fn());
   });
 
   afterEach(() => {
