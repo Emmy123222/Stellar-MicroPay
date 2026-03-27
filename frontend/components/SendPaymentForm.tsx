@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 interface SendPaymentFormProps {
   publicKey: string;
   xlmBalance: string;
+  usdcBalance?: string | null;
   onSuccess?: () => void;
   // FIX: Added prefill to interface to stop the "Property does not exist" error
   prefill?: {
@@ -33,15 +34,18 @@ interface SendPaymentFormProps {
 }
 
 type Status = "idle" | "building" | "signing" | "submitting" | "success" | "error";
+type AssetType = "XLM" | "USDC";
 
 const ESTIMATED_NETWORK_FEE = "0.00001 XLM";
 
 export default function SendPaymentForm({
   publicKey,
   xlmBalance,
+  usdcBalance,
   onSuccess,
   prefill,
 }: SendPaymentFormProps) {
+  const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
@@ -60,12 +64,17 @@ export default function SendPaymentForm({
     }
   }, [prefill]);
 
-  const balance = parseFloat(xlmBalance);
+  const xlmBal  = parseFloat(xlmBalance);
+  const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
+  // XLM has a 1 XLM reserve; USDC has no such constraint
+  const balance  = selectedAsset === "XLM" ? xlmBal : usdcBal;
+  const maxSend  = selectedAsset === "XLM" ? Math.max(0, xlmBal - 1) : usdcBal;
+
   const amountNum = parseFloat(amount);
   const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
-  const MIN_STROOP = 0.0000001; // 1 stroop — Stellar's minimum transaction amount
+  const MIN_STROOP = 0.0000001;
   const isValidAmt =
-    !isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= balance - 1; // keep 1 XLM reserve
+    !isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
   const canSubmit =
     isValidDest && isValidAmt && status === "idle" && destination !== publicKey;
 
@@ -140,8 +149,7 @@ export default function SendPaymentForm({
   };
 
   const setMaxAmount = () => {
-    const max = Math.max(0, balance - 1).toFixed(7);
-    setAmount(max);
+    setAmount(maxSend.toFixed(7));
   };
 
   if (status === "success" && txHash) {
@@ -178,6 +186,30 @@ export default function SendPaymentForm({
       </h2>
 
       <div className="space-y-5">
+        {/* Asset selector */}
+        <div className="flex gap-2">
+          {(["XLM", "USDC"] as AssetType[]).map((a) => (
+            <button
+              key={a}
+              type="button"
+              onClick={() => { setSelectedAsset(a); setAmount(""); }}
+              disabled={a === "USDC" && !usdcBalance}
+              className={clsx(
+                "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
+                selectedAsset === a
+                  ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
+                  : "text-slate-400 border-white/10 hover:border-white/20",
+                a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
+              )}
+            >
+              {a}
+              {a === "USDC" && !usdcBalance && (
+                <span className="ml-1 text-xs">(no trustline)</span>
+              )}
+            </button>
+          ))}
+        </div>
+
         {/* Destination */}
         <div>
           <label className="label">{`Recipient Address`}</label>
@@ -203,7 +235,7 @@ export default function SendPaymentForm({
         {/* Amount */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="label mb-0">{`Amount (XLM)`}</label>
+            <label className="label mb-0">{`Amount (${selectedAsset})`}</label>
 
             {/* Issue #8 — info icon + pure CSS tooltip next to Max button */}
             <div className="flex items-center gap-1.5">
@@ -258,9 +290,11 @@ export default function SendPaymentForm({
           />
           {amount && !isValidAmt && (
             <p className="mt-1 text-xs text-red-400">
-              {amountNum > balance - 1
-                ? `Insufficient balance (1 XLM reserve required)`
-                : `Minimum amount is 0.0000001 XLM (1 stroop)`}
+              {amountNum > maxSend
+                ? selectedAsset === "XLM"
+                  ? `Insufficient balance (1 XLM reserve required)`
+                  : `Insufficient USDC balance`
+                : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
             </p>
           )}
         </div>
@@ -323,7 +357,7 @@ export default function SendPaymentForm({
           {status === "idle" && (
             <>
               <SendIcon className="w-4 h-4" />
-              {`Send ${amount ? formatXLM(amountNum) : "XLM"}`}
+              {`Send ${amount ? formatXLM(amountNum) : ""} ${selectedAsset}`.trim()}
             </>
           )}
           {status === "error" && "Retry"}

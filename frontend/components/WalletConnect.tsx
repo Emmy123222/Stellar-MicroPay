@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { connectWallet, isFreighterInstalled, detectBrowser, EXTENSION_URLS } from "@/lib/wallet";
+import { connectWallet, isFreighterInstalled, detectBrowser, EXTENSION_URLS, performSEP0010Auth } from "@/lib/wallet";
 
 interface WalletConnectProps {
   onConnect: (publicKey: string) => void;
@@ -12,7 +12,8 @@ interface WalletConnectProps {
 
 export default function WalletConnect({ onConnect }: WalletConnectProps) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [step, setStep]       = useState<"idle" | "connecting" | "authenticating">("idle");
+  const [error, setError]     = useState<string | null>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [browser, setBrowser] = useState<"chrome" | "firefox" | "other">("other");
 
@@ -23,26 +24,38 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
   const handleConnect = async () => {
     setLoading(true);
     setError(null);
+    setStep("connecting");
 
     const installed = await isFreighterInstalled();
     if (!installed) {
       setShowInstallPrompt(true);
       setLoading(false);
+      setStep("idle");
       return;
     }
 
     setShowInstallPrompt(false);
     const { publicKey, error: walletError } = await connectWallet();
-    setLoading(false);
 
-    if (walletError) {
-      setError(walletError);
+    if (walletError || !publicKey) {
+      setError(walletError || "Could not retrieve public key.");
+      setLoading(false);
+      setStep("idle");
       return;
     }
 
-    if (publicKey) {
-      onConnect(publicKey);
+    // SEP-0010: prove ownership of the connected wallet
+    setStep("authenticating");
+    const { error: authError } = await performSEP0010Auth(publicKey);
+    setLoading(false);
+    setStep("idle");
+
+    if (authError) {
+      setError(authError);
+      return;
     }
+
+    onConnect(publicKey);
   };
 
   const extensionUrl = EXTENSION_URLS[browser];
@@ -155,17 +168,9 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
         disabled={loading}
         className="btn-primary w-full flex items-center justify-center gap-2"
       >
-        {loading ? (
-          <>
-            <Spinner />
-            Connecting...
-          </>
-        ) : (
-          <>
-            <WalletIcon className="w-4 h-4" />
-            Connect Freighter Wallet
-          </>
-        )}
+        {step === "connecting"     ? <><Spinner /> Connecting...</> :
+         step === "authenticating" ? <><Spinner /> Authenticating...</> :
+         <><WalletIcon className="w-4 h-4" /> Connect Freighter Wallet</>}
       </button>
 
       <p className="mt-4 text-xs text-slate-500">

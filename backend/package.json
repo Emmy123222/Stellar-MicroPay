@@ -6,21 +6,24 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "test": "jest",
     "lint": "eslint src/**/*.js"
   },
   "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0",
     "axios": "^1.6.8",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
     "helmet": "^7.1.0",
-    "morgan": "^1.10.0",
-    "@stellar/stellar-sdk": "^12.0.0"
+    "morgan": "^1.10.0"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^30.3.0",
     "nodemon": "^3.1.2",
-    "eslint": "^8.57.0"
+    "supertest": "^7.2.2"
   },
   "engines": {
     "node": ">=18.0.0"
