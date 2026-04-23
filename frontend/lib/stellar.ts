@@ -664,3 +664,351 @@ export function streamPayments(
     }
   };
 }
+
+// ─── DEX Trading Functions ──────────────────────────────────────────────────────
+
+/**
+ * Represents an orderbook entry for bids or asks.
+ */
+export interface OrderbookEntry {
+  /** Price as a string (base/quote) */
+  price: string;
+  /** Amount available at this price */
+  amount: string;
+}
+
+/**
+ * Represents a full orderbook for a trading pair.
+ */
+export interface Orderbook {
+  /** Bids (buy orders) sorted from highest to lowest price */
+  bids: OrderbookEntry[];
+  /** Asks (sell orders) sorted from lowest to highest price */
+  asks: OrderbookEntry[];
+}
+
+/**
+ * Represents a trade aggregation (trade history) entry.
+ */
+export interface TradeAggregation {
+  /** Timestamp of the trade */
+  timestamp: string;
+  /** Trade price */
+  price: string;
+  /** Trade amount */
+  base_volume: string;
+  /** Quote volume */
+  counter_volume: string;
+  /** Number of trades in this aggregation */
+  trade_count: number;
+}
+
+/**
+ * Represents an open offer (limit order) for an account.
+ */
+export interface OpenOffer {
+  /** Offer ID */
+  id: string;
+  /** Asset being sold */
+  selling: Asset;
+  /** Asset being bought */
+  buying: Asset;
+  /** Amount being sold */
+  amount: string;
+  /** Price per unit */
+  price: string;
+}
+
+/**
+ * Fetch the orderbook for a trading pair.
+ * 
+ * @param selling - Asset being sold.
+ * @param buying - Asset being bought.
+ * @param limit - Maximum number of bids/asks to return. Defaults to 20.
+ * @returns Promise resolving to Orderbook data.
+ */
+export async function fetchOrderbook(
+  selling: Asset,
+  buying: Asset,
+  limit = 20
+): Promise<Orderbook> {
+  try {
+    const orderbook = await server
+      .orderbook(selling, buying)
+      .limit(limit)
+      .call();
+
+    return {
+      bids: orderbook.bids.map((bid: any) => ({
+        price: bid.price,
+        amount: bid.amount,
+      })),
+      asks: orderbook.asks.map((ask: any) => ({
+        price: ask.price,
+        amount: ask.amount,
+      })),
+    };
+  } catch (error) {
+    console.error("Failed to fetch orderbook:", error);
+    throw new Error("Could not fetch orderbook data");
+  }
+}
+
+/**
+ * Fetch trade aggregations (historical trades) for a trading pair.
+ * 
+ * @param selling - Asset being sold.
+ * @param buying - Asset being bought.
+ * @param resolution - Time resolution: 1min, 5min, 15min, 1hour, 1day, 1week.
+ * @param startTime - Start time for the query (ISO string or Date).
+ * @param endTime - End time for the query (ISO string or Date).
+ * @param limit - Maximum number of records to return. Defaults to 100.
+ * @returns Promise resolving to array of TradeAggregation records.
+ */
+export async function fetchTradeAggregations(
+  selling: Asset,
+  buying: Asset,
+  resolution: "1min" | "5min" | "15min" | "1hour" | "1day" | "1week" = "1hour",
+  startTime?: Date | string,
+  endTime?: Date | string,
+  limit = 100
+): Promise<TradeAggregation[]> {
+  try {
+    let builder = server
+      .tradeAggregations(selling, buying, resolution)
+      .limit(limit)
+      .order("desc");
+
+    if (startTime) {
+      const start = typeof startTime === "string" ? new Date(startTime) : startTime;
+      builder = builder.after(start.getTime());
+    }
+
+    if (endTime) {
+      const end = typeof endTime === "string" ? new Date(endTime) : endTime;
+      builder = builder.before(end.getTime());
+    }
+
+    const trades = await builder.call();
+
+    return trades.records.map((trade: any) => ({
+      timestamp: trade.timestamp,
+      price: trade.close,
+      base_volume: trade.base_volume,
+      counter_volume: trade.counter_volume,
+      trade_count: trade.trade_count,
+    }));
+  } catch (error) {
+    console.error("Failed to fetch trade aggregations:", error);
+    throw new Error("Could not fetch trade history");
+  }
+}
+
+/**
+ * Fetch all open offers for an account.
+ * 
+ * @param publicKey - Account public key.
+ * @returns Promise resolving to array of OpenOffer records.
+ */
+export async function fetchOpenOffers(publicKey: string): Promise<OpenOffer[]> {
+  try {
+    const account = await server.loadAccount(publicKey);
+    
+    if (!account.offers || account.offers.length === 0) {
+      return [];
+    }
+
+    return account.offers.map((offer: any) => ({
+      id: offer.id,
+      selling: new Asset(offer.selling.asset_code, offer.selling.asset_issuer),
+      buying: new Asset(offer.buying.asset_code, offer.buying.asset_issuer),
+      amount: offer.amount,
+      price: offer.price,
+    }));
+  } catch (error) {
+    console.error("Failed to fetch open offers:", error);
+    throw new Error("Could not fetch open offers");
+  }
+}
+
+/**
+ * Build a transaction to create a sell offer (limit order).
+ * 
+ * @param params - Offer parameters.
+ * @param params.fromPublicKey - Account creating the offer.
+ * @param params.selling - Asset to sell.
+ * @param params.buying - Asset to buy.
+ * @param params.amount - Amount to sell.
+ * @param params.price - Price per unit (in terms of buying asset).
+ * @returns Promise resolving to unsigned Transaction.
+ */
+export async function buildSellOfferTransaction({
+  fromPublicKey,
+  selling,
+  buying,
+  amount,
+  price,
+}: {
+  fromPublicKey: string;
+  selling: Asset;
+  buying: Asset;
+  amount: string;
+  price: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.manageSellOffer({
+        selling,
+        buying,
+        amount,
+        price,
+      })
+    )
+    .setTimeout(60)
+    .build();
+
+  return transaction;
+}
+
+/**
+ * Build a transaction to create a buy offer (limit order).
+ * 
+ * @param params - Offer parameters.
+ * @param params.fromPublicKey - Account creating the offer.
+ * @param params.selling - Asset to sell.
+ * @param params.buying - Asset to buy.
+ * @param params.amount - Amount to buy.
+ * @param params.price - Price per unit (in terms of selling asset).
+ * @returns Promise resolving to unsigned Transaction.
+ */
+export async function buildBuyOfferTransaction({
+  fromPublicKey,
+  selling,
+  buying,
+  amount,
+  price,
+}: {
+  fromPublicKey: string;
+  selling: Asset;
+  buying: Asset;
+  amount: string;
+  price: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.manageBuyOffer({
+        selling,
+        buying,
+        amount,
+        price,
+      })
+    )
+    .setTimeout(60)
+    .build();
+
+  return transaction;
+}
+
+/**
+ * Build a transaction to cancel an existing offer.
+ * 
+ * @param params - Cancel parameters.
+ * @param params.fromPublicKey - Account canceling the offer.
+ * @param params.offerId - ID of the offer to cancel.
+ * @param params.selling - Asset being sold in the original offer.
+ * @param params.buying - Asset being bought in the original offer.
+ * @returns Promise resolving to unsigned Transaction.
+ */
+export async function buildCancelOfferTransaction({
+  fromPublicKey,
+  offerId,
+  selling,
+  buying,
+}: {
+  fromPublicKey: string;
+  offerId: string;
+  selling: Asset;
+  buying: Asset;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.manageSellOffer({
+        selling,
+        buying,
+        amount: "0", // Setting amount to 0 cancels the offer
+        price: "1", // Price doesn't matter for cancellation
+        offerId: parseInt(offerId),
+      })
+    )
+    .setTimeout(60)
+    .build();
+
+  return transaction;
+}
+
+/**
+ * Build a path payment transaction (market order).
+ * 
+ * @param params - Path payment parameters.
+ * @param params.fromPublicKey - Sender's public key.
+ * @param params.toPublicKey - Recipient's public key.
+ * @param params.sendAsset - Asset to send.
+ * @param params.sendMax - Maximum amount to send.
+ * @param params.destAsset - Asset to receive.
+ * @param params.destAmount - Amount to receive.
+ * @param params.path - Optional path of intermediate assets.
+ * @returns Promise resolving to unsigned Transaction.
+ */
+export async function buildPathPaymentTransaction({
+  fromPublicKey,
+  toPublicKey,
+  sendAsset,
+  sendMax,
+  destAsset,
+  destAmount,
+  path = [],
+}: {
+  fromPublicKey: string;
+  toPublicKey: string;
+  sendAsset: Asset;
+  sendMax: string;
+  destAsset: Asset;
+  destAmount: string;
+  path?: Asset[];
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.pathPaymentStrictReceive({
+        destination: toPublicKey,
+        sendAsset,
+        sendMax,
+        destAsset,
+        destAmount,
+        path,
+      })
+    )
+    .setTimeout(60)
+    .build();
+
+  return transaction;
+}
