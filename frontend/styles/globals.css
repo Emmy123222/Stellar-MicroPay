@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -16,6 +16,7 @@
     --color-primary-glow: rgba(14, 165, 233, 0.3);
     --color-text: #e2e8f0;
     --color-muted: #64748b;
+    color-scheme: dark;
   }
 
   /* Issue #19 — Light mode CSS variable overrides */
@@ -27,6 +28,7 @@
     --color-primary-glow: rgba(2, 132, 199, 0.2);
     --color-text: #0f172a;
     --color-muted: #475569;
+    color-scheme: light;
   }
 
   * {
@@ -40,11 +42,13 @@
   body {
     background-color: var(--color-bg);
     color: var(--color-text);
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
   }
 
   /* Scrollbar */
@@ -95,6 +99,34 @@
   .status-badge {
     @apply text-xs font-medium px-2.5 py-1 rounded-full;
   }
+
+  /* Onboarding Tour Highlight */
+  .tour-highlight {
+    position: relative;
+    animation: tour-pulse 2s infinite;
+  }
+
+  .tour-highlight::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    right: -4px;
+    bottom: -4px;
+    border: 2px solid #3b82f6;
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 30;
+  }
+}
+
+@keyframes tour-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+  }
 }
 
 @layer utilities {
@@ -117,10 +149,31 @@
     background-size: 40px 40px;
   }
   .star-field {
-    background-image: radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.3) 0%, transparent 100%),
-                      radial-gradient(1px 1px at 80% 10%, rgba(255,255,255,0.2) 0%, transparent 100%),
-                      radial-gradient(1px 1px at 50% 80%, rgba(255,255,255,0.15) 0%, transparent 100%),
-                      radial-gradient(1px 1px at 10% 60%, rgba(255,255,255,0.25) 0%, transparent 100%),
-                      radial-gradient(1px 1px at 90% 50%, rgba(255,255,255,0.2) 0%, transparent 100%);
+    background-image:
+      radial-gradient(
+        1px 1px at 20% 30%,
+        rgba(255, 255, 255, 0.3) 0%,
+        transparent 100%
+      ),
+      radial-gradient(
+        1px 1px at 80% 10%,
+        rgba(255, 255, 255, 0.2) 0%,
+        transparent 100%
+      ),
+      radial-gradient(
+        1px 1px at 50% 80%,
+        rgba(255, 255, 255, 0.15) 0%,
+        transparent 100%
+      ),
+      radial-gradient(
+        1px 1px at 10% 60%,
+        rgba(255, 255, 255, 0.25) 0%,
+        transparent 100%
+      ),
+      radial-gradient(
+        1px 1px at 90% 50%,
+        rgba(255, 255, 255, 0.2) 0%,
+        transparent 100%
+      );
   }
 }
