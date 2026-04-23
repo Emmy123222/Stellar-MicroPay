@@ -31,6 +31,12 @@ interface SendPaymentFormProps {
     memo?: string;
     validUntil?: number;
   } | null;
+  // AI Assistant prefill
+  aiPrefill?: {
+    destination: string;
+    amount: string;
+    memo?: string;
+  } | null;
 }
 
 type Status = "idle" | "building" | "signing" | "submitting" | "success" | "error";
@@ -44,6 +50,7 @@ export default function SendPaymentForm({
   usdcBalance,
   onSuccess,
   prefill,
+  aiPrefill,
 }: SendPaymentFormProps) {
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [destination, setDestination] = useState("");
@@ -63,6 +70,19 @@ export default function SendPaymentForm({
       if (prefill.memo) setMemo(prefill.memo);
     }
   }, [prefill]);
+
+  // Sync state if AI prefill data is provided
+  useEffect(() => {
+    if (aiPrefill) {
+      if (aiPrefill.destination) setDestination(aiPrefill.destination);
+      if (aiPrefill.amount) {
+        // Extract numeric value from amount string (e.g., "50 XLM" -> "50")
+        const numericAmount = aiPrefill.amount.replace(/[^\d.]/g, '');
+        if (numericAmount) setAmount(numericAmount);
+      }
+      if (aiPrefill.memo) setMemo(aiPrefill.memo);
+    }
+  }, [aiPrefill]);
 
   const xlmBal  = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;

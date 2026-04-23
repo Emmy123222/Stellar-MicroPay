@@ -3,7 +3,7 @@
  * Dashboard with wallet summary, payment stats, payment actions, and recent activity.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import WalletConnect from "@/components/WalletConnect";
@@ -11,6 +11,7 @@ import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
+import AIPaymentAssistant, { FloatingAssistantButton } from "@/components/AIPaymentAssistant";
 import {
   getXLMBalance,
   getUSDCBalance,
@@ -36,8 +37,16 @@ interface PaymentStats {
   totalTransactions: number;
 }
 
+interface PaymentIntent {
+  amount: string;
+  recipient: string;
+  memo: string;
+  isValid: boolean;
+  clarification: string;
+}
+
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
-  const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
+  const [xlmBalance, setXlmBalance] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
@@ -53,6 +62,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
+
+  // AI Payment Assistant state
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [aiPrefillData, setAiPrefillData] = useState<{
+    destination: string;
+    amount: string;
+    memo?: string;
+  } | null>(null);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -171,6 +188,27 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setTimeout(() => {
       setRefreshKey((k) => k + 1);
     }, 2000);
+  };
+
+  // AI Payment Assistant handlers
+  const handleAIAssistantConfirm = (intent: PaymentIntent) => {
+    // Extract numeric amount from string like "50 XLM" -> "50"
+    const numericAmount = intent.amount.replace(/[^\d.]/g, '');
+
+    setAiPrefillData({
+      destination: intent.recipient,
+      amount: numericAmount,
+      memo: intent.memo,
+    });
+    showToast("Payment form filled from AI assistant!");
+  };
+
+  const handleOpenAIAssistant = () => {
+    setShowAIAssistant(true);
+  };
+
+  const handleCloseAIAssistant = () => {
+    setShowAIAssistant(false);
   };
 
   // Start real-time payment streaming for the connected wallet
@@ -352,6 +390,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             xlmBalance={xlmBalance || "0"}
             usdcBalance={usdcBalance}
             onSuccess={handlePaymentSuccess}
+            aiPrefill={aiPrefillData}
           />
         </div>
 
@@ -383,6 +422,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         isOpen={showQRModal}
         onClose={() => setShowQRModal(false)}
         publicKey={publicKey}
+      />
+
+      {/* AI Payment Assistant */}
+      <FloatingAssistantButton onClick={handleOpenAIAssistant} />
+      <AIPaymentAssistant
+        isOpen={showAIAssistant}
+        onClose={handleCloseAIAssistant}
+        onConfirm={handleAIAssistantConfirm}
       />
     </div>
   );
