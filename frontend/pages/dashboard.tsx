@@ -13,19 +13,32 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
+import OnboardingTour from "@/components/OnboardingTour";
 import {
   getXLMBalance,
   getUSDCBalance,
-  fundWithFriendbot,
+  getFriendBotFunding,
+  waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
+  getRecentPaymentsForStats,
   PaymentRecord,
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
@@ -58,6 +71,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
+  const router = useRouter();
   const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
@@ -66,11 +80,22 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const { visible: toastVisible, message: toastMessage, showToast } = useToast();
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   const isTestnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet";
   const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const [accountNotFound, setAccountNotFound] = useState(false);
+
+  // Build prefill object from query parameters (e.g., from contacts page)
+  const prefill = router.query.prefillDestination
+    ? {
+        destination: router.query.prefillDestination as string,
+        amount: "",
+        memo: "",
+      }
+    : null;
   const [friendbotLoading, setFriendbotLoading] = useState(false);
+  const [friendbotSuccessMessage, setFriendbotSuccessMessage] = useState<string | null>(null);
   const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null);
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
@@ -118,8 +143,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setPaymentStatsError(null);
 
     try {
+      const headers: HeadersInit = {};
+      const token = getJwtToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const response = await fetch(
-        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`
+        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`,
+        { headers }
       );
 
       if (!response.ok) {
@@ -155,14 +187,83 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   }, [publicKey]);
 
-  const handleFriendbot = async () => {
+  const fetchSpendingHistory = useCallback(async () => {
     if (!publicKey) return;
 
-    setFriendbotLoading(true);
+    setSpendingLoading(true);
     try {
-      await fundWithFriendbot(publicKey);
-      showToast("Account funded! Refreshing balance...");
-      setTimeout(() => setRefreshKey((k) => k + 1), 2000);
+      const payments = await getRecentPaymentsForStats(publicKey, 200);
+      
+      // Group by calendar month (last 6 months)
+      const now = new Date();
+      const months = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push({
+          month: d.toLocaleString("default", { month: "short" }),
+          monthIndex: d.getMonth(),
+          year: d.getFullYear(),
+          sent: 0,
+          received: 0,
+          label: d.toLocaleString("default", { month: "long", year: "numeric" }),
+        });
+      }
+
+      payments.forEach((p) => {
+        const pDate = new Date(p.createdAt);
+        const m = months.find(
+          (m) =>
+            m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
+        );
+        if (m) {
+          const amount = parseFloat(p.amount);
+          if (p.type === "sent") {
+            m.sent += amount;
+          } else {
+            m.received += amount;
+          }
+        }
+      });
+
+      setSpendingData(months);
+    } catch (err) {
+      console.error("Failed to fetch spending history:", err);
+    } finally {
+      setSpendingLoading(false);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    fetchSpendingHistory();
+  }, [fetchSpendingHistory, refreshKey]);
+
+  const handleFriendbot = async () => {
+    if (!publicKey) return;
+    if (!isTestnet) {
+      showToast("Friendbot is only available on testnet.");
+      return;
+    }
+
+    setFriendbotLoading(true);
+    setFriendbotSuccessMessage(null);
+
+    try {
+      await getFriendBotFunding(publicKey);
+
+      const funded = await waitForAccountFunding(publicKey, {
+        intervalMs: 1000,
+        timeoutMs: 20000,
+      });
+
+      if (!funded) {
+        showToast("Funding sent, but account is still syncing. Please refresh shortly.");
+        return;
+      }
+
+      setFriendbotSuccessMessage("Success! 10,000 XLM has been credited to your wallet.");
+      showToast("Wallet funded with 10,000 XLM.");
+
+      setRefreshKey((k) => k + 1);
     } catch {
       showToast("Friendbot funding failed. Please try again.");
     } finally {
@@ -175,8 +276,16 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   }, [fetchBalance, refreshKey]);
 
   useEffect(() => {
+    setFriendbotSuccessMessage(null);
+  }, [publicKey]);
+
+  useEffect(() => {
     fetchPaymentStats();
   }, [fetchPaymentStats, refreshKey]);
+
+  useEffect(() => {
+    fetchSparklineData();
+  }, [fetchSparklineData, refreshKey]);
 
   useEffect(() => {
     fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd")
@@ -215,6 +324,26 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     if (ok) showToast("Address copied!");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Onboarding tour logic
+  useEffect(() => {
+    if (publicKey) {
+      const hasSeenTour = localStorage.getItem("stellar-micropay:onboarding-completed");
+      if (!hasSeenTour) {
+        setShowOnboardingTour(true);
+      }
+    }
+  }, [publicKey]);
+
+  const handleTourComplete = () => {
+    setShowOnboardingTour(false);
+    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
+  };
+
+  const handleTourSkip = () => {
+    setShowOnboardingTour(false);
+    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
   };
 
   const handlePaymentSuccess = () => {
@@ -464,6 +593,38 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         onRetry={fetchPaymentStats}
       />
 
+      <MonthlySpendingChart 
+        data={spendingData} 
+        loading={spendingLoading}
+        onBarClick={setSelectedMonth}
+      />
+
+      {selectedMonth && (
+        <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
+          <div>
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">
+              Selected Period: {selectedMonth.label}
+            </p>
+            <div className="flex items-center gap-6">
+              <div>
+                <span className="text-xs text-slate-400">Total Sent</span>
+                <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
+              </div>
+              <div>
+                <span className="text-xs text-slate-400">Total Received</span>
+                <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
+              </div>
+            </div>
+          </div>
+          <button 
+            onClick={() => setSelectedMonth(null)}
+            className="p-2 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+          >
+            <CloseIcon className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+
       <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -505,6 +666,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                     {formatUSD(parseFloat(xlmBalance) * xlmPrice)}
                   </p>
                 )}
+                {!sparklineLoading && sparklineData.length > 0 && (
+                  <div className="mt-3">
+                    <BalanceSparkline data={sparklineData} />
+                  </div>
+                )}
                 <button
                   onClick={fetchBalance}
                   className="mt-1 text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
@@ -515,21 +681,9 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ) : accountNotFound && isTestnet ? (
               <div className="sm:text-right">
                 <p className="text-amber-400 text-sm mb-2">Account not funded yet</p>
-                <button
-                  onClick={handleFriendbot}
-                  disabled={friendbotLoading}
-                  className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black font-semibold text-sm py-2 px-4 rounded-lg transition-colors cursor-pointer"
-                >
-                  {friendbotLoading ? (
-                    <>
-                      <SpinnerIcon className="w-4 h-4 animate-spin" /> Funding...
-                    </>
-                  ) : (
-                    <>
-                      <DropIcon className="w-4 h-4" /> Fund Testnet Account
-                    </>
-                  )}
-                </button>
+                <p className="text-xs text-slate-400">
+                  Use the funding card below to credit your wallet on testnet.
+                </p>
               </div>
             ) : (
               <div>
@@ -541,6 +695,10 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                   Retry
                 </button>
               </div>
+            )}
+
+            {friendbotSuccessMessage && (
+              <p className="text-xs text-emerald-400 mt-2">{friendbotSuccessMessage}</p>
             )}
           </div>
         </div>
@@ -561,6 +719,38 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         )}
       </div>
 
+      {accountNotFound && isTestnet && (
+        <div className="card mb-6 border-amber-500/30 bg-amber-500/5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <p className="font-semibold text-white mb-1">Fund Testnet Wallet</p>
+              <p className="text-sm text-amber-200/90">
+                Your wallet is not funded yet. Click once to receive 10,000 XLM from Friendbot.
+              </p>
+              {friendbotSuccessMessage && (
+                <p className="text-sm text-emerald-400 mt-2">{friendbotSuccessMessage}</p>
+              )}
+            </div>
+
+            <button
+              onClick={handleFriendbot}
+              disabled={friendbotLoading}
+              className="inline-flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black font-semibold text-sm py-2 px-4 rounded-lg transition-colors cursor-pointer"
+            >
+              {friendbotLoading ? (
+                <>
+                  <SpinnerIcon className="w-4 h-4 animate-spin" /> Funding...
+                </>
+              ) : (
+                <>
+                  <DropIcon className="w-4 h-4" /> Fund Testnet Wallet
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* USDC balance card — shown only when account has USDC trustline */}
       {usdcBalance !== null && (
         <div className="card mb-6 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-blue-500/20 relative overflow-hidden">
@@ -578,18 +768,19 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       )}
 
       <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 send-payment-form">
           <SendPaymentForm
             key={refreshKey}
             publicKey={publicKey}
             xlmBalance={xlmBalance || "0"}
             usdcBalance={usdcBalance}
             onSuccess={handlePaymentSuccess}
+            prefill={prefill}
           />
         </div>
 
         <div className="lg:col-span-1">
-          <PaymentLinkGenerator />
+          <PaymentRequestGenerator />
         </div>
 
         <div className="lg:col-span-1">
@@ -617,6 +808,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         isOpen={showQRModal}
         onClose={() => setShowQRModal(false)}
         publicKey={publicKey}
+      />
+      <OnboardingTour
+        isVisible={showOnboardingTour}
+        onComplete={handleTourComplete}
+        onSkip={handleTourSkip}
       />
     </div>
   );
@@ -707,6 +903,66 @@ function PaymentStatsWidget({
   );
 }
 
+function MonthlySpendingChart({
+  data,
+  loading,
+  onBarClick,
+}: {
+  data: any[];
+  loading: boolean;
+  onBarClick: (data: any) => void;
+}) {
+  if (loading && data.length === 0) {
+    return (
+      <div className="card mb-6 h-[350px] animate-pulse bg-white/[0.03] border-white/10" />
+    );
+  }
+
+  return (
+    <div className="card mb-6 overflow-hidden">
+      <h2 className="font-display text-lg font-semibold text-white mb-6">
+        Monthly Spending (XLM)
+      </h2>
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={data}
+            onClick={(state) =>
+              state &&
+              state.activePayload &&
+              onBarClick(state.activePayload[0].payload)
+            }
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <XAxis
+              dataKey="month"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tickFormatter={(value) => `${value}`}
+            />
+            <Tooltip
+              cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
+              contentStyle={{
+                backgroundColor: "#0f172a",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+              }}
+              itemStyle={{ color: "#38bdf8" }}
+            />
+            <Bar dataKey="sent" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 function StatsCard({
   label,
   value,
@@ -734,6 +990,103 @@ function formatStatsXLM(amount: string, suffix = "sent") {
     minimumFractionDigits: 2,
     maximumFractionDigits: 7,
   })} XLM ${suffix}`;
+}
+
+// ─── Sparkline chart ─────────────────────────────────────────────────────────
+
+/**
+ * Inline SVG sparkline showing balance change over the last N transactions.
+ * Green when the overall trend is upward, red when downward.
+ * Hover tooltip shows the running balance delta at each data point.
+ */
+function BalanceSparkline({ data }: { data: number[] }) {
+  const W = 160;
+  const H = 40;
+  const PAD = 4;
+
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1; // avoid division by zero for flat lines
+
+  const points = data.map((v, i) => {
+    const x = PAD + (i / Math.max(data.length - 1, 1)) * (W - PAD * 2);
+    const y = PAD + (1 - (v - min) / range) * (H - PAD * 2);
+    return { x, y, value: v };
+  });
+
+  const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
+
+  const trend = data[data.length - 1] >= data[0];
+  const color = trend ? "#22c55e" : "#ef4444"; // green-500 / red-500
+  const fillColor = trend ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)";
+
+  // Closed path for the fill area under the line
+  const fillPath =
+    `M ${points[0].x},${H - PAD} ` +
+    points.map((p) => `L ${p.x},${p.y}`).join(" ") +
+    ` L ${points[points.length - 1].x},${H - PAD} Z`;
+
+  return (
+    <div className="relative inline-block" aria-label="Balance sparkline chart">
+      <svg
+        width={W}
+        height={H}
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={`Balance trend: ${trend ? "upward" : "downward"}`}
+      >
+        {/* Fill area */}
+        <path d={fillPath} fill={fillColor} />
+        {/* Line */}
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {/* Interactive dots with tooltips */}
+        {points.map((p, i) => (
+          <g key={i} className="group">
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={5}
+              fill="transparent"
+              className="cursor-pointer"
+            />
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={2.5}
+              fill={color}
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+            />
+            {/* SVG foreignObject tooltip */}
+            <foreignObject
+              x={Math.min(p.x - 36, W - 76)}
+              y={p.y < H / 2 ? p.y + 6 : p.y - 30}
+              width={72}
+              height={24}
+              className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity overflow-visible"
+            >
+              <div
+                className="bg-cosmos-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white whitespace-nowrap text-center"
+                style={{ fontSize: "10px" }}
+              >
+                {p.value >= 0 ? "+" : ""}
+                {p.value.toFixed(4)} XLM
+              </div>
+            </foreignObject>
+          </g>
+        ))}
+      </svg>
+      <p className="text-xs mt-0.5" style={{ color, fontSize: "10px" }}>
+        {trend ? "▲ Upward trend" : "▼ Downward trend"}
+      </p>
+    </div>
+  );
 }
 
 function CheckIcon({ className }: { className?: string }) {
@@ -792,6 +1145,14 @@ function DropIcon({ className }: { className?: string }) {
         strokeWidth={2}
         d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.183.394l-1.154.908a2.4 2.4 0 00-.33 3.58 2.4 2.4 0 003.58-.33l.908-1.154a2 2 0 01.394-1.183L9.12 16.5a2 2 0 00.517-3.86l-.158-.318a6 6 0 01.517-3.86l.477-2.387a2 2 0 01.547-1.022l1.09-1.09a2.4 2.4 0 013.394 0 2.4 2.4 0 010 3.394l-1.09 1.09z"
       />
+    </svg>
+  );
+}
+
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }
