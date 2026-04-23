@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/router";
 import {
   getPaymentHistory,
   shortenAddress,
@@ -22,6 +23,7 @@ interface TransactionListProps {
   onPaymentsChange?: (payments: PaymentRecord[]) => void;
   /** Optional single incoming payment to prepend in real-time. */
   incomingPayment?: PaymentRecord | null;
+  onSendAgain?: (to: string, amount: string) => void;
 }
 
 export default function TransactionList({
@@ -38,6 +40,7 @@ export default function TransactionList({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const router = useRouter();
 
   const updatePayments = useCallback(
     (next: PaymentRecord[]) => {
@@ -259,6 +262,21 @@ export default function TransactionList({
                 {tx.type === "sent" ? "-" : "+"}
                 {formatXLM(tx.amount)}
               </span>
+
+
+                  {/* Send Again — only for sent transactions */}
+               {tx.type === "sent" && (
+               <button
+               onClick={() =>
+              router.push(`/dashboard?to=${encodeURIComponent(tx.to)}&amount=${encodeURIComponent(tx.amount)}`)
+                  }
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+             title="Pre-fill send form with this transaction"
+                 >
+               Send again
+               </button>
+               )}
+              
               <a
                 href={explorerUrl(tx.transactionHash)}
                 target="_blank"

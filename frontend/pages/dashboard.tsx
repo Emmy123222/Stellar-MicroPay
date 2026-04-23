@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/router";
 import Link from "next/link";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import WalletConnect from "@/components/WalletConnect";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
+
 
 interface DashboardProps {
   publicKey: string | null;
@@ -53,6 +55,16 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
+
+
+  const router = useRouter();
+  const prefill = (() => {
+  const { to, amount } = router.query;
+  if (typeof to === "string" && typeof amount === "string") {
+    return { destination: to, amount };
+  }
+  return null;
+      })();
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -352,6 +364,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             xlmBalance={xlmBalance || "0"}
             usdcBalance={usdcBalance}
             onSuccess={handlePaymentSuccess}
+            prefill={prefill}
           />
         </div>
 
