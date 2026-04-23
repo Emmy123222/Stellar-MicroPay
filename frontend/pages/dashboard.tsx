@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
+import PaymentRequestGenerator from "@/components/PaymentRequestGenerator";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
@@ -356,7 +356,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
 
         <div className="lg:col-span-1">
-          <PaymentLinkGenerator />
+          <PaymentRequestGenerator />
         </div>
 
         <div className="lg:col-span-1">
