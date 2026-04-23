@@ -9,6 +9,7 @@ import Head from "next/head";
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
 import { getConnectedPublicKey } from "@/lib/wallet";
+import { getStellarURIFromURL, registerProtocolHandler, URIParseResult } from "@/lib/sep0007";
 import "@/styles/globals.css";
 
 // PWA Install Banner Component
@@ -116,6 +117,7 @@ export const useTheme = () => useContext(ThemeContext);
 export default function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [stellarURI, setStellarURI] = useState<URIParseResult | null>(null);
 
   // Issue #64 — Quick-send modal state
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
@@ -128,6 +130,14 @@ export default function App({ Component, pageProps }: AppProps) {
     document.documentElement.classList.toggle("dark", preferred === "dark");
   }, []);
 
+  // Parse Stellar URI on page load
+  useEffect(() => {
+    const uriResult = getStellarURIFromURL();
+    if (uriResult) {
+      setStellarURI(uriResult);
+    }
+  }, []);
+
   // Restore wallet connection on load
   useEffect(() => {
     getConnectedPublicKey().then((pk) => {
@@ -135,20 +145,9 @@ export default function App({ Component, pageProps }: AppProps) {
     });
   }, []);
 
-  // Register service worker
+  // Register protocol handler
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker
-          .register('/sw.js')
-          .then((registration) => {
-            console.log('[PWA] Service Worker registered:', registration.scope);
-          })
-          .catch((error) => {
-            console.error('[PWA] Service Worker registration failed:', error);
-          });
-      });
-    }
+    registerProtocolHandler();
   }, []);
 
   // Issue #19 — toggleTheme: switches theme, updates <html> class and localStorage
@@ -199,6 +198,7 @@ export default function App({ Component, pageProps }: AppProps) {
             publicKey={publicKey}
             onConnect={handleConnect}
             onDisconnect={handleDisconnect}
+            stellarURI={stellarURI}
           />
         </main>
         <InstallBanner />

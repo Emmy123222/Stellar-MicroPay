@@ -30,7 +30,7 @@ import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
-import OnboardingTour from "@/components/OnboardingTour";
+import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import {
   getXLMBalance,
   getUSDCBalance,
@@ -43,10 +43,12 @@ import {
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
+import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 
 interface DashboardProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
+  stellarURI?: URIParseResult | null;
 }
 
 interface PaymentStats {
@@ -58,20 +60,7 @@ interface PaymentStats {
   totalTransactions: number;
 }
 
-/**
- * Convert a base64url VAPID public key string into a Uint8Array suitable
- * for PushManager.subscribe({ applicationServerKey }).
- * Reference: https://developer.mozilla.org/en-US/docs/Web/API/PushManager/subscribe
- */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
-}
-
-export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
-  const router = useRouter();
+export default function Dashboard({ publicKey, onConnect, stellarURI }: DashboardProps) {
   const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
@@ -100,11 +89,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
-  const [notificationEnabled, setNotificationEnabled] = useState(false);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
-  const [swRegistration, setSwRegistration] = useState<ServiceWorkerRegistration | null>(null);
-  const [showBubble, setShowBubble] = useState(false);
-  const [bubbleMessage, setBubbleMessage] = useState('');
+  const [showExternalBanner, setShowExternalBanner] = useState(true);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -767,6 +752,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
       )}
 
+      {/* External payment banner */}
+      {stellarURI && stellarURI.success && stellarURI.isExternal && showExternalBanner && (
+        <ExternalPaymentBanner
+          message={stellarURI.data?.msg}
+          originDomain={stellarURI.data?.originDomain}
+          onDismiss={() => setShowExternalBanner(false)}
+        />
+      )}
+
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 send-payment-form">
           <SendPaymentForm
@@ -775,7 +769,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             xlmBalance={xlmBalance || "0"}
             usdcBalance={usdcBalance}
             onSuccess={handlePaymentSuccess}
-            prefill={prefill}
+            prefill={stellarURI && stellarURI.success ? uriToPrefillData(stellarURI.data!) : null}
           />
         </div>
 
