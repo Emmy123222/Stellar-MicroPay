@@ -11,7 +11,7 @@ import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
-import { getJwtToken, performSEP0010Auth } from "@/lib/wallet";
+import OnboardingTour from "@/components/OnboardingTour";
 import {
   getXLMBalance,
   getUSDCBalance,
@@ -48,6 +48,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const { visible: toastVisible, message: toastMessage, showToast } = useToast();
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   const isTestnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet";
   const [accountNotFound, setAccountNotFound] = useState(false);
@@ -222,6 +223,26 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Onboarding tour logic
+  useEffect(() => {
+    if (publicKey) {
+      const hasSeenTour = localStorage.getItem("stellar-micropay:onboarding-completed");
+      if (!hasSeenTour) {
+        setShowOnboardingTour(true);
+      }
+    }
+  }, [publicKey]);
+
+  const handleTourComplete = () => {
+    setShowOnboardingTour(false);
+    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
+  };
+
+  const handleTourSkip = () => {
+    setShowOnboardingTour(false);
+    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
+  };
+
   const handlePaymentSuccess = () => {
     setTimeout(() => {
       setRefreshKey((k) => k + 1);
@@ -286,7 +307,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         onRetry={fetchPaymentStats}
       />
 
-      <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
+      <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden balance-card">
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -422,7 +443,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       )}
 
       <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 send-payment-form">
           <SendPaymentForm
             key={refreshKey}
             publicKey={publicKey}
@@ -460,6 +481,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         isOpen={showQRModal}
         onClose={() => setShowQRModal(false)}
         publicKey={publicKey}
+      />
+      <OnboardingTour
+        isVisible={showOnboardingTour}
+        onComplete={handleTourComplete}
+        onSkip={handleTourSkip}
       />
     </div>
   );

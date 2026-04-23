@@ -95,6 +95,34 @@
   .status-badge {
     @apply text-xs font-medium px-2.5 py-1 rounded-full;
   }
+
+  /* Onboarding Tour Highlight */
+  .tour-highlight {
+    position: relative;
+    animation: tour-pulse 2s infinite;
+  }
+
+  .tour-highlight::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    right: -4px;
+    bottom: -4px;
+    border: 2px solid #3b82f6;
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 30;
+  }
+}
+
+@keyframes tour-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+  }
 }
 
 @layer utilities {
