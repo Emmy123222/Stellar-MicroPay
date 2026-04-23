@@ -741,3 +741,40 @@ export function streamPayments(
     }
   };
 }
+
+/**
+ * Fetch a larger history of payments for statistical analysis.
+ * Skips memo fetching to improve performance and avoid rate limits.
+ *
+ * @param publicKey - The Stellar public key to query.
+ * @param limit - Max number of payments to fetch (Horizon max is 200).
+ */
+export async function getRecentPaymentsForStats(
+  publicKey: string,
+  limit = 200
+): Promise<PaymentRecord[]> {
+  const payments = await server
+    .payments()
+    .forAccount(publicKey)
+    .limit(limit)
+    .order("desc")
+    .call();
+
+  return payments.records.map((op) => {
+    const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
+    const assetCode =
+      payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
+
+    return {
+      id: payment.id,
+      type: payment.from === publicKey ? "sent" : "received",
+      amount: payment.amount,
+      asset: assetCode,
+      from: payment.from,
+      to: payment.to,
+      createdAt: payment.created_at,
+      transactionHash: payment.transaction_hash,
+      pagingToken: payment.paging_token,
+    };
+  });
+}
