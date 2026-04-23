@@ -19,6 +19,7 @@ const navLinks = [
   { href: "/", label: "Home" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarProps) {
