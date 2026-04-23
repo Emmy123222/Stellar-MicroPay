@@ -18,6 +18,7 @@ import {
   waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
+  getRecentPaymentsForSparkline,
   PaymentRecord,
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
@@ -55,6 +56,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
+  const [sparklineData, setSparklineData] = useState<number[]>([]);
+  const [sparklineLoading, setSparklineLoading] = useState(false);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -130,6 +133,32 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   }, [publicKey]);
 
+  const fetchSparklineData = useCallback(async () => {
+    if (!publicKey) return;
+    setSparklineLoading(true);
+    try {
+      const records = await getRecentPaymentsForSparkline(publicKey, 10);
+      if (records.length === 0) {
+        setSparklineData([]);
+        return;
+      }
+      // Build running balance from oldest to newest.
+      // We don't know the exact starting balance, so we use relative deltas
+      // anchored at 0 and let the chart show the trend shape.
+      let running = 0;
+      const points = records.map((r) => {
+        const amt = parseFloat(r.amount);
+        running += r.type === "received" ? amt : -amt;
+        return running;
+      });
+      setSparklineData(points);
+    } catch {
+      setSparklineData([]);
+    } finally {
+      setSparklineLoading(false);
+    }
+  }, [publicKey]);
+
   const handleFriendbot = async () => {
     if (!publicKey) return;
     if (!isTestnet) {
@@ -175,6 +204,10 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   useEffect(() => {
     fetchPaymentStats();
   }, [fetchPaymentStats, refreshKey]);
+
+  useEffect(() => {
+    fetchSparklineData();
+  }, [fetchSparklineData, refreshKey]);
 
   useEffect(() => {
     fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd")
@@ -296,6 +329,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                   <p className="text-sm text-slate-400 mt-0.5">
                     {formatUSD(parseFloat(xlmBalance) * xlmPrice)}
                   </p>
+                )}
+                {!sparklineLoading && sparklineData.length > 0 && (
+                  <div className="mt-3">
+                    <BalanceSparkline data={sparklineData} />
+                  </div>
                 )}
                 <button
                   onClick={fetchBalance}
@@ -528,6 +566,103 @@ function formatStatsXLM(amount: string, suffix = "sent") {
     minimumFractionDigits: 2,
     maximumFractionDigits: 7,
   })} XLM ${suffix}`;
+}
+
+// ─── Sparkline chart ─────────────────────────────────────────────────────────
+
+/**
+ * Inline SVG sparkline showing balance change over the last N transactions.
+ * Green when the overall trend is upward, red when downward.
+ * Hover tooltip shows the running balance delta at each data point.
+ */
+function BalanceSparkline({ data }: { data: number[] }) {
+  const W = 160;
+  const H = 40;
+  const PAD = 4;
+
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1; // avoid division by zero for flat lines
+
+  const points = data.map((v, i) => {
+    const x = PAD + (i / Math.max(data.length - 1, 1)) * (W - PAD * 2);
+    const y = PAD + (1 - (v - min) / range) * (H - PAD * 2);
+    return { x, y, value: v };
+  });
+
+  const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
+
+  const trend = data[data.length - 1] >= data[0];
+  const color = trend ? "#22c55e" : "#ef4444"; // green-500 / red-500
+  const fillColor = trend ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)";
+
+  // Closed path for the fill area under the line
+  const fillPath =
+    `M ${points[0].x},${H - PAD} ` +
+    points.map((p) => `L ${p.x},${p.y}`).join(" ") +
+    ` L ${points[points.length - 1].x},${H - PAD} Z`;
+
+  return (
+    <div className="relative inline-block" aria-label="Balance sparkline chart">
+      <svg
+        width={W}
+        height={H}
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={`Balance trend: ${trend ? "upward" : "downward"}`}
+      >
+        {/* Fill area */}
+        <path d={fillPath} fill={fillColor} />
+        {/* Line */}
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {/* Interactive dots with tooltips */}
+        {points.map((p, i) => (
+          <g key={i} className="group">
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={5}
+              fill="transparent"
+              className="cursor-pointer"
+            />
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={2.5}
+              fill={color}
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+            />
+            {/* SVG foreignObject tooltip */}
+            <foreignObject
+              x={Math.min(p.x - 36, W - 76)}
+              y={p.y < H / 2 ? p.y + 6 : p.y - 30}
+              width={72}
+              height={24}
+              className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity overflow-visible"
+            >
+              <div
+                className="bg-cosmos-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white whitespace-nowrap text-center"
+                style={{ fontSize: "10px" }}
+              >
+                {p.value >= 0 ? "+" : ""}
+                {p.value.toFixed(4)} XLM
+              </div>
+            </foreignObject>
+          </g>
+        ))}
+      </svg>
+      <p className="text-xs mt-0.5" style={{ color, fontSize: "10px" }}>
+        {trend ? "▲ Upward trend" : "▼ Downward trend"}
+      </p>
+    </div>
+  );
 }
 
 function CheckIcon({ className }: { className?: string }) {

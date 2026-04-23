@@ -646,6 +646,24 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
 }
 
 /**
+ * Fetch the last N payment transactions for sparkline chart rendering.
+ * Returns records in chronological order (oldest first) so the chart
+ * reads left-to-right over time.
+ *
+ * @param publicKey - Stellar public key (G...) of the account.
+ * @param limit - Number of recent payments to fetch. Defaults to `10`.
+ * @returns Array of {@link PaymentRecord} sorted oldest → newest.
+ */
+export async function getRecentPaymentsForSparkline(
+  publicKey: string,
+  limit = 10
+): Promise<PaymentRecord[]> {
+  const { records } = await getPaymentHistory(publicKey, limit);
+  // getPaymentHistory returns newest-first; reverse for chronological order
+  return records.slice().reverse();
+}
+
+/**
  * Start a server-sent events (SSE) stream of payment operations for an account.
  *
  * Uses Horizon's streaming support under the hood via the JS SDK. New payment
