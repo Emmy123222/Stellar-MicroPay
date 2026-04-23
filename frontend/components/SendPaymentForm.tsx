@@ -24,6 +24,16 @@ interface SendPaymentFormProps {
   xlmBalance: string;
   usdcBalance?: string | null;
   onSuccess?: () => void;
+  title?: string;
+  submitLabel?: string;
+  successTitle?: string;
+  successMessage?: string;
+  assetOptions?: AssetType[];
+  hideAssetSelector?: boolean;
+  hideDestinationField?: boolean;
+  destinationReadOnly?: boolean;
+  hideAmountField?: boolean;
+  hideMemoField?: boolean;
   // FIX: Added prefill to interface to stop the "Property does not exist" error
   prefill?: {
     destination: string;
@@ -69,6 +79,16 @@ export default function SendPaymentForm({
   usdcBalance,
   onSuccess,
   prefill,
+  title = "Send Payment",
+  submitLabel,
+  successTitle = "Payment sent!",
+  successMessage,
+  assetOptions = ["XLM", "USDC"],
+  hideAssetSelector = false,
+  hideDestinationField = false,
+  destinationReadOnly = false,
+  hideAmountField = false,
+  hideMemoField = false,
 }: SendPaymentFormProps) {
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [destination, setDestination] = useState("");
@@ -100,27 +120,10 @@ export default function SendPaymentForm({
   }, [prefill]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const detectorCtor = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor })
-      .BarcodeDetector;
-    const hasCameraApi = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
-    setIsScannerSupported(Boolean(detectorCtor && hasCameraApi));
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (frameRequestRef.current !== null) {
-        cancelAnimationFrame(frameRequestRef.current);
-        frameRequestRef.current = null;
-      }
-
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
-    };
-  }, []);
+    if (!assetOptions.includes(selectedAsset)) {
+      setSelectedAsset(assetOptions[0] || "XLM");
+    }
+  }, [assetOptions, selectedAsset]);
 
   const xlmBal  = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
@@ -483,10 +486,10 @@ export default function SendPaymentForm({
           <CheckIcon className="w-7 h-7 text-emerald-400" />
         </div>
         <h3 className="font-display text-lg font-semibold text-white mb-1">
-          {`Payment sent!`}
+          {successTitle}
         </h3>
         <p className="text-slate-400 text-sm mb-4">
-          {formatXLM(amount)} {`sent successfully`}
+          {successMessage || `${formatXLM(amount)} sent successfully`}
         </p>
 
         <a
@@ -504,49 +507,42 @@ export default function SendPaymentForm({
 
   return (
     <div className="card animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
-          <SendIcon className="w-5 h-5 text-stellar-400" />
-          {`Send Payment`}
-        </h2>
-        <button
-          type="button"
-          onClick={openFavouritesModal}
-          className="text-sm text-stellar-400 hover:text-stellar-300 transition-colors"
-        >
-          {`Manage favourites`}
-        </button>
-      </div>
+      <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
+        <SendIcon className="w-5 h-5 text-stellar-400" />
+        {title}
+      </h2>
 
       <div className="space-y-5">
         {/* Asset selector */}
-        <div className="flex gap-2">
-          {(["XLM", "USDC"] as AssetType[]).map((a) => (
-            <button
-              key={a}
-              type="button"
-              onClick={() => { setSelectedAsset(a); setAmount(""); }}
-              disabled={a === "USDC" && !usdcBalance}
-              className={clsx(
-                "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
-                selectedAsset === a
-                  ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                  : "text-slate-400 border-white/10 hover:border-white/20",
-                a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
-              )}
-            >
-              {a}
-              {a === "USDC" && !usdcBalance && (
-                <span className="ml-1 text-xs">(no trustline)</span>
-              )}
-            </button>
-          ))}
-        </div>
+        {!hideAssetSelector && (
+          <div className="flex gap-2">
+            {assetOptions.map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => { setSelectedAsset(a); setAmount(""); }}
+                disabled={a === "USDC" && !usdcBalance}
+                className={clsx(
+                  "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
+                  selectedAsset === a
+                    ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
+                    : "text-slate-400 border-white/10 hover:border-white/20",
+                  a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
+                )}
+              >
+                {a}
+                {a === "USDC" && !usdcBalance && (
+                  <span className="ml-1 text-xs">(no trustline)</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Destination */}
-        <div>
-          <label className="label">{`Recipient Address`}</label>
-          <div className="flex items-center gap-2">
+        {!hideDestinationField && (
+          <div>
+            <label className="label">{`Recipient Address`}</label>
             <input
               type="text"
               value={destination}
@@ -554,34 +550,19 @@ export default function SendPaymentForm({
               placeholder="G... (Stellar public key)"
               className={clsx(
                 "input-field",
-                "flex-1",
                 destination.length > 0 && !isValidDest && "border-red-500/50"
               )}
-              disabled={status !== "idle"}
+              disabled={destinationReadOnly || status !== "idle"}
+              readOnly={destinationReadOnly}
             />
-            {isScannerSupported && (
-              <button
-                type="button"
-                onClick={openScanner}
-                disabled={status !== "idle"}
-                className="h-11 w-11 shrink-0 rounded-xl border border-white/10 bg-white/5 text-slate-300 hover:text-white hover:border-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                aria-label="Scan Stellar address QR code"
-                title="Scan Stellar address QR code"
-              >
-                <QrCodeIcon className="w-5 h-5" />
-              </button>
+            {destination.length > 0 && !isValidDest && (
+              <p className="mt-1 text-xs text-red-400">{`Invalid Stellar address`}</p>
+            )}
+            {destination === publicKey && (
+              <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
             )}
           </div>
-          {destination.length > 0 && !isValidDest && (
-            <p className="mt-1 text-xs text-red-400">{`Invalid Stellar address`}</p>
-          )}
-          {destination === publicKey && (
-            <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
-          )}
-          {scannerError && (
-            <p className="mt-1 text-xs text-red-400">{scannerError}</p>
-          )}
-        </div>
+        )}
 
         {favourites.length > 0 && (
           <div className="rounded-xl border border-white/10 bg-slate-950/70 p-3">
@@ -602,7 +583,8 @@ export default function SendPaymentForm({
         )}
 
         {/* Amount */}
-        <div>
+        {!hideAmountField && (
+          <div>
           <div className="flex items-center justify-between mb-2">
             <label className="label mb-0">{`Amount (${selectedAsset})`}</label>
 
@@ -666,10 +648,12 @@ export default function SendPaymentForm({
                 : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
             </p>
           )}
-        </div>
+          </div>
+        )}
 
         {/* Memo (optional) */}
-        <div>
+        {!hideMemoField && (
+          <div>
           <label className="label">{`Memo (optional)`}</label>
           <input
             type="text"
@@ -681,7 +665,8 @@ export default function SendPaymentForm({
             disabled={status !== "idle"}
           />
           <p className="mt-1 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
-        </div>
+          </div>
+        )}
 
         {/* Record as Tip On-Chain (Soroban) */}
         {CONTRACT_ID && (
@@ -726,7 +711,7 @@ export default function SendPaymentForm({
           {status === "idle" && (
             <>
               <SendIcon className="w-4 h-4" />
-              {`Send ${amount ? formatXLM(amountNum) : ""} ${selectedAsset}`.trim()}
+              {submitLabel || `Send ${amount ? formatXLM(amountNum) : ""} ${selectedAsset}`.trim()}
             </>
           )}
           {status === "error" && "Retry"}
