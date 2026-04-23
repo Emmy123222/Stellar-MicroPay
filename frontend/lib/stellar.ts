@@ -131,6 +131,16 @@ export type PaymentStreamUnsubscribe = () => void;
 /** Sentinel error message used to detect unfunded accounts in the UI. */
 export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
 
+/** Friendbot endpoint for Stellar testnet funding. */
+export const FRIENDBOT_URL =
+  process.env.NEXT_PUBLIC_FRIENDBOT_URL || "https://friendbot.stellar.org";
+
+/** Polling options for waiting until an account exists on Horizon. */
+export interface FundingPollOptions {
+  intervalMs?: number;
+  timeoutMs?: number;
+}
+
 /**
  * Fetch all asset balances for a Stellar account.
  *
@@ -177,12 +187,61 @@ export async function getBalances(publicKey: string): Promise<WalletBalance[]> {
  * @see {@link https://developers.stellar.org/docs/learn/networks | Stellar Networks}
  */
 export async function fundWithFriendbot(publicKey: string): Promise<void> {
+  await getFriendBotFunding(publicKey);
+}
+
+/**
+ * Fund an unfunded account through Stellar Friendbot.
+ *
+ * Guarded to testnet only.
+ */
+export async function getFriendBotFunding(publicKey: string): Promise<void> {
+  if (NETWORK !== "testnet") {
+    throw new Error("Friendbot is only available on Stellar testnet.");
+  }
+
   const res = await fetch(
-    `https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`
+    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`
   );
+
   if (!res.ok) {
     throw new Error(`Friendbot failed: ${res.status} ${res.statusText}`);
   }
+}
+
+/**
+ * Wait until Horizon can load an account after funding.
+ *
+ * Returns true once the account is visible on Horizon, false on timeout.
+ */
+export async function waitForAccountFunding(
+  publicKey: string,
+  options: FundingPollOptions = {}
+): Promise<boolean> {
+  const intervalMs = options.intervalMs ?? 1500;
+  const timeoutMs = options.timeoutMs ?? 20000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await getXLMBalance(publicKey);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      const isUnfundedError =
+        msg === ACCOUNT_NOT_FOUND_ERROR ||
+        msg.includes("404") ||
+        msg.toLowerCase().includes("not found");
+
+      if (!isUnfundedError) {
+        throw err;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return false;
 }
 
 /**
@@ -587,6 +646,24 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
 }
 
 /**
+ * Fetch the last N payment transactions for sparkline chart rendering.
+ * Returns records in chronological order (oldest first) so the chart
+ * reads left-to-right over time.
+ *
+ * @param publicKey - Stellar public key (G...) of the account.
+ * @param limit - Number of recent payments to fetch. Defaults to `10`.
+ * @returns Array of {@link PaymentRecord} sorted oldest → newest.
+ */
+export async function getRecentPaymentsForSparkline(
+  publicKey: string,
+  limit = 10
+): Promise<PaymentRecord[]> {
+  const { records } = await getPaymentHistory(publicKey, limit);
+  // getPaymentHistory returns newest-first; reverse for chronological order
+  return records.slice().reverse();
+}
+
+/**
  * Start a server-sent events (SSE) stream of payment operations for an account.
  *
  * Uses Horizon's streaming support under the hood via the JS SDK. New payment
@@ -662,5 +739,75 @@ export function streamPayments(
     } catch {
       // swallow errors on close
     }
+  };
+}
+
+// ─── Network statistics ──────────────────────────────────────────────────────
+
+/**
+ * Network statistics fetched from Horizon API.
+ */
+export interface NetworkStats {
+  /** Latest ledger sequence number. */
+  latestLedgerSequence: number;
+  /** Last ledger close time as ISO string. */
+  lastLedgerCloseTime: string;
+  /** Average transaction count per ledger (calculated from recent ledgers). */
+  avgTransactionCount: number;
+  /** Current base fee in stroops. */
+  currentBaseFee: number;
+  /** P50 fee percentile in stroops. */
+  p50Fee: number;
+  /** P95 fee percentile in stroops. */
+  p95Fee: number;
+  /** P99 fee percentile in stroops. */
+  p99Fee: number;
+}
+
+/**
+ * Fetch live Stellar network statistics from Horizon API.
+ *
+ * Combines data from /fee_stats and /ledgers endpoints to provide
+ * comprehensive network statistics including ledger info and fee stats.
+ *
+ * @returns A promise resolving to {@link NetworkStats}.
+ * @throws {Error} If the Horizon requests fail.
+ *
+ * @see {@link https://developers.stellar.org/docs/data/horizon/api-reference/aggregations/fee-stats | Fee Stats API}
+ * @see {@link https://developers.stellar.org/docs/data/horizon/api-reference/resources/ledgers | Ledgers API}
+ */
+export async function fetchNetworkStats(): Promise<NetworkStats> {
+  // Fetch fee statistics
+  const feeStatsResponse = await fetch(`${HORIZON_URL}/fee_stats`);
+  if (!feeStatsResponse.ok) {
+    throw new Error(`Failed to fetch fee stats: ${feeStatsResponse.status}`);
+  }
+  const feeStats = await feeStatsResponse.json();
+
+  // Fetch latest ledger
+  const ledgersResponse = await fetch(`${HORIZON_URL}/ledgers?limit=10&order=desc`);
+  if (!ledgersResponse.ok) {
+    throw new Error(`Failed to fetch ledgers: ${ledgersResponse.status}`);
+  }
+  const ledgersData = await ledgersResponse.json();
+
+  const latestLedger = ledgersData._embedded.records[0];
+  const recentLedgers = ledgersData._embedded.records.slice(0, 10);
+
+  // Calculate average transaction count from recent ledgers
+  const totalTransactions = recentLedgers.reduce(
+    (sum: number, ledger: any) => sum + parseInt(ledger.successful_transaction_count, 10),
+    0
+  );
+  const avgTransactionCount = Math.round(totalTransactions / recentLedgers.length);
+
+  return {
+    latestLedgerSequence: parseInt(latestLedger.sequence, 10),
+    lastLedgerCloseTime: latestLedger.closed_at,
+    avgTransactionCount,
+    currentBaseFee: parseInt(feeStats.last_ledger_base_fee, 10),
+    p50Fee: parseInt(feeStats.fee_charged.p50, 10),
+    p95Fee: parseInt(feeStats.fee_charged.p95, 10),
+    p99Fee: parseInt(feeStats.fee_charged.p99, 10),
   };
 }

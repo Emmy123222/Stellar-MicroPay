@@ -7,6 +7,7 @@ import type { AppProps } from "next/app";
 import { useState, useEffect, createContext, useContext } from "react";
 import Head from "next/head";
 import Navbar from "@/components/Navbar";
+import QuickSendModal from "@/components/QuickSendModal";
 import { getConnectedPublicKey } from "@/lib/wallet";
 import "@/styles/globals.css";
 
@@ -31,6 +32,9 @@ export default function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
+  // Issue #64 — Quick-send modal state
+  const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
+
   // Restore theme preference on load
   useEffect(() => {
     const saved = localStorage.getItem("stellar-micropay:theme") as "dark" | "light" | null;
@@ -45,6 +49,36 @@ export default function App({ Component, pageProps }: AppProps) {
       if (pk) setPublicKey(pk);
     });
   }, []);
+
+  // Issue #64 — Listen for Ctrl+K / Cmd+K globally to open quick-send modal.
+  // Does NOT trigger when the user is typing inside an input, textarea, or
+  // contentEditable element (acceptance criteria: "Does not trigger when
+  // typing in an input field").
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().includes("MAC");
+      const isShortcut = isMac ? e.metaKey && e.key === "k" : e.ctrlKey && e.key === "k";
+
+      if (!isShortcut) return;
+
+      const tag = (e.target as HTMLElement).tagName;
+      const isEditable =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement).isContentEditable;
+
+      if (isEditable) return;
+
+      // Only open if wallet is connected
+      if (!publicKey) return;
+
+      e.preventDefault();
+      setIsQuickSendOpen((prev) => !prev);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [publicKey]);
 
   // Issue #19 — toggleTheme: switches theme, updates <html> class and localStorage
   const toggleTheme = () => {
@@ -97,6 +131,17 @@ export default function App({ Component, pageProps }: AppProps) {
           />
         </main>
       </div>
+
+      {/* Issue #64 — Quick-send modal, rendered at root so it overlays any page */}
+      {publicKey && (
+        <QuickSendModal
+          isOpen={isQuickSendOpen}
+          onClose={() => setIsQuickSendOpen(false)}
+          publicKey={publicKey}
+          xlmBalance="0"      // replace with real balance if available at app level
+          usdcBalance={null}
+        />
+      )}
     </ThemeContext.Provider>
   );
 }

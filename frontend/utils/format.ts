@@ -65,6 +65,85 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /**
+ * Parse a CSV string into rows and cells.
+ * Supports quoted values and escaped quotes.
+ */
+export function parseCSV(csv: string): string[][] {
+  const rows: string[][] = [];
+  let currentCell = "";
+  let currentRow: string[] = [];
+  let inQuotes = false;
+
+  const pushCell = () => {
+    currentRow.push(currentCell.trim());
+    currentCell = "";
+  };
+
+  const pushRow = () => {
+    pushCell();
+    if (currentRow.length > 1 || currentRow[0] !== "") {
+      rows.push(currentRow);
+    }
+    currentRow = [];
+  };
+
+  for (let i = 0; i < csv.length; i += 1) {
+    const char = csv[i];
+
+    if (char === '"') {
+      if (inQuotes && csv[i + 1] === '"') {
+        currentCell += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && char === ',') {
+      pushCell();
+      continue;
+    }
+
+    if (!inQuotes && (char === '\n' || char === '\r')) {
+      pushRow();
+      if (char === '\r' && csv[i + 1] === '\n') {
+        i += 1;
+      }
+      continue;
+    }
+
+    currentCell += char;
+  }
+
+  if (currentCell !== "" || currentRow.length > 0) {
+    pushRow();
+  }
+
+  return rows;
+}
+
+/**
+ * Parse a two-column address book CSV with columns: name, address.
+ */
+export function parseAddressBookCSV(csv: string) {
+  const rows = parseCSV(csv);
+  const header = rows[0]?.map((cell) => cell.trim().toLowerCase()) ?? [];
+
+  if (header[0] === "name" && header[1] === "address") {
+    rows.shift();
+  }
+
+  return rows.map((cells, index) => {
+    return {
+      name: (cells[0] ?? "").trim(),
+      address: (cells[1] ?? "").trim(),
+      rowNumber: index + 1,
+    };
+  });
+}
+
+/**
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
  */
 export function formatUSD(usdValue: number): string {
