@@ -5,12 +5,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
+import PaymentRequestGenerator from "@/components/PaymentRequestGenerator";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
+import { getJwtToken, performSEP0010Auth } from "@/lib/wallet";
 import {
   getXLMBalance,
   getUSDCBalance,
@@ -96,8 +97,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setPaymentStatsError(null);
 
     try {
+      const headers: HeadersInit = {};
+      const token = getJwtToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const response = await fetch(
-        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`
+        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`,
+        { headers }
       );
 
       if (!response.ok) {
@@ -133,31 +141,20 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   }, [publicKey]);
 
-  const fetchSparklineData = useCallback(async () => {
-    if (!publicKey) return;
-    setSparklineLoading(true);
-    try {
-      const records = await getRecentPaymentsForSparkline(publicKey, 10);
-      if (records.length === 0) {
-        setSparklineData([]);
-        return;
+  // SEP-0010 Authentication effect: Automatically sign in when the wallet connects
+  useEffect(() => {
+    const authenticate = async () => {
+      if (publicKey && !getJwtToken()) {
+        try {
+          await performSEP0010Auth(publicKey);
+          fetchPaymentStats(); // Refresh stats with the newly acquired authentication token
+        } catch (err) {
+          console.error("Automatic SEP-0010 authentication failed:", err);
+        }
       }
-      // Build running balance from oldest to newest.
-      // We don't know the exact starting balance, so we use relative deltas
-      // anchored at 0 and let the chart show the trend shape.
-      let running = 0;
-      const points = records.map((r) => {
-        const amt = parseFloat(r.amount);
-        running += r.type === "received" ? amt : -amt;
-        return running;
-      });
-      setSparklineData(points);
-    } catch {
-      setSparklineData([]);
-    } finally {
-      setSparklineLoading(false);
-    }
-  }, [publicKey]);
+    };
+    authenticate();
+  }, [publicKey, fetchPaymentStats]);
 
   const handleFriendbot = async () => {
     if (!publicKey) return;
@@ -436,7 +433,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
 
         <div className="lg:col-span-1">
-          <PaymentLinkGenerator />
+          <PaymentRequestGenerator />
         </div>
 
         <div className="lg:col-span-1">
