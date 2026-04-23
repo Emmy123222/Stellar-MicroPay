@@ -7,8 +7,94 @@ import type { AppProps } from "next/app";
 import { useState, useEffect, createContext, useContext } from "react";
 import Head from "next/head";
 import Navbar from "@/components/Navbar";
+import QuickSendModal from "@/components/QuickSendModal";
 import { getConnectedPublicKey } from "@/lib/wallet";
 import "@/styles/globals.css";
+
+// PWA Install Banner Component
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+function InstallBanner() {
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showBanner, setShowBanner] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setShowBanner(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
+  }, []);
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return;
+
+    await deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    
+    if (outcome === 'accepted') {
+      console.log('[PWA] User accepted the install prompt');
+    }
+    
+    setDeferredPrompt(null);
+    setShowBanner(false);
+  };
+
+  const handleDismiss = () => {
+    setShowBanner(false);
+  };
+
+  if (!showBanner) return null;
+
+  return (
+    <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-96 z-50 animate-slide-up">
+      <div className="bg-cosmos-800 border border-stellar-500/30 rounded-xl shadow-2xl p-4 backdrop-blur-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <h3 className="font-display font-semibold text-white text-sm mb-1">
+              Install MicroPay
+            </h3>
+            <p className="text-slate-400 text-xs">
+              Add to your home screen for quick access and offline support
+            </p>
+          </div>
+          <button
+            onClick={handleDismiss}
+            className="text-slate-500 hover:text-slate-300 transition-colors cursor-pointer p-1"
+            aria-label="Dismiss"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={handleInstall}
+            className="btn-primary text-xs px-4 py-2 flex-1"
+          >
+            Install App
+          </button>
+          <button
+            onClick={handleDismiss}
+            className="btn-secondary text-xs px-4 py-2 flex-1"
+          >
+            Not Now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Theme Context ────────────────────────────────────────────────────────────
 // Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
@@ -31,6 +117,9 @@ export default function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
+  // Issue #64 — Quick-send modal state
+  const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
+
   // Restore theme preference on load
   useEffect(() => {
     const saved = localStorage.getItem("stellar-micropay:theme") as "dark" | "light" | null;
@@ -44,6 +133,22 @@ export default function App({ Component, pageProps }: AppProps) {
     getConnectedPublicKey().then((pk) => {
       if (pk) setPublicKey(pk);
     });
+  }, []);
+
+  // Register service worker
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker
+          .register('/sw.js')
+          .then((registration) => {
+            console.log('[PWA] Service Worker registered:', registration.scope);
+          })
+          .catch((error) => {
+            console.error('[PWA] Service Worker registration failed:', error);
+          });
+      });
+    }
   }, []);
 
   // Issue #19 — toggleTheme: switches theme, updates <html> class and localStorage
@@ -96,7 +201,19 @@ export default function App({ Component, pageProps }: AppProps) {
             onDisconnect={handleDisconnect}
           />
         </main>
+        <InstallBanner />
       </div>
+
+      {/* Issue #64 — Quick-send modal, rendered at root so it overlays any page */}
+      {publicKey && (
+        <QuickSendModal
+          isOpen={isQuickSendOpen}
+          onClose={() => setIsQuickSendOpen(false)}
+          publicKey={publicKey}
+          xlmBalance="0"      // replace with real balance if available at app level
+          usdcBalance={null}
+        />
+      )}
     </ThemeContext.Provider>
   );
 }
