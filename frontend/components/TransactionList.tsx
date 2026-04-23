@@ -14,20 +14,48 @@ import {
 import { formatXLM, timeAgo, copyToClipboard } from "@/utils/format";
 import clsx from "clsx";
 
+export type TransactionDirectionFilter = "all" | "sent" | "received";
+
+export interface TransactionFilters {
+  direction: TransactionDirectionFilter;
+  minAmount: string;
+}
+
 interface TransactionListProps {
   publicKey: string;
   limit?: number;
   compact?: boolean;
+  filters?: TransactionFilters;
   /** Called whenever the payments array changes so the parent can access it. */
   onPaymentsChange?: (payments: PaymentRecord[]) => void;
   /** Optional single incoming payment to prepend in real-time. */
   incomingPayment?: PaymentRecord | null;
 }
 
+export function filterPayments(
+  payments: PaymentRecord[],
+  filters: TransactionFilters
+): PaymentRecord[] {
+  const minimumAmount =
+    filters.minAmount.trim() === "" ? null : Number(filters.minAmount);
+  const hasMinimumAmount =
+    minimumAmount !== null && Number.isFinite(minimumAmount) && minimumAmount >= 0;
+
+  return payments.filter((payment) => {
+    const matchesDirection =
+      filters.direction === "all" || payment.type === filters.direction;
+    const matchesAmount =
+      !hasMinimumAmount || Number(payment.amount) >= (minimumAmount ?? 0);
+
+    return matchesDirection && matchesAmount;
+  });
+}
+
 export default function TransactionList({
   publicKey,
   limit = 20,
   compact = false,
+  filters = { direction: "all", minAmount: "" },
   onPaymentsChange,
   incomingPayment,
 }: TransactionListProps) {
@@ -113,6 +141,10 @@ export default function TransactionList({
     });
   }, [incomingPayment, onPaymentsChange]);
 
+  const visiblePayments = filterPayments(payments, filters);
+  const hasActiveFilters =
+    filters.direction !== "all" || filters.minAmount.trim() !== "";
+
   if (loading) {
     return (
       <div className={compact ? "" : "card"}>
@@ -195,82 +227,94 @@ export default function TransactionList({
       )}
 
       <div className="space-y-2">
-        {payments.map((tx) => (
-          <div
-            key={tx.id}
-            className="flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group"
-          >
-            {/* Direction icon */}
-            <div
-              className={clsx(
-                "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
-                tx.type === "sent"
-                  ? "bg-red-500/10 border border-red-500/20"
-                  : "bg-emerald-500/10 border border-emerald-500/20"
-              )}
-            >
-              {tx.type === "sent" ? (
-                <ArrowUpIcon className="w-4 h-4 text-red-400" />
-              ) : (
-                <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
-              )}
+        {visiblePayments.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
+              <HistoryIcon className="w-6 h-6 text-slate-500" />
             </div>
-
-            {/* Details */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-slate-200 capitalize">
-                  {tx.type === "sent" ? "Sent to" : "Received from"}
-                </span>
-                <button
-                  onClick={() =>
-                    handleCopy(
-                      tx.type === "sent" ? tx.to : tx.from,
-                      tx.id
-                    )
-                  }
-                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
-                >
-                  {copiedId === tx.id
-                    ? "Copied!"
-                    : shortenAddress(tx.type === "sent" ? tx.to : tx.from, 5)}
-                </button>
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-slate-500">
-                  {timeAgo(tx.createdAt)}
-                </span>
-                {tx.memo && (
-                  <span className="text-xs text-slate-600 truncate max-w-32">
-                    · &ldquo;{tx.memo}&rdquo;
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Amount + link */}
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span
-                className={clsx(
-                  "text-sm font-mono font-medium",
-                  tx.type === "sent" ? "text-red-400" : "text-emerald-400"
-                )}
-              >
-                {tx.type === "sent" ? "-" : "+"}
-                {formatXLM(tx.amount)}
-              </span>
-              <a
-                href={explorerUrl(tx.transactionHash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
-                title="View on Stellar Expert"
-              >
-                <ExternalLinkIcon className="w-3.5 h-3.5" />
-              </a>
-            </div>
+            <p className="text-slate-400 text-sm">No matching transactions</p>
+            <p className="text-slate-600 text-xs mt-1">
+              Adjust your filters or load more transaction history
+            </p>
           </div>
-        ))}
+        ) : (
+          visiblePayments.map((tx) => (
+            <div
+              key={tx.id}
+              className="flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group"
+            >
+              {/* Direction icon */}
+              <div
+                className={clsx(
+                  "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+                  tx.type === "sent"
+                    ? "bg-red-500/10 border border-red-500/20"
+                    : "bg-emerald-500/10 border border-emerald-500/20"
+                )}
+              >
+                {tx.type === "sent" ? (
+                  <ArrowUpIcon className="w-4 h-4 text-red-400" />
+                ) : (
+                  <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
+                )}
+              </div>
+
+              {/* Details */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-slate-200 capitalize">
+                    {tx.type === "sent" ? "Sent to" : "Received from"}
+                  </span>
+                  <button
+                    onClick={() =>
+                      handleCopy(
+                        tx.type === "sent" ? tx.to : tx.from,
+                        tx.id
+                      )
+                    }
+                    className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
+                  >
+                    {copiedId === tx.id
+                      ? "Copied!"
+                      : shortenAddress(tx.type === "sent" ? tx.to : tx.from, 5)}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-slate-500">
+                    {timeAgo(tx.createdAt)}
+                  </span>
+                  {tx.memo && (
+                    <span className="text-xs text-slate-600 truncate max-w-32">
+                      · &ldquo;{tx.memo}&rdquo;
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Amount + link */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span
+                  className={clsx(
+                    "text-sm font-mono font-medium",
+                    tx.type === "sent" ? "text-red-400" : "text-emerald-400"
+                  )}
+                >
+                  {tx.type === "sent" ? "-" : "+"}
+                  {formatXLM(tx.amount)}
+                </span>
+                <a
+                  href={explorerUrl(tx.transactionHash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
+                  title="View on Stellar Expert"
+                >
+                  <ExternalLinkIcon className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          ))
+        )}
 
         {/* Load more */}
         {hasMore && payments.length > 0 && (
@@ -286,7 +330,7 @@ export default function TransactionList({
                   Loading...
                 </>
               ) : (
-                "Load more"
+                hasActiveFilters ? "Load more results" : "Load more"
               )}
             </button>
           </div>
