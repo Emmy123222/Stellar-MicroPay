@@ -51,6 +51,18 @@ type ImportPreviewRow = {
 const ESTIMATED_NETWORK_FEE = "0.00001 XLM";
 const FAVOURITES_STORAGE_KEY = "stellar-micropay:favourites";
 
+interface BarcodeDetectorResult {
+  rawValue?: string;
+}
+
+interface BarcodeDetectorLike {
+  detect(source: ImageBitmapSource): Promise<BarcodeDetectorResult[]>;
+}
+
+interface BarcodeDetectorConstructor {
+  new (options?: { formats?: string[] }): BarcodeDetectorLike;
+}
+
 export default function SendPaymentForm({
   publicKey,
   xlmBalance,
@@ -67,19 +79,16 @@ export default function SendPaymentForm({
   const [txHash, setTxHash] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isTipOnChain, setIsTipOnChain] = useState(false);
-  const [favourites, setFavourites] = useState<FavouriteEntry[]>([]);
-  const [isFavouritesModalOpen, setIsFavouritesModalOpen] = useState(false);
-  const [csvPreview, setCsvPreview] = useState<ImportPreviewRow[]>([]);
-  const [parsedCsvRows, setParsedCsvRows] = useState<Array<{ name: string; address: string }>>([]);
-  const [csvMeta, setCsvMeta] = useState<{
-    valid: number;
-    invalid: number;
-    duplicate: number;
-    total: number;
-  } | null>(null);
-  const [importMessage, setImportMessage] = useState<string | null>(null);
-  const [pendingCsvFileName, setPendingCsvFileName] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isScannerSupported, setIsScannerSupported] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const detectorRef = useRef<BarcodeDetectorLike | null>(null);
+  const frameRequestRef = useRef<number | null>(null);
+  const isDetectingRef = useRef(false);
+  const lastInvalidScanRef = useRef<string | null>(null);
 
   // Sync state if prefill data is provided (e.g., from a payment link)
   useEffect(() => {
@@ -92,23 +101,25 @@ export default function SendPaymentForm({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(FAVOURITES_STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as FavouriteEntry[];
-      if (Array.isArray(parsed)) {
-        setFavourites(
-          parsed
-            .filter((entry) => entry?.address && entry?.name)
-            .map((entry) => ({
-              name: String(entry.name).trim(),
-              address: String(entry.address).trim(),
-            }))
-        );
+
+    const detectorCtor = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor })
+      .BarcodeDetector;
+    const hasCameraApi = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+    setIsScannerSupported(Boolean(detectorCtor && hasCameraApi));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (frameRequestRef.current !== null) {
+        cancelAnimationFrame(frameRequestRef.current);
+        frameRequestRef.current = null;
       }
-    } catch {
-      // ignore invalid stored data
-    }
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
   }, []);
 
   const xlmBal  = parseFloat(xlmBalance);
@@ -336,6 +347,135 @@ export default function SendPaymentForm({
     setAmount(maxSend.toFixed(7));
   };
 
+  const stopScanner = () => {
+    if (frameRequestRef.current !== null) {
+      cancelAnimationFrame(frameRequestRef.current);
+      frameRequestRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  const extractStellarAddress = (rawValue: string): string | null => {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return null;
+    if (isValidStellarAddress(trimmed)) return trimmed;
+
+    try {
+      const url = new URL(trimmed);
+      const fromParams =
+        url.searchParams.get("destination") ||
+        url.searchParams.get("addr") ||
+        url.searchParams.get("account");
+      if (fromParams && isValidStellarAddress(fromParams)) {
+        return fromParams;
+      }
+
+      const fromPath = decodeURIComponent(url.pathname.replace(/\//g, ""));
+      if (isValidStellarAddress(fromPath)) {
+        return fromPath;
+      }
+    } catch {
+      // Not a URL, continue with regex extraction.
+    }
+
+    const match = trimmed.match(/G[A-Z0-9]{55}/);
+    if (match && isValidStellarAddress(match[0])) {
+      return match[0];
+    }
+
+    return null;
+  };
+
+  const closeScanner = () => {
+    stopScanner();
+    setIsScannerOpen(false);
+  };
+
+  const openScanner = async () => {
+    if (!isScannerSupported || status !== "idle") return;
+
+    setScannerError(null);
+    lastInvalidScanRef.current = null;
+    setIsScannerOpen(true);
+
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+      });
+
+      const detectorCtor = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor })
+        .BarcodeDetector;
+      if (!detectorCtor) {
+        stopScanner();
+        setIsScannerOpen(false);
+        return;
+      }
+
+      streamRef.current = mediaStream;
+      detectorRef.current = new detectorCtor({ formats: ["qr_code"] });
+
+      const video = videoRef.current;
+      if (!video) return;
+
+      video.srcObject = mediaStream;
+      await video.play();
+
+      const detectFrame = async () => {
+        if (!videoRef.current || !detectorRef.current) return;
+
+        if (!isDetectingRef.current && videoRef.current.readyState >= 2) {
+          isDetectingRef.current = true;
+
+          try {
+            const results = await detectorRef.current.detect(videoRef.current);
+            if (results.length > 0) {
+              const rawValue = results[0].rawValue?.trim() || "";
+              if (rawValue) {
+                const address = extractStellarAddress(rawValue);
+                if (address) {
+                  setDestination(address);
+                  setScannerError(null);
+                  closeScanner();
+                  isDetectingRef.current = false;
+                  return;
+                }
+
+                if (lastInvalidScanRef.current !== rawValue) {
+                  setScannerError("Invalid QR code: no valid Stellar address found.");
+                  lastInvalidScanRef.current = rawValue;
+                }
+              }
+            }
+          } catch {
+            setScannerError("Unable to scan QR code from camera stream.");
+          } finally {
+            isDetectingRef.current = false;
+          }
+        }
+
+        frameRequestRef.current = requestAnimationFrame(detectFrame);
+      };
+
+      frameRequestRef.current = requestAnimationFrame(detectFrame);
+    } catch (err: unknown) {
+      closeScanner();
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        setScannerError("Camera permission denied. Please allow camera access to scan a QR code.");
+        return;
+      }
+
+      setScannerError("Unable to access camera for QR scanning.");
+    }
+  };
+
   if (status === "success" && txHash) {
     return (
       <div className="card text-center animate-slide-up">
@@ -406,22 +546,40 @@ export default function SendPaymentForm({
         {/* Destination */}
         <div>
           <label className="label">{`Recipient Address`}</label>
-          <input
-            type="text"
-            value={destination}
-            onChange={(e) => setDestination(e.target.value.trim())}
-            placeholder="G... (Stellar public key)"
-            className={clsx(
-              "input-field",
-              destination.length > 0 && !isValidDest && "border-red-500/50"
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value.trim())}
+              placeholder="G... (Stellar public key)"
+              className={clsx(
+                "input-field",
+                "flex-1",
+                destination.length > 0 && !isValidDest && "border-red-500/50"
+              )}
+              disabled={status !== "idle"}
+            />
+            {isScannerSupported && (
+              <button
+                type="button"
+                onClick={openScanner}
+                disabled={status !== "idle"}
+                className="h-11 w-11 shrink-0 rounded-xl border border-white/10 bg-white/5 text-slate-300 hover:text-white hover:border-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                aria-label="Scan Stellar address QR code"
+                title="Scan Stellar address QR code"
+              >
+                <QrCodeIcon className="w-5 h-5" />
+              </button>
             )}
-            disabled={status !== "idle"}
-          />
+          </div>
           {destination.length > 0 && !isValidDest && (
             <p className="mt-1 text-xs text-red-400">{`Invalid Stellar address`}</p>
           )}
           {destination === publicKey && (
             <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
+          )}
+          {scannerError && (
+            <p className="mt-1 text-xs text-red-400">{scannerError}</p>
           )}
         </div>
 
@@ -601,18 +759,35 @@ export default function SendPaymentForm({
         onConfirm={confirmAndSend}
       />
 
-      <FavouritesModal
-        isOpen={isFavouritesModalOpen}
-        favourites={favourites}
-        onClose={closeFavouritesModal}
-        onSelectFavourite={handleSelectFavourite}
-        onOpenFilePicker={() => fileInputRef.current?.click()}
-        pendingFileName={pendingCsvFileName}
-        previewRows={csvPreview}
-        meta={csvMeta}
-        importMessage={importMessage}
-        onConfirmImport={handleConfirmImport}
-      />
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 p-4 flex items-center justify-center">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white">Scan destination QR</h3>
+              <button
+                type="button"
+                onClick={closeScanner}
+                className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 aspect-square object-cover"
+            />
+            <p className="mt-2 text-xs text-slate-400">
+              Point your camera at a Stellar address QR code.
+            </p>
+            {scannerError && (
+              <p className="mt-2 text-xs text-red-400">{scannerError}</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -927,6 +1102,14 @@ function InfoIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v.01M12 13v4m0-8a9 9 0 110 18A9 9 0 0112 4z" />
+    </svg>
+  );
+}
+
+function QrCodeIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 0h2m4 0h-2m-4 4h2m4 0h-2m-2-2v4m-6-6h2m2-2v2m0 4h2" />
     </svg>
   );
 }
