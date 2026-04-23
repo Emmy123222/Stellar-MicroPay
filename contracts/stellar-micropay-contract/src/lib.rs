@@ -7,6 +7,7 @@
 //   - Record tips sent between accounts
 //   - Query tip totals per recipient
 //   - Time-locked escrow: create, release, cancel
+//   - Invoice payments: create, claim, cancel
 //
 // Build:
 //   cargo build --target wasm32-unknown-unknown --release
@@ -57,6 +58,32 @@ pub struct Escrow {
     pub cancelled: bool,
 }
 
+/// An invoice payment record.
+///
+/// A client locks `amount` of XLM (or any SAC token) when creating the invoice.
+/// The `recipient` claims the funds by presenting `invoice_id`. The `client`
+/// can cancel and receive a full refund as long as the invoice is unclaimed.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Invoice {
+    /// Unique invoice identifier (sequential u64)
+    pub id: u64,
+    /// The party who owes payment and locked the funds
+    pub client: Address,
+    /// The party who should receive the payment
+    pub recipient: Address,
+    /// Amount locked, in the token's smallest unit
+    pub amount: i128,
+    /// The SAC address of the token being held
+    pub token: Address,
+    /// True once the recipient has successfully claimed
+    pub claimed: bool,
+    /// True if the client cancelled before the invoice was claimed
+    pub cancelled: bool,
+    /// Ledger sequence number at the time of creation
+    pub created_at: u32,
+}
+
 /// Storage keys for all contract state
 #[contracttype]
 pub enum DataKey {
@@ -65,6 +92,8 @@ pub enum DataKey {
     TipCount(Address),
     Escrow(u64),
     EscrowCount,
+    Invoice(u64),
+    InvoiceCount,
 }
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
@@ -276,6 +305,169 @@ impl MicroPayContract {
             .persistent()
             .get(&DataKey::Escrow(escrow_id))
             .expect("Escrow not found")
+    }
+
+    // ─── Invoice Payments ─────────────────────────────────────────────────────
+
+    /// Create an invoice and lock `amount` of `token` from `client` into the
+    /// contract. The funds remain locked until either:
+    ///   - `recipient` calls `claim_invoice`, or
+    ///   - `client` calls `cancel_invoice`.
+    ///
+    /// Returns the unique invoice ID.
+    pub fn create_invoice(
+        env: Env,
+        token: Address,
+        client: Address,
+        recipient: Address,
+        amount: i128,
+    ) -> u64 {
+        client.require_auth();
+
+        if amount <= 0 {
+            panic!("Invoice amount must be positive");
+        }
+
+        // Pull funds from the client into this contract
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&client, &env.current_contract_address(), &amount);
+
+        // Assign sequential invoice ID
+        let invoice_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::InvoiceCount)
+            .unwrap_or(0u64);
+
+        let invoice = Invoice {
+            id: invoice_id,
+            client: client.clone(),
+            recipient: recipient.clone(),
+            amount,
+            token,
+            claimed: false,
+            cancelled: false,
+            created_at: env.ledger().sequence(),
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Invoice(invoice_id), &invoice);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::InvoiceCount, &(invoice_id + 1));
+
+        env.events().publish(
+            (Symbol::new(&env, "invoice_create"), client, recipient),
+            (invoice_id, amount),
+        );
+
+        invoice_id
+    }
+
+    /// Claim an invoice and release locked funds to the recipient.
+    ///
+    /// Only the `recipient` recorded on the invoice may claim it.
+    /// Panics if the invoice has already been claimed or cancelled.
+    pub fn claim_invoice(env: Env, invoice_id: u64, recipient: Address) {
+        recipient.require_auth();
+
+        let mut invoice: Invoice = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Invoice(invoice_id))
+            .expect("Invoice not found");
+
+        // Verify the caller is the intended recipient
+        if invoice.recipient != recipient {
+            panic!("Only the intended recipient may claim this invoice");
+        }
+
+        if invoice.cancelled {
+            panic!("Invoice has been cancelled");
+        }
+
+        if invoice.claimed {
+            panic!("Invoice already claimed");
+        }
+
+        // Transfer funds from contract to recipient
+        let token_client = token::Client::new(&env, &invoice.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &invoice.recipient,
+            &invoice.amount,
+        );
+
+        let claimed_amount = invoice.amount;
+        invoice.claimed = true;
+        invoice.amount = 0;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Invoice(invoice_id), &invoice);
+
+        env.events().publish(
+            (Symbol::new(&env, "invoice_claim"), invoice.recipient.clone()),
+            (invoice_id, claimed_amount),
+        );
+    }
+
+    /// Cancel an invoice and refund locked funds to the client.
+    ///
+    /// Only the `client` who created the invoice may cancel it, and only
+    /// while it remains unclaimed.
+    pub fn cancel_invoice(env: Env, invoice_id: u64, client: Address) {
+        client.require_auth();
+
+        let mut invoice: Invoice = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Invoice(invoice_id))
+            .expect("Invoice not found");
+
+        // Verify the caller is the client who created this invoice
+        if invoice.client != client {
+            panic!("Only the client may cancel this invoice");
+        }
+
+        if invoice.claimed {
+            panic!("Invoice already claimed; cannot cancel");
+        }
+
+        if invoice.cancelled {
+            panic!("Invoice already cancelled");
+        }
+
+        // Refund to the client
+        let token_client = token::Client::new(&env, &invoice.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &invoice.client,
+            &invoice.amount,
+        );
+
+        let refunded_amount = invoice.amount;
+        invoice.cancelled = true;
+        invoice.amount = 0;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Invoice(invoice_id), &invoice);
+
+        env.events().publish(
+            (Symbol::new(&env, "invoice_cancel"), invoice.client.clone()),
+            (invoice_id, refunded_amount),
+        );
+    }
+
+    /// Return the full state of an invoice by ID.
+    pub fn get_invoice(env: Env, invoice_id: u64) -> Invoice {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Invoice(invoice_id))
+            .expect("Invoice not found")
     }
 
     // ─── Getters ─────────────────────────────────────────────────────────────
@@ -580,5 +772,239 @@ mod tests {
         let escrow1 = client.get_escrow(&id1);
         assert_eq!(escrow1.amount, 300_000);
         assert!(!escrow1.cancelled);
+    }
+
+    // ─── Invoice: create ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_create_invoice() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+        assert_eq!(invoice_id, 0);
+
+        let invoice = client.get_invoice(&invoice_id);
+        assert_eq!(invoice.id, 0);
+        assert_eq!(invoice.client, payer);
+        assert_eq!(invoice.recipient, vendor);
+        assert_eq!(invoice.amount, 2_000_000);
+        assert!(!invoice.claimed);
+        assert!(!invoice.cancelled);
+
+        // Funds should be deducted from payer
+        let token_client = TokenClient::new(&env, &token);
+        assert_eq!(token_client.balance(&payer), 3_000_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invoice amount must be positive")]
+    fn test_create_invoice_zero_amount_fails() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+        client.create_invoice(&token, &payer, &vendor, &0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invoice amount must be positive")]
+    fn test_create_invoice_negative_amount_fails() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+        client.create_invoice(&token, &payer, &vendor, &-1);
+    }
+
+    // ─── Invoice: claim ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_claim_invoice_full_lifecycle() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+
+        client.claim_invoice(&invoice_id, &vendor);
+
+        // Vendor receives the funds
+        let token_client = TokenClient::new(&env, &token);
+        assert_eq!(token_client.balance(&vendor), 2_000_000);
+
+        // Invoice reflects claimed state
+        let invoice = client.get_invoice(&invoice_id);
+        assert!(invoice.claimed);
+        assert_eq!(invoice.amount, 0);
+        assert!(!invoice.cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invoice already claimed")]
+    fn test_claim_invoice_twice_fails() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+        client.claim_invoice(&invoice_id, &vendor);
+        // Second claim must panic
+        client.claim_invoice(&invoice_id, &vendor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the intended recipient may claim this invoice")]
+    fn test_claim_invoice_wrong_recipient_fails() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let impostor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+        // Impostor tries to claim
+        client.claim_invoice(&invoice_id, &impostor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invoice has been cancelled")]
+    fn test_claim_cancelled_invoice_fails() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+        client.cancel_invoice(&invoice_id, &payer);
+        // Vendor tries to claim after cancellation
+        client.claim_invoice(&invoice_id, &vendor);
+    }
+
+    // ─── Invoice: cancel ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_cancel_invoice_refunds_client() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+
+        client.cancel_invoice(&invoice_id, &payer);
+
+        // Full balance restored to payer
+        let token_client = TokenClient::new(&env, &token);
+        assert_eq!(token_client.balance(&payer), 5_000_000);
+
+        let invoice = client.get_invoice(&invoice_id);
+        assert!(invoice.cancelled);
+        assert!(!invoice.claimed);
+        assert_eq!(invoice.amount, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invoice already cancelled")]
+    fn test_cancel_invoice_twice_fails() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+        client.cancel_invoice(&invoice_id, &payer);
+        client.cancel_invoice(&invoice_id, &payer); // must panic
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the client may cancel this invoice")]
+    fn test_cancel_invoice_wrong_client_fails() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let stranger = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+        // A stranger attempts cancellation
+        client.cancel_invoice(&invoice_id, &stranger);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invoice already claimed; cannot cancel")]
+    fn test_cancel_after_claim_fails() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 5_000_000);
+
+        let invoice_id = client.create_invoice(&token, &payer, &vendor, &2_000_000);
+        client.claim_invoice(&invoice_id, &vendor);
+        // Payer tries to cancel after vendor already claimed
+        client.cancel_invoice(&invoice_id, &payer);
+    }
+
+    // ─── Invoice: get_invoice ─────────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "Invoice not found")]
+    fn test_get_nonexistent_invoice_fails() {
+        let (_, client, _) = setup();
+        client.get_invoice(&999);
+    }
+
+    // ─── Invoice: sequential IDs and independence ─────────────────────────────
+
+    #[test]
+    fn test_multiple_invoices_sequential_ids() {
+        let (env, client, admin) = setup();
+        let payer = Address::generate(&env);
+        let vendor_a = Address::generate(&env);
+        let vendor_b = Address::generate(&env);
+        let token = create_token(&env, &admin, &payer, 10_000_000);
+
+        let id0 = client.create_invoice(&token, &payer, &vendor_a, &1_000_000);
+        let id1 = client.create_invoice(&token, &payer, &vendor_b, &2_000_000);
+        let id2 = client.create_invoice(&token, &payer, &vendor_a, &3_000_000);
+
+        assert_eq!(id0, 0);
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+
+        // Claim the second invoice; others remain untouched
+        client.claim_invoice(&id1, &vendor_b);
+
+        let inv0 = client.get_invoice(&id0);
+        let inv1 = client.get_invoice(&id1);
+        let inv2 = client.get_invoice(&id2);
+
+        assert!(!inv0.claimed && !inv0.cancelled);
+        assert!(inv1.claimed && !inv1.cancelled);
+        assert!(!inv2.claimed && !inv2.cancelled);
+    }
+
+    #[test]
+    fn test_invoice_and_escrow_ids_independent() {
+        // Invoice counter and escrow counter are separate — both start at 0
+        let (env, client, admin) = setup();
+        let user = Address::generate(&env);
+        let other = Address::generate(&env);
+        let token = create_token(&env, &admin, &user, 5_000_000);
+
+        let escrow_id = client.create_escrow(&token, &user, &other, &1_000_000, &50);
+        let invoice_id = client.create_invoice(&token, &user, &other, &1_000_000);
+
+        // Both start from 0 independently
+        assert_eq!(escrow_id, 0);
+        assert_eq!(invoice_id, 0);
+
+        // Each can be retrieved without interference
+        let _ = client.get_escrow(&escrow_id);
+        let _ = client.get_invoice(&invoice_id);
     }
 }
