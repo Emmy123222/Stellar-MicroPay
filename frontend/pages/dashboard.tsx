@@ -1,6 +1,15 @@
 /**
  * pages/dashboard.tsx
  * Dashboard with wallet summary, payment stats, payment actions, and recent activity.
+ *
+ * Notification implementation uses the Push API as per MDN:
+ * https://developer.mozilla.org/en-US/docs/Web/API/Push_API
+ *
+ * Flow:
+ *  1. Register a service worker (required by Push API).
+ *  2. Call Notification.requestPermission() on user gesture.
+ *  3. Subscribe via PushManager.subscribe() with userVisibleOnly + VAPID key.
+ *  4. The service worker's push event handler calls showNotification().
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -49,6 +58,18 @@ interface PaymentStats {
   totalTransactions: number;
 }
 
+/**
+ * Convert a base64url VAPID public key string into a Uint8Array suitable
+ * for PushManager.subscribe({ applicationServerKey }).
+ * Reference: https://developer.mozilla.org/en-US/docs/Web/API/PushManager/subscribe
+ */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const router = useRouter();
   const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
@@ -62,6 +83,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   const isTestnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet";
+  const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const [accountNotFound, setAccountNotFound] = useState(false);
 
   // Build prefill object from query parameters (e.g., from contacts page)
@@ -78,9 +100,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
-  const [spendingData, setSpendingData] = useState<any[]>([]);
-  const [spendingLoading, setSpendingLoading] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState<any | null>(null);
+  const [notificationEnabled, setNotificationEnabled] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [swRegistration, setSwRegistration] = useState<ServiceWorkerRegistration | null>(null);
+  const [showBubble, setShowBubble] = useState(false);
+  const [bubbleMessage, setBubbleMessage] = useState('');
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -270,6 +294,29 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       .catch(() => setXlmPrice(null));
   }, [refreshKey]);
 
+  // Sync notification permission state on mount and whenever the user
+  // returns to the tab — they may have changed browser-level settings.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+    const syncPermission = () => {
+      const perm = Notification.permission;
+      setNotificationPermission(perm);
+      // If permission was revoked externally, disable notifications automatically.
+      if (perm !== 'granted') {
+        setNotificationEnabled(false);
+        localStorage.setItem('notificationOptIn', 'false');
+      }
+    };
+
+    syncPermission();
+    const optIn = localStorage.getItem('notificationOptIn') === 'true';
+    setNotificationEnabled(optIn && Notification.permission === 'granted');
+
+    window.addEventListener('focus', syncPermission);
+    return () => window.removeEventListener('focus', syncPermission);
+  }, []);
+
   const handleCopyAddress = async () => {
     if (!publicKey) return;
 
@@ -305,16 +352,171 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }, 2000);
   };
 
-  // Start real-time payment streaming for the connected wallet
+  /**
+   * Subscribe to the Push API using the correct MDN-documented flow:
+   *  1. Register (or retrieve) the service worker.
+   *  2. Request notification permission on the user gesture.
+   *  3. Call PushManager.subscribe() with userVisibleOnly + VAPID key.
+   *  4. Send the PushSubscription endpoint to the server for future pushes.
+   *
+   * Reference: https://developer.mozilla.org/en-US/docs/Web/API/Push_API
+   */
+  const subscribeToPush = async (): Promise<boolean> => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      showToast('Push notifications are not supported in this browser.');
+      return false;
+    }
+
+    // Step 1 — Register the service worker (idempotent: returns existing if already registered).
+    const registration = await navigator.serviceWorker.register('/sw.js');
+
+    // Step 2 — Request notification permission. Must be called directly inside
+    // a user-gesture handler; async chains that break the gesture context will
+    // be silently rejected by some browsers.
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+
+    if (permission !== 'granted') {
+      showToast('Notification permission was not granted.');
+      return false;
+    }
+
+    // Step 3 — Subscribe via PushManager.
+    // userVisibleOnly: true is required by Chrome/Edge.
+    // applicationServerKey is the VAPID public key from the environment.
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) {
+      // No VAPID key configured — fall back to permission-only mode (no
+      // server-pushed messages, but in-app bubble notifications still work).
+      console.warn('NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set. Server push disabled.');
+      return true;
+    }
+
+    const existingSubscription = await registration.pushManager.getSubscription();
+    const subscription =
+      existingSubscription ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      }));
+
+    // Step 4 — Send the subscription to your server so it can push messages later.
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+    await fetch(`${apiBase}/api/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription, publicKey }),
+    }).catch((err) => {
+      // Non-fatal: subscription still works for same-session in-app notifications.
+      console.warn('Could not register push subscription with server:', err);
+    });
+
+    return true;
+  };
+
+  const handleToggleNotifications = async () => {
+    // --- Disable ---
+    if (notificationEnabled) {
+      localStorage.setItem('notificationOptIn', 'false');
+      setNotificationEnabled(false);
+      showToast('Payment notifications disabled');
+      return;
+    }
+
+    // --- Enable ---
+    if (!('Notification' in window)) {
+      showToast('This browser does not support notifications.');
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      showToast('Notifications are blocked. Please enable them in your browser settings.');
+      return;
+    }
+
+    try {
+      const subscribed = await subscribeToPush();
+      if (!subscribed) return;
+
+      localStorage.setItem('notificationOptIn', 'true');
+      setNotificationEnabled(true);
+      showToast('Payment notifications enabled');
+
+      // Confirm with an immediate notification so the user sees it working.
+      // Use showNotification() via the service worker registration —
+      // this is the Push API-correct method, not new Notification().
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification('Stellar Pay', {
+        body: 'You will now receive notifications for incoming payments.',
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+      });
+    } catch (err) {
+      console.error('Failed to enable push notifications:', err);
+      showToast('Could not enable notifications. Please try again.');
+    }
+  };
+
+  /**
+   * Dev-only test: fires a notification via the service worker registration
+   * (showNotification) to validate the full Push API path, not just UI state.
+   */
+  const handleTestNotification = async () => {
+    if (!notificationEnabled) return;
+
+    // In-app bubble for immediate visual feedback
+    setBubbleMessage('You received 10.00 XLM');
+    setShowBubble(true);
+    setTimeout(() => setShowBubble(false), 3000);
+
+    // Real notification via service worker — validates the actual push path
+    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification('Stellar Pay — Test', {
+          body: 'You received 10.00 XLM',
+          icon: '/favicon.svg',
+          badge: '/favicon.svg',
+        });
+      } catch (err) {
+        console.error('Test notification failed:', err);
+      }
+    }
+  };
+
+  // Real-time payment streaming for the connected wallet.
+  // On incoming payment: show OS notification when page is hidden,
+  // in-app bubble when page is visible.
   useEffect(() => {
     if (!publicKey) return;
 
     const unsubscribe = streamPayments(
       publicKey,
       async (payment) => {
-        // Only show toast / refresh balance for incoming payments
-        if (payment.type === "received") {
+        if (payment.type === 'received') {
           showToast(`Received ${payment.amount} ${payment.asset}`);
+
+          if (notificationEnabled && Notification.permission === 'granted') {
+            if (document.visibilityState === 'hidden') {
+              // Page is not visible — use the service worker showNotification()
+              // so the OS notification tray receives it.
+              try {
+                const registration = await navigator.serviceWorker.ready;
+                await registration.showNotification('Stellar Pay — Payment received', {
+                  body: `You received ${payment.amount} ${payment.asset}`,
+                  icon: '/favicon.svg',
+                  badge: '/favicon.svg',
+                });
+              } catch (err) {
+                console.error('showNotification failed:', err);
+              }
+            } else {
+              // Page is visible — in-app bubble is less intrusive.
+              setBubbleMessage(`You received ${payment.amount} ${payment.asset}`);
+              setShowBubble(true);
+              setTimeout(() => setShowBubble(false), 3000);
+            }
+          }
 
           // Refresh XLM balance after an incoming payment
           try {
@@ -328,14 +530,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         setIncomingPayment(payment);
       },
       (error) => {
-        console.error("Dashboard payment stream error:", error);
+        console.error('Dashboard payment stream error:', error);
       }
     );
 
     return () => {
       unsubscribe();
     };
-  }, [publicKey, showToast]);
+  }, [publicKey, showToast, notificationEnabled]);
 
   if (!publicKey) {
     return (
@@ -354,6 +556,34 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       <div className="mb-8">
         <h1 className="font-display text-3xl font-bold text-white mb-1">Dashboard</h1>
         <p className="text-slate-400 text-sm">Send and receive XLM globally</p>
+        <div className="mt-4">
+          <button
+            onClick={handleToggleNotifications}
+            disabled={notificationPermission === 'denied'}
+            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-stellar-400 hover:text-stellar-300 disabled:bg-white/5 disabled:text-slate-500 disabled:border-white/5 disabled:cursor-not-allowed transition-colors flex items-center justify-between cursor-pointer"
+          >
+            <span>
+              {notificationEnabled
+                ? 'Disable payment notifications'
+                : notificationPermission === 'denied'
+                ? 'Notifications blocked'
+                : 'Enable payment notifications'}
+            </span>
+            {notificationEnabled
+              ? <BellOffIcon className="w-4 h-4" />
+              : <BellIcon className="w-4 h-4" />}
+          </button>
+
+          {/* Test button: dev-only, shown only when notifications are enabled */}
+          {process.env.NODE_ENV === 'development' && notificationEnabled && (
+            <button
+              onClick={handleTestNotification}
+              className="mt-2 text-xs text-slate-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <TestIcon className="w-3.5 h-3.5" /> Test notification
+            </button>
+          )}
+        </div>
       </div>
 
       <PaymentStatsWidget
@@ -477,7 +707,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-amber-400/80">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
             You&apos;re on <strong>Testnet</strong> — funds are not real.{" "}
-    
+            <a
+              href="https://friendbot.stellar.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-amber-300"
+            >
+              Get test XLM
+            </a>
           </div>
         )}
       </div>
@@ -557,7 +794,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                 href="/transactions"
                 className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors cursor-pointer"
               >
-                View all ?
+                View all →
               </Link>
             </div>
             <TransactionList key={refreshKey} publicKey={publicKey} limit={5} compact />
@@ -565,6 +802,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
       </div>
 
+      <BubbleNotification message={bubbleMessage} visible={showBubble} />
       <Toast message={toastMessage} visible={toastVisible} />
       <QRCodeModal
         isOpen={showQRModal}
@@ -576,6 +814,20 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         onComplete={handleTourComplete}
         onSkip={handleTourSkip}
       />
+    </div>
+  );
+}
+
+function BubbleNotification({ message, visible }: { message: string; visible: boolean }) {
+  return (
+    <div
+      className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-500 ${
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'
+      }`}
+    >
+      <div className="bg-stellar-500 text-white px-4 py-2 rounded-lg shadow-lg max-w-xs">
+        <p className="text-sm whitespace-nowrap overflow-hidden text-ellipsis">{message}</p>
+      </div>
     </div>
   );
 }
@@ -913,6 +1165,45 @@ function HistoryIcon({ className }: { className?: string }) {
         strokeLinejoin="round"
         strokeWidth={2}
         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
+    </svg>
+  );
+}
+
+function BellIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+      />
+    </svg>
+  );
+}
+
+function BellOffIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9.172 9.172a4 4 0 015.656 5.656M9.172 9.172A4 4 0 0115 7.858V7a3 3 0 00-6 0v.858m0 1.314A4 4 0 009 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9m3 0h.01M3 3l18 18"
+      />
+    </svg>
+  );
+}
+
+function TestIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
       />
     </svg>
   );
