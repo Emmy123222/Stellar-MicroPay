@@ -17,6 +17,7 @@ const authRoutes = require("./routes/auth");
 const paymentRoutes = require("./routes/payments");
 const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
+const webhookRoutes = require("./routes/webhooks");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -50,18 +51,11 @@ app.use(
         callback(new Error(`CORS: origin ${origin} not allowed`));
       }
     },
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
-
-// ─── Routes ───────────────────────────────────────────────────────────────────
-
-app.use("/api/auth",     authRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/health",       healthRoutes);
 
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
@@ -73,10 +67,12 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
+app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/webhooks", webhookRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/federation", federationRoutes);
 
