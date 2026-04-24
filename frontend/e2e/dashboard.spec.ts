@@ -13,7 +13,6 @@ test.beforeEach(async ({ page }) => {
 test('dashboard shows wallet connect prompt when no wallet connected', async ({ page }) => {
   await page.goto('/dashboard');
 
-  // No redirect — it renders WalletConnect inline
   await expect(page).toHaveURL('/dashboard');
 
   const heading = page.getByRole('heading', { name: 'Dashboard' });
@@ -22,7 +21,6 @@ test('dashboard shows wallet connect prompt when no wallet connected', async ({ 
   const prompt = page.getByText('Connect your wallet to get started');
   await expect(prompt).toBeVisible();
 
-  // WalletConnect component is rendered
   const connectBtn = page.getByRole('button', { name: /Connect Freighter Wallet/i });
   await expect(connectBtn).toBeVisible();
 });

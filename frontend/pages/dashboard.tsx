@@ -5,12 +5,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
-import WalletConnect from "@/components/WalletConnect";
-import SendPaymentForm from "@/components/SendPaymentForm";
-import TransactionList from "@/components/TransactionList";
-import Toast from "@/components/Toast";
-import QRCodeModal from "@/components/QRCodeModal";
+import PaymentLinkGenerator from "../components/PaymentLinkGenerator";
+import WalletConnect from "../components/WalletConnect";
+import SendPaymentForm from "../components/SendPaymentForm";
+import TransactionList from "../components/TransactionList";
+import MultiSigFlow from "../components/MultiSigFlow";
+import Toast from "../components/Toast";
+import QRCodeModal from "../components/QRCodeModal";
 import {
   getXLMBalance,
   getUSDCBalance,
@@ -18,9 +19,9 @@ import {
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
   PaymentRecord,
-} from "@/lib/stellar";
-import { formatUSD, copyToClipboard } from "@/utils/format";
-import { useToast } from "@/lib/useToast";
+} from "../lib/stellar";
+import { formatUSD, copyToClipboard } from "../utils/format";
+import { useToast } from "../lib/useToast";
 
 interface DashboardProps {
   publicKey: string | null;
@@ -344,7 +345,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid lg:grid-cols-4 gap-6">
         <div className="lg:col-span-1">
           <SendPaymentForm
             key={refreshKey}
@@ -357,6 +358,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
         <div className="lg:col-span-1">
           <PaymentLinkGenerator />
+        </div>
+
+        <div className="lg:col-span-1">
+          <MultiSigFlow
+            publicKey={publicKey}
+            xlmBalance={xlmBalance || "0"}
+            onSuccess={handlePaymentSuccess}
+          />
         </div>
 
         <div className="lg:col-span-1">

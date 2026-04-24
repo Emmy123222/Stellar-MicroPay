@@ -21,7 +21,6 @@ test('transactions page shows wallet connect prompt when no wallet connected', a
   const prompt = page.getByText('Connect your wallet to view your payments');
   await expect(prompt).toBeVisible();
 
-  // WalletConnect component is rendered
   const connectBtn = page.getByRole('button', { name: /Connect Freighter Wallet/i });
   await expect(connectBtn).toBeVisible();
 });

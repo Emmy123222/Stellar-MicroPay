@@ -34,7 +34,6 @@ test('clicking Connect Wallet & Start opens the WalletConnect modal', async ({ p
   const btn = page.getByRole('button', { name: 'Connect Wallet & Start' });
   await btn.click();
 
-  // The modal renders WalletConnect — check for its heading
   const walletHeading = page.getByRole('heading', { name: 'Connect your wallet' });
   await expect(walletHeading).toBeVisible();
 });

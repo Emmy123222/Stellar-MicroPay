@@ -335,6 +335,48 @@ export async function submitTransaction(signedXDR: string) {
   }
 }
 
+/**
+ * Collect signatures from multiple co-signers and combine them into a single signed XDR.
+ *
+ * @param unsignedXDR - The unsigned transaction XDR string.
+ * @param signedXDRs - Array of signed XDR strings from co-signers.
+ * @returns A promise resolving to the combined signed XDR string.
+ * @throws {Error} If the unsigned XDR is invalid or signature collection fails.
+ *
+ * @example
+ * ```ts
+ * const combinedXDR = await collectSignatures(unsignedXDR, [signedXDR1, signedXDR2]);
+ * const result = await submitTransaction(combinedXDR);
+ * ```
+ */
+export async function collectSignatures(unsignedXDR: string, signedXDRs: string[]): Promise<string> {
+  try {
+    // Parse the unsigned transaction
+    const transaction = new Transaction(unsignedXDR, NETWORK_PASSPHRASE);
+
+    // Collect signatures from each signed XDR
+    for (const signedXDR of signedXDRs) {
+      const signedTx = new Transaction(signedXDR, NETWORK_PASSPHRASE);
+      // Add each signature from the signed transaction
+      for (const sig of signedTx.signatures) {
+        // Check if signature already exists to avoid duplicates
+        const exists = transaction.signatures.some(existing =>
+          existing.hint().equals(sig.hint()) &&
+          existing.signature().equals(sig.signature())
+        );
+        if (!exists) {
+          transaction.signatures.push(sig);
+        }
+      }
+    }
+
+    return transaction.toXDR();
+  } catch (err: unknown) {
+    console.error("Failed to collect signatures:", err);
+    throw new Error("Invalid transaction XDR or signature collection failed.");
+  }
+}
+
 // ─── Payment history ─────────────────────────────────────────────────────────
 
 /**
