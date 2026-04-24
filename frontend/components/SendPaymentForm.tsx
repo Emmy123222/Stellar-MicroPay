@@ -517,7 +517,18 @@ export default function SendPaymentForm({
     }
   };
 
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!txHash) return;
+    navigator.clipboard.writeText(txHash).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   if (status === "success" && txHash) {
+    const truncatedHash = `${txHash.slice(0, 12)}…${txHash.slice(-6)}`;
     return (
       <div className="card text-center animate-slide-up">
         <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
@@ -530,15 +541,33 @@ export default function SendPaymentForm({
           {successMessage || `${formatXLM(amount)} sent successfully`}
         </p>
 
-        <a
-          href={explorerUrl(txHash)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm text-stellar-400 hover:text-stellar-300 transition-colors"
-        >
-          {`View on Stellar Expert`}
-          <ExternalLinkIcon className="w-3.5 h-3.5" />
-        </a>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <a
+            href={explorerUrl(txHash)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-stellar-400 hover:text-stellar-300 transition-colors"
+          >
+            {`View on Stellar Expert`}
+            <ExternalLinkIcon className="w-3.5 h-3.5" />
+          </a>
+
+          <button
+            type="button"
+            onClick={handleCopy}
+            title={txHash}
+            className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            {copied ? (
+              <span className="text-emerald-400">{`Copied!`}</span>
+            ) : (
+              <>
+                <CopyIcon className="w-3.5 h-3.5" />
+                <span className="font-mono">{truncatedHash}</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     );
   }
@@ -1193,6 +1222,14 @@ function Spinner() {
     <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
+function CopyIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
     </svg>
   );
 }
