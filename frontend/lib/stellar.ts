@@ -1,10 +1,10 @@
- /**
- * @file lib/stellar.ts
- * @description Core Stellar blockchain interaction helpers for Stellar MicroPay.
- * Uses the Horizon REST API — no private keys ever touch this module.
- *
- * @see {@link https://developers.stellar.org/docs/data/horizon | Stellar Horizon Docs}
- * @see {@link https://stellar.github.io/js-stellar-sdk/ | stellar-sdk Reference}
+/**
+* @file lib/stellar.ts
+* @description Core Stellar blockchain interaction helpers for Stellar MicroPay.
+* Uses the Horizon REST API — no private keys ever touch this module.
+*
+* @see {@link https://developers.stellar.org/docs/data/horizon | Stellar Horizon Docs}
+* @see {@link https://stellar.github.io/js-stellar-sdk/ | stellar-sdk Reference}
 */
 
 import {
@@ -22,6 +22,7 @@ import {
   scValToNative,
   xdr,
   SorobanRpc,
+  Federation,
 } from "@stellar/stellar-sdk";
 
 // ─── Config ────────────────────────────────────────────────────────────────
@@ -75,7 +76,7 @@ export interface WalletBalance {
   asset: string;
   /** Human-readable balance string, e.g. `"100.0000000"` */
   balance: string;
- /** Short asset code shown in the UI, e.g. `"XLM"` or `"USDC"` */
+  /** Short asset code shown in the UI, e.g. `"XLM"` or `"USDC"` */
   assetCode: string;
 }
 /**
@@ -108,7 +109,7 @@ export interface PaymentRecord {
  * Response shape returned by {@link getPaymentHistory}.
 */
 export interface PaymentHistoryResponse {
-/** Array of payment records for the requested page. */
+  /** Array of payment records for the requested page. */
   records: PaymentRecord[];
   /** Whether more records are available on the next page. */
   hasMore: boolean;
@@ -130,6 +131,16 @@ export type PaymentStreamUnsubscribe = () => void;
 
 /** Sentinel error message used to detect unfunded accounts in the UI. */
 export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
+
+/** Friendbot endpoint for Stellar testnet funding. */
+export const FRIENDBOT_URL =
+  process.env.NEXT_PUBLIC_FRIENDBOT_URL || "https://friendbot.stellar.org";
+
+/** Polling options for waiting until an account exists on Horizon. */
+export interface FundingPollOptions {
+  intervalMs?: number;
+  timeoutMs?: number;
+}
 
 /**
  * Fetch all asset balances for a Stellar account.
@@ -177,12 +188,61 @@ export async function getBalances(publicKey: string): Promise<WalletBalance[]> {
  * @see {@link https://developers.stellar.org/docs/learn/networks | Stellar Networks}
  */
 export async function fundWithFriendbot(publicKey: string): Promise<void> {
+  await getFriendBotFunding(publicKey);
+}
+
+/**
+ * Fund an unfunded account through Stellar Friendbot.
+ *
+ * Guarded to testnet only.
+ */
+export async function getFriendBotFunding(publicKey: string): Promise<void> {
+  if (NETWORK !== "testnet") {
+    throw new Error("Friendbot is only available on Stellar testnet.");
+  }
+
   const res = await fetch(
-    `https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`
+    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`
   );
+
   if (!res.ok) {
     throw new Error(`Friendbot failed: ${res.status} ${res.statusText}`);
   }
+}
+
+/**
+ * Wait until Horizon can load an account after funding.
+ *
+ * Returns true once the account is visible on Horizon, false on timeout.
+ */
+export async function waitForAccountFunding(
+  publicKey: string,
+  options: FundingPollOptions = {}
+): Promise<boolean> {
+  const intervalMs = options.intervalMs ?? 1500;
+  const timeoutMs = options.timeoutMs ?? 20000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await getXLMBalance(publicKey);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      const isUnfundedError =
+        msg === ACCOUNT_NOT_FOUND_ERROR ||
+        msg.includes("404") ||
+        msg.toLowerCase().includes("not found");
+
+      if (!isUnfundedError) {
+        throw err;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return false;
 }
 
 /**
@@ -558,7 +618,7 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
 
   try {
     const contract = new Contract(CONTRACT_ID);
-    
+
     // Create a dummy transaction to simulate the getter call
     // Alternatively, we could use getLedgerEntries if we knew the storage key format,
     // but simulation is more robust for contract getters.
@@ -573,17 +633,35 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
       .build();
 
     const sim = await sorobanServer.simulateTransaction(tx);
-    
+
     if (SorobanRpc.Api.isSimulationSuccess(sim) && sim.result) {
       const value = scValToNative(sim.result.retval);
       return value.toString();
     }
-    
+
     return "0";
   } catch (err) {
     console.error("Failed to query tip total:", err);
     return "0";
   }
+}
+
+/**
+ * Fetch the last N payment transactions for sparkline chart rendering.
+ * Returns records in chronological order (oldest first) so the chart
+ * reads left-to-right over time.
+ *
+ * @param publicKey - Stellar public key (G...) of the account.
+ * @param limit - Number of recent payments to fetch. Defaults to `10`.
+ * @returns Array of {@link PaymentRecord} sorted oldest → newest.
+ */
+export async function getRecentPaymentsForSparkline(
+  publicKey: string,
+  limit = 10
+): Promise<PaymentRecord[]> {
+  const { records } = await getPaymentHistory(publicKey, limit);
+  // getPaymentHistory returns newest-first; reverse for chronological order
+  return records.slice().reverse();
 }
 
 /**
@@ -663,4 +741,41 @@ export function streamPayments(
       // swallow errors on close
     }
   };
+}
+
+/**
+ * Resolve a Stellar Federation address (user*domain.com) to a Stellar public key.
+ *
+ * Uses the Stellar Federation protocol to perform lookups using the federation
+ * server specified in the domain's stellar.toml file.
+ *
+ * @param federationAddress - The federation address to resolve (e.g., "alice*stellar.org")
+ * @returns A promise resolving to the Stellar public key (G...).
+ * @throws Error if the federation address is invalid or resolution fails.
+ *
+ * @example
+ * ```ts
+ * const publicKey = await resolveFederationAddress("alice*stellar.org");
+ * // → "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ"
+ * ```
+ */
+export async function resolveFederationAddress(
+  federationAddress: string
+): Promise<string> {
+  // Basic validation: federation addresses should contain exactly one @
+  if (!federationAddress.includes("*")) {
+    throw new Error(
+      'Invalid federation address format. Expected "user*domain.com"'
+    );
+  }
+
+  try {
+    const record = await Federation.Server.resolve(federationAddress);
+    return record.account_id;
+  } catch (error) {
+    throw new Error(
+      `Federation lookup failed for "${federationAddress}": ${error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
+  }
 }
