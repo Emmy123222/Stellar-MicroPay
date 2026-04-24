@@ -22,6 +22,8 @@ jest.mock("@/lib/stellar", () => ({
   fundWithFriendbot: jest.fn(),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
   streamPayments: jest.fn(() => jest.fn()),
+  getRecentPaymentsForSparkline: jest.fn().mockResolvedValue([]),
+  getPaymentHistory: jest.fn().mockResolvedValue({ records: [], hasMore: false }),
 }));
 
 const PUBLIC_KEY = "GABC1234567890ABCDEF";
@@ -42,6 +44,8 @@ describe("Dashboard payment stats widget", () => {
     stellar.getXLMBalance.mockResolvedValue("500.0000000");
     stellar.getUSDCBalance.mockResolvedValue(null);
     stellar.streamPayments.mockImplementation(() => jest.fn());
+    stellar.getRecentPaymentsForSparkline.mockResolvedValue([]);
+    stellar.getPaymentHistory.mockResolvedValue({ records: [], hasMore: false });
   });
 
   afterEach(() => {
