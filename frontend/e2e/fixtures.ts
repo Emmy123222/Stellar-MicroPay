@@ -112,46 +112,16 @@ export const test = base.extend<{
 
     await page.addInitScript(
       ({ publicKey }: { publicKey: string }) => {
-        // Set freighter flag to indicate extension is installed
-        (window as any).freighter = true;
-
-        // Mock the extension messaging protocol
-        window.addEventListener('message', (event) => {
-          if (event.source !== window) return;
-
-          const { type, messagedId } = event.data;
-          if (type === 'IS_CONNECTED') {
-            window.postMessage({
-              type: 'IS_CONNECTED_RESPONSE',
-              isConnected: true,
-              messagedId
-            }, '*');
-          } else if (type === 'GET_PUBLIC_KEY') {
-            window.postMessage({
-              type: 'GET_PUBLIC_KEY_RESPONSE',
-              publicKey,
-              messagedId
-            }, '*');
-          } else if (type === 'SIGN_TRANSACTION') {
-            window.postMessage({
-              type: 'SIGN_TRANSACTION_RESPONSE',
-              signedTransaction: event.data.transactionXdr + '_signed',
-              messagedId
-            }, '*');
-          } else if (type === 'REQUEST_ACCESS') {
-            window.postMessage({
-              type: 'REQUEST_ACCESS_RESPONSE',
-              accepted: true,
-              messagedId
-            }, '*');
-          } else if (type === 'IS_ALLOWED') {
-            window.postMessage({
-              type: 'IS_ALLOWED_RESPONSE',
-              isAllowed: true,
-              messagedId
-            }, '*');
-          }
-        });
+        // Mock the freighter-api package by overriding the module exports
+        // Since ES modules are hard to mock, we override the global freighter object
+        // that the package checks for
+        (window as any).freighter = {
+          isConnected: async () => ({ isConnected: true }),
+          getPublicKey: async () => ({ publicKey }),
+          requestAccess: async () => ({}),
+          signTransaction: async (xdr: string) => ({ signedTransaction: xdr + '_signed' }),
+          isAllowed: async () => ({ isAllowed: true }),
+        };
       },
       { publicKey },
     );

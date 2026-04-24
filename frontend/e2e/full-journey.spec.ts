@@ -1,18 +1,22 @@
 // playwright/e2e/full-journey.spec.ts
 import { test, expect } from './fixtures';
 
-// Clicks the connect button and waits for the full auth flow to complete.
-// The flow: isFreighterInstalled() -> connectWallet() -> performSEP0010Auth() -> authenticated dashboard
+// Drives the wallet connection flow and waits for the authenticated dashboard.
+// The fixture mocks window.freighter + all backend APIs, so clicking the button
+// completes synchronously from the app's perspective.
 async function connectWallet(page: any) {
   await page.goto('/dashboard');
-  const connectBtn = page.getByRole('button', { name: /Connect Freighter Wallet/i });
-  if (await connectBtn.isVisible()) {
-    await connectBtn.click();
-    // Wait for the auth flow to complete - the connect button should disappear
-    await expect(connectBtn).not.toBeVisible({ timeout: 15000 });
-  }
-  // Wait for authenticated dashboard elements to appear
-  await expect(page.locator('text=Wallet Address')).toBeVisible({ timeout: 5000 });
+
+  // If already authenticated (shouldn't happen in tests, but defensive)
+  const alreadyConnected = await page.locator('p.label', { hasText: 'Wallet Address' }).isVisible()
+    .catch(() => false);
+  if (alreadyConnected) return;
+
+  await page.getByRole('button', { name: /Connect Freighter Wallet/i }).click();
+
+  // Wait for the authenticated dashboard — the wallet address label is unique to it
+  await expect(page.locator('p.label').filter({ hasText: 'Wallet Address' }))
+    .toBeVisible({ timeout: 15000 });
 }
 
 test('data integrity: verify transaction history reflects payment data', async ({ page }) => {

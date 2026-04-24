@@ -4,9 +4,11 @@ import { test, expect } from '@playwright/test';
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).freighter = {
-      isConnected: async () => false,
-      getPublicKey: async () => '',
-      signTransaction: async () => '',
+      isConnected: async () => ({ isConnected: false }),
+      getPublicKey: async () => ({ publicKey: '' }),
+      signTransaction: async () => ({ signedTransaction: '' }),
+      requestAccess: async () => ({}),
+      isAllowed: async () => ({ isAllowed: false }),
     };
   });
 });
