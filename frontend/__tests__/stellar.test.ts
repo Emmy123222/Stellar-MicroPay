@@ -28,5 +28,6 @@ describe("Stellar helper", () => {
     // For simplicity, since the function sets category: TransactionCategory.Payment,
     // we can test that the enum exists and is used.
     expect(TransactionCategory.Payment).toBe("Payment");
+    expect(TransactionCategory.Merge).toBe("Merge");
   });
 });

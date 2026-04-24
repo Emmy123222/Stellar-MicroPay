@@ -90,13 +90,13 @@ export interface WalletBalance {
   assetCode: string;
 }
 /**
- * Represents a single payment operation in a user's transaction history.
+ * Represents a single transaction operation in a user's transaction history.
 */
 export interface PaymentRecord {
   /** Unique operation ID assigned by Horizon. */
   id: string;
   /** Whether this payment was sent or received by the queried account. */
-  type: "sent" | "received";
+  type: "sent" | "received" | "merge";
   /** Whether this payment was sent or received by the queried account. */
   amount: string;
   /** Asset code, e.g. `"XLM"` */
@@ -442,59 +442,79 @@ export async function getPaymentHistory(
   limit = 20,
   cursor?: string
 ): Promise<PaymentHistoryResponse> {
-  let paymentsBuilder = server
-    .payments()
+  let operationsBuilder = server
+    .operations()
     .forAccount(publicKey)
     .limit(limit)
     .order("desc");
 
   if (cursor) {
-    paymentsBuilder = paymentsBuilder.cursor(cursor);
+    operationsBuilder = operationsBuilder.cursor(cursor);
   }
 
-  const payments = await paymentsBuilder.call();
+  const operations = await operationsBuilder.call();
 
   const records: PaymentRecord[] = [];
 
-  for (const op of payments.records) {
-    // Only process payment operations
-    if (op.type !== "payment") continue;
+  for (const op of operations.records) {
+    let record: PaymentRecord | null = null;
 
-    const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
+    if (op.type === "payment") {
+      const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
 
-    // Fetch transaction for memo
-    let memo: string | undefined;
-    try {
-      const tx = await server.transactions().transaction(payment.transaction_hash).call();
-      if (tx.memo && tx.memo_type === "text") {
-        memo = tx.memo;
+      // Fetch transaction for memo
+      let memo: string | undefined;
+      try {
+        const tx = await server.transactions().transaction(payment.transaction_hash).call();
+        if (tx.memo && tx.memo_type === "text") {
+          memo = tx.memo;
+        }
+      } catch {
+        // memo is optional, don't fail
       }
-    } catch {
-      // memo is optional, don't fail
+
+      const assetCode =
+        payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
+
+      record = {
+        id: payment.id,
+        type: payment.from === publicKey ? "sent" : "received",
+        amount: payment.amount,
+        asset: assetCode,
+        from: payment.from,
+        to: payment.to,
+        memo,
+        createdAt: payment.created_at,
+        transactionHash: payment.transaction_hash,
+        pagingToken: payment.paging_token,
+        category: TransactionCategory.Payment,
+      };
+    } else if (op.type === "account_merge") {
+      const merge = op as Horizon.HorizonApi.AccountMergeOperationResponse;
+
+      record = {
+        id: merge.id,
+        type: "merge",
+        amount: "0", // Account merge doesn't have an amount
+        asset: "XLM",
+        from: merge.account, // The account being merged
+        to: merge.into, // The destination account
+        createdAt: merge.created_at,
+        transactionHash: merge.transaction_hash,
+        pagingToken: merge.paging_token,
+        category: TransactionCategory.Merge,
+      };
     }
 
-    const assetCode =
-      payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
-
-    records.push({
-      id: payment.id,
-      type: payment.from === publicKey ? "sent" : "received",
-      amount: payment.amount,
-      asset: assetCode,
-      from: payment.from,
-      to: payment.to,
-      memo,
-      createdAt: payment.created_at,
-      transactionHash: payment.transaction_hash,
-      pagingToken: payment.paging_token,
-      category: TransactionCategory.Payment,
-    });
+    if (record) {
+      records.push(record);
+    }
   }
 
   return {
     records,
-    hasMore: payments.records.length === limit && !!payments.next,
-    nextCursor: payments.next ? payments.next.toString() : undefined,
+    hasMore: operations.records.length === limit && !!operations.next,
+    nextCursor: operations.next ? operations.next.toString() : undefined,
   };
 }
 
