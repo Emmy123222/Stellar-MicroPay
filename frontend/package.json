@@ -14,8 +14,9 @@
     "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
-    "@ledgerhq/hw-app-stellar": "^6.3.0",
-    "@ledgerhq/hw-transport-webhid": "^6.28.0",
+    "@fortawesome/fontawesome-svg-core": "^7.2.0",
+    "@fortawesome/free-solid-svg-icons": "^7.2.0",
+    "@fortawesome/react-fontawesome": "^3.3.1",
     "@stellar/freighter-api": "^2.0.0",
     "@stellar/stellar-sdk": "^12.0.0",
     "axios": "^1.6.8",
@@ -24,7 +25,8 @@
     "next": "14.2.3",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

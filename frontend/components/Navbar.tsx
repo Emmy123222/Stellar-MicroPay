@@ -20,11 +20,18 @@ const navLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/trade", label: "Trade" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/network", label: "Network" },
 ];
 
-export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarProps) {
+export default function Navbar({
+  publicKey,
+  onConnect,
+  onDisconnect,
+}: NavbarProps) {
   const router = useRouter();
-  const networkEnv = (process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "testnet").toLowerCase();
+  const networkEnv = (
+    process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "testnet"
+  ).toLowerCase();
   const isMainnet = networkEnv === "mainnet";
   const networkLabel = isMainnet ? "Mainnet" : "Testnet";
   const networkBadgeClassName = isMainnet
@@ -36,7 +43,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-cosmos-900/80 dark:bg-cosmos-900/80 bg-white/80 backdrop-blur-xl transition-colors duration-300">
+    <nav className="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-white/80 dark:bg-cosmos-900/80 backdrop-blur-xl transition-colors duration-300">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-4">
           {/* Logo */}
@@ -44,7 +51,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
             <div className="w-8 h-8 rounded-lg bg-stellar-500/20 border border-stellar-500/30 flex items-center justify-center group-hover:border-stellar-500/60 transition-colors">
               <StarIcon className="w-4 h-4 text-stellar-400" />
             </div>
-            <span className="font-display font-semibold text-white tracking-tight">
+            <span className="font-display font-semibold text-slate-900 dark:text-white tracking-tight">
               Stellar<span className="text-stellar-400">MicroPay</span>
             </span>
           </Link>
@@ -52,7 +59,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
           <span
             className={clsx(
               "hidden md:inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide",
-              networkBadgeClassName
+              networkBadgeClassName,
             )}
           >
             {networkLabel}
@@ -68,7 +75,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
                   "px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150",
                   router.pathname === link.href
                     ? "bg-stellar-500/15 text-stellar-300"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5",
                 )}
               >
                 {link.label}
@@ -79,22 +86,45 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
 
         {/* Right side: theme toggle + wallet */}
         <div className="flex items-center gap-3">
-
           {/* Issue #19 — Sun/moon icon toggle button */}
           <button
             onClick={toggleTheme}
-            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-stellar-500/20 bg-stellar-500/5 hover:bg-stellar-500/15 text-stellar-400 transition-all duration-200"
+            aria-label={
+              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            }
+            className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300/30 bg-white/90 dark:border-slate-700/50 dark:bg-cosmos-800/80 text-slate-700 dark:text-slate-100 shadow-sm transition-all duration-200 hover:bg-slate-100 dark:hover:bg-cosmos-700/90"
           >
             {theme === "dark" ? (
-              // Sun icon — shown in dark mode to switch to light
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m8.66-9h-1M4.34 12h-1m15.07-6.07-.71.71M6.34 17.66l-.71.71m12.02 0-.71-.71M6.34 6.34l-.71-.71M12 7a5 5 0 100 10A5 5 0 0012 7z" />
+              // Moon icon — current theme is dark
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"
+                />
               </svg>
             ) : (
-              // Moon icon — shown in light mode to switch to dark
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />
+              // Sun icon — current theme is light
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 3v1m0 16v1m8.66-9h-1M4.34 12h-1m15.07-6.07-.71.71M6.34 17.66l-.71.71m12.02 0-.71-.71M6.34 6.34l-.71-.71M12 7a5 5 0 100 10A5 5 0 0012 7z"
+                />
               </svg>
             )}
           </button>
@@ -102,6 +132,14 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
           {/* Wallet button */}
           {publicKey ? (
             <div className="flex items-center gap-2">
+              {/* Issue #64 — ⌘K hint, shown only when wallet is connected */}
+              <kbd
+                title="Press Ctrl+K / Cmd+K to quick-send"
+                className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md border border-stellar-500/20 bg-stellar-500/5 text-stellar-400 text-xs font-mono select-none"
+              >
+                ⌘K
+              </kbd>
+
               <div className="flex items-center gap-2 address-pill">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span>{shortenAddress(publicKey)}</span>
@@ -114,7 +152,10 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
               </button>
             </div>
           ) : (
-            <button onClick={onConnect} className="btn-primary text-sm py-2 px-4">
+            <button
+              onClick={onConnect}
+              className="btn-primary text-sm py-2 px-4"
+            >
               Connect Wallet
             </button>
           )}
