@@ -17,7 +17,7 @@ import {
   isAllowed,
 } from "@stellar/freighter-api";
 
-import { NETWORK_PASSPHRASE } from "./stellar";
+import { getNetworkPassphrase, getNetworkConfig } from "./stellar";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -222,12 +222,11 @@ export async function signTransactionWithWallet(
   transactionXDR: string
 ): Promise<{ signedXDR: string | null; error: string | null }> {
   try {
-    const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK === "mainnet"
-      ? "MAINNET"
-      : "TESTNET";
+    const config = getNetworkConfig();
+    const network = config.network === "mainnet" ? "MAINNET" : "TESTNET";
 
     const result = await signTransaction(transactionXDR, {
-      networkPassphrase: NETWORK_PASSPHRASE,
+      networkPassphrase: getNetworkPassphrase(),
       network,
     });
 
@@ -249,4 +248,23 @@ export async function signTransactionWithWallet(
 
     return { signedXDR: null, error: `Signing failed: ${message}` };
   }
+}
+
+/**
+ * Disconnect the wallet. Since Freighter doesn't provide a disconnect API,
+ * this clears the local connection state. The actual disconnect happens
+ * when the app's state is updated.
+ */
+export function disconnectWallet(): void {
+  // Freighter doesn't have a disconnect API, so we just clear local state
+  // The actual disconnect is handled by the app's state management
+}
+/**
+ * Disconnect the wallet. Since Freighter doesn't provide a disconnect API,
+ * this clears the local connection state. The actual disconnect happens
+ * when the app's state is updated.
+ */
+export function disconnectWallet(): void {
+  // Freighter doesn't have a disconnect API, so we just clear local state
+  // The actual disconnect is handled by the app's state management
 }

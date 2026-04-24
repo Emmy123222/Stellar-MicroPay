@@ -28,6 +28,8 @@ import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
+import OnboardingTour from "@/components/OnboardingTour";
+import PaymentRequestGenerator from "./PaymentRequestGenerator";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
