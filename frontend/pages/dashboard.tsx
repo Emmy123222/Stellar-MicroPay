@@ -31,6 +31,8 @@ import TransactionList from "@/components/TransactionList";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
+import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
+import OnboardingTour from "@/components/OnboardingTour";
 import {
   getXLMBalance,
   getUSDCBalance,

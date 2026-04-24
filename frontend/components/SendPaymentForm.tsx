@@ -758,7 +758,7 @@ export default function SendPaymentForm({
         </div>
 
         {/* Record as Tip On-Chain (Soroban) */}
-        {CONTRACT_ID && (
+        {/* {CONTRACT_ID && (
           <div className="flex items-start gap-3 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/10 transition-colors hover:bg-stellar-500/8">
             <div className="flex items-center h-5">
               <input
@@ -779,7 +779,7 @@ export default function SendPaymentForm({
               </p>
             </div>
           </div>
-        )}
+        )} */}
 
         {/* Error */}
         {status === "error" && error && (
