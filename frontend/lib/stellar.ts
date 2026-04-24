@@ -757,6 +757,7 @@ export function streamPayments(
         createdAt: payment.created_at,
         transactionHash: payment.transaction_hash,
         pagingToken: payment.paging_token,
+        category: TransactionCategory.Payment,
       };
 
       onPayment(record);
