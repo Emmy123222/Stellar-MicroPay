@@ -69,6 +69,16 @@ export const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 /**
+ * Enum for transaction categories.
+ */
+export enum TransactionCategory {
+  Payment = "Payment",
+  Transfer = "Transfer",
+  Merge = "Merge",
+  // Add more as needed
+}
+
+/**
  * Represents a single asset balance on a Stellar account.
 */
 export interface WalletBalance {
@@ -103,6 +113,8 @@ export interface PaymentRecord {
   transactionHash: string;
   /** Horizon paging token used for cursor-based pagination. */
   pagingToken?: string;
+  /** Category of the transaction. */
+  category?: TransactionCategory;
 }
 
 /**
@@ -475,6 +487,7 @@ export async function getPaymentHistory(
       createdAt: payment.created_at,
       transactionHash: payment.transaction_hash,
       pagingToken: payment.paging_token,
+      category: TransactionCategory.Payment,
     });
   }
 
