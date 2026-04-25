@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/router";
 import {
   getPaymentHistory,
   shortenAddress,
@@ -32,6 +33,7 @@ interface TransactionListProps {
   onPrintReceipt?: (payment: PaymentRecord) => void;
   /** Optional single incoming payment to prepend in real-time. */
   incomingPayment?: PaymentRecord | null;
+  onSendAgain?: (to: string, amount: string) => void;
 }
 
 export function filterPayments(
@@ -69,7 +71,7 @@ export default function TransactionList({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
-  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const router = useRouter();
 
   const updatePayments = useCallback(
     (next: PaymentRecord[]) => {
@@ -316,27 +318,41 @@ export default function TransactionList({
                 </div>
               </div>
 
-              {/* Amount + link */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <span
-                  className={clsx(
-                    "text-sm font-mono font-medium",
-                    tx.type === "sent" ? "text-red-400" : "text-emerald-400"
-                  )}
-                >
-                  {tx.type === "sent" ? "-" : "+"}
-                  {formatXLM(tx.amount)}
-                </span>
-                <a
-                  href={explorerUrl(tx.transactionHash)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
-                  title="View on Stellar Expert"
-                >
-                  <ExternalLinkIcon className="w-3.5 h-3.5" />
-                </a>
-              </div>
+            {/* Amount + link */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span
+                className={clsx(
+                  "text-sm font-mono font-medium",
+                  tx.type === "sent" ? "text-red-400" : "text-emerald-400"
+                )}
+              >
+                {tx.type === "sent" ? "-" : "+"}
+                {formatXLM(tx.amount)}
+              </span>
+
+
+                  {/* Send Again — only for sent transactions */}
+               {tx.type === "sent" && (
+               <button
+               onClick={() =>
+              router.push(`/dashboard?to=${encodeURIComponent(tx.to)}&amount=${encodeURIComponent(tx.amount)}`)
+                  }
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+             title="Pre-fill send form with this transaction"
+                 >
+               Send again
+               </button>
+               )}
+              
+              <a
+                href={explorerUrl(tx.transactionHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
+                title="View on Stellar Expert"
+              >
+                <ExternalLinkIcon className="w-3.5 h-3.5" />
+              </a>
             </div>
           ))
         )}

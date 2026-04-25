@@ -703,6 +703,15 @@ export default function SendPaymentForm({
 
         )}
 
+
+
+        {/* Pre-fill notice */}
+          {prefill && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-stellar-500/10 border border-stellar-500/20 text-stellar-400 text-xs">
+         <InfoIcon className="w-3.5 h-3.5 flex-shrink-0" />
+           Pre-filled from transaction history
+         </div>)}
+
         {/* Destination */}
         {!hideDestinationField && (
           <div>
