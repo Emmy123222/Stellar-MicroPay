@@ -1,394 +1,206 @@
 /**
  * pages/settings.tsx
- * Configure and deploy Turrets txFunctions (DCA and stop-loss).
+ * Advanced settings for Stellar MicroPay, including account merge support.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import WalletConnect from "@/components/WalletConnect";
-import Toast from "@/components/Toast";
-import { useToast } from "@/lib/useToast";
-import { signTransactionWithWallet } from "@/lib/wallet";
 import {
-  createTurretsChallenge,
-  deployTurretsFunction,
-  getTurretsHistory,
-  listTurretsFunctions,
-  pauseTurretsFunction,
-  resumeTurretsFunction,
-  TurretsDeployment,
-  TurretsExecutionHistory,
-} from "@/lib/turrets";
+  buildAccountMergeTransaction,
+  isValidStellarAddress,
+  submitTransaction,
+} from "@/lib/stellar";
+import { signTransactionWithWallet } from "@/lib/wallet";
 
 interface SettingsProps {
   publicKey: string | null;
-  onConnect: (pk: string) => void;
-}
-
-function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  return date.toLocaleString();
+  onConnect: (publicKey: string) => void;
 }
 
 export default function Settings({ publicKey, onConnect }: SettingsProps) {
-  const [deployments, setDeployments] = useState<TurretsDeployment[]>([]);
-  const [loadingDeployments, setLoadingDeployments] = useState(false);
-  const [historyById, setHistoryById] = useState<Record<string, TurretsExecutionHistory[]>>({});
-  const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
+  const [destination, setDestination] = useState("");
+  const [confirmText, setConfirmText] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [transactionHash, setTransactionHash] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [dcaAmountQuote, setDcaAmountQuote] = useState("10");
-  const [dcaIntervalMinutes, setDcaIntervalMinutes] = useState("60");
-  const [dcaQuoteAssetCode, setDcaQuoteAssetCode] = useState("USDC");
-  const [dcaQuoteAssetIssuer, setDcaQuoteAssetIssuer] = useState("");
-  const [dcaSubmitting, setDcaSubmitting] = useState(false);
+  const destinationTrimmed = destination.trim();
+  const canMerge =
+    isValidStellarAddress(destinationTrimmed) && confirmText.trim() === "MERGE";
 
-  const [stopLossThreshold, setStopLossThreshold] = useState("0.09");
-  const [stopLossAmountSell, setStopLossAmountSell] = useState("25");
-  const [stopLossAssetCode, setStopLossAssetCode] = useState("USDC");
-  const [stopLossAssetIssuer, setStopLossAssetIssuer] = useState("");
-  const [stopLossCooldownMinutes, setStopLossCooldownMinutes] = useState("30");
-  const [stopLossSubmitting, setStopLossSubmitting] = useState(false);
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setTransactionHash(null);
 
-  const { visible: toastVisible, message: toastMessage, showToast } = useToast();
-
-  const isConnected = Boolean(publicKey);
-
-  const refreshDeployments = useCallback(async () => {
-    if (!publicKey) return;
-    setLoadingDeployments(true);
-    try {
-      const data = await listTurretsFunctions(publicKey);
-      setDeployments(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load txFunctions";
-      showToast(message);
-    } finally {
-      setLoadingDeployments(false);
+    if (!publicKey) {
+      setError("Connect your Freighter wallet before merging accounts.");
+      return;
     }
-  }, [publicKey, showToast]);
 
-  useEffect(() => {
-    refreshDeployments();
-  }, [refreshDeployments]);
+    if (!isValidStellarAddress(destinationTrimmed)) {
+      setError("Please enter a valid Stellar destination address.");
+      return;
+    }
 
-  useEffect(() => {
-    if (!publicKey) return;
-    const id = setInterval(() => {
-      refreshDeployments();
-    }, 20_000);
+    if (confirmText.trim() !== "MERGE") {
+      setError("Type MERGE to confirm closing your account.");
+      return;
+    }
 
-    return () => clearInterval(id);
-  }, [publicKey, refreshDeployments]);
+    setIsSubmitting(true);
 
-  const deploymentCountLabel = useMemo(() => {
-    if (loadingDeployments) return "Loading txFunctions...";
-    return `${deployments.length} deployed txFunction${deployments.length === 1 ? "" : "s"}`;
-  }, [deployments.length, loadingDeployments]);
-
-  const deployDca = async () => {
-    if (!publicKey) return;
-    setDcaSubmitting(true);
     try {
-      const config = {
-        amountQuote: Number(dcaAmountQuote),
-        intervalMinutes: Number(dcaIntervalMinutes),
-        quoteAssetCode: dcaQuoteAssetCode.toUpperCase(),
-        quoteAssetIssuer: dcaQuoteAssetIssuer || null,
-      };
-
-      const challenge = await createTurretsChallenge({
-        ownerPublicKey: publicKey,
-        type: "dca",
-        config,
+      const transaction = await buildAccountMergeTransaction({
+        fromPublicKey: publicKey,
+        destinationPublicKey: destinationTrimmed,
       });
 
-      const { signedXDR, error } = await signTransactionWithWallet(challenge.challengeXDR);
-      if (error || !signedXDR) {
-        throw new Error(error || "Freighter could not sign the DCA challenge");
+      const { signedXDR, error: signError } = await signTransactionWithWallet(
+        transaction.toXDR()
+      );
+
+      if (signError || !signedXDR) {
+        throw new Error(signError || "Unable to sign the merge transaction.");
       }
 
-      await deployTurretsFunction({
-        ownerPublicKey: publicKey,
-        type: "dca",
-        config,
-        deploymentHash: challenge.deploymentHash,
-        signedChallengeXDR: signedXDR,
-      });
-
-      showToast("DCA txFunction deployed");
-      refreshDeployments();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "DCA deployment failed";
-      showToast(message);
+      const result = await submitTransaction(signedXDR);
+      setTransactionHash(result.hash);
+      setDestination("");
+      setConfirmText("");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
     } finally {
-      setDcaSubmitting(false);
+      setIsSubmitting(false);
     }
   };
-
-  const deployStopLoss = async () => {
-    if (!publicKey) return;
-    setStopLossSubmitting(true);
-    try {
-      const config = {
-        thresholdPrice: Number(stopLossThreshold),
-        amountSell: Number(stopLossAmountSell),
-        sellAssetCode: stopLossAssetCode.toUpperCase(),
-        sellAssetIssuer: stopLossAssetIssuer || null,
-        cooldownMinutes: Number(stopLossCooldownMinutes),
-      };
-
-      const challenge = await createTurretsChallenge({
-        ownerPublicKey: publicKey,
-        type: "stop_loss",
-        config,
-      });
-
-      const { signedXDR, error } = await signTransactionWithWallet(challenge.challengeXDR);
-      if (error || !signedXDR) {
-        throw new Error(error || "Freighter could not sign the stop-loss challenge");
-      }
-
-      await deployTurretsFunction({
-        ownerPublicKey: publicKey,
-        type: "stop_loss",
-        config,
-        deploymentHash: challenge.deploymentHash,
-        signedChallengeXDR: signedXDR,
-      });
-
-      showToast("Stop-loss txFunction deployed");
-      refreshDeployments();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Stop-loss deployment failed";
-      showToast(message);
-    } finally {
-      setStopLossSubmitting(false);
-    }
-  };
-
-  const toggleStatus = async (deployment: TurretsDeployment) => {
-    try {
-      if (deployment.status === "active") {
-        await pauseTurretsFunction(deployment.id);
-        showToast("txFunction paused");
-      } else {
-        await resumeTurretsFunction(deployment.id);
-        showToast("txFunction resumed");
-      }
-      refreshDeployments();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not change txFunction status";
-      showToast(message);
-    }
-  };
-
-  const loadHistory = async (deploymentId: string) => {
-    setLoadingHistoryId(deploymentId);
-    try {
-      const history = await getTurretsHistory(deploymentId);
-      setHistoryById((prev) => ({ ...prev, [deploymentId]: history }));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load execution history";
-      showToast(message);
-    } finally {
-      setLoadingHistoryId(null);
-    }
-  };
-
-  if (!isConnected) {
-    return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 cursor-default select-none">
-        <div className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-white mb-3">Settings</h1>
-          <p className="text-slate-400">Connect your wallet to configure Turrets txFunctions</p>
-        </div>
-        <WalletConnect onConnect={onConnect} />
-      </div>
-    );
-  }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 cursor-default select-none">
-      <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold text-white mb-1">Settings</h1>
-        <p className="text-slate-400 text-sm">Deploy and monitor Stellar Turrets txFunctions</p>
+    <div className="max-w-5xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mb-10">
+        <h1 className="font-display text-3xl font-semibold text-slate-900 dark:text-white">
+          Settings
+        </h1>
+        <p className="mt-3 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+          Manage your wallet, advanced network settings and account consolidation options.
+        </p>
       </div>
 
-      <div className="card mb-6">
-        <p className="label mb-1">Connected Wallet</p>
-        <p className="font-mono text-sm text-slate-300 break-all">{publicKey}</p>
-        <p className="text-xs text-slate-400 mt-2">{deploymentCountLabel}</p>
-      </div>
+      <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+        <div className="space-y-6">
+          <section className="card">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">
+                  Advanced
+                </p>
+                <h2 className="mt-3 text-2xl font-semibold text-slate-900 dark:text-white">
+                  Account Merge
+                </h2>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  Consolidate your Stellar account by transferring all native XLM and closing the source account.
+                </p>
+              </div>
+            </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div className="card">
-          <h2 className="font-display text-xl text-white mb-4">DCA into XLM</h2>
+            <div className="mt-8 space-y-6">
+              <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-5 text-sm text-red-100">
+                <p className="font-semibold text-red-200">Warning</p>
+                <p className="mt-2 text-sm leading-6 text-red-100">
+                  This will close your account and transfer all XLM to the destination address. Once completed, the source account can no longer be used.
+                </p>
+              </div>
 
-          <label className="label">Quote Amount</label>
-          <input
-            className="input-field mb-4"
-            value={dcaAmountQuote}
-            onChange={(e) => setDcaAmountQuote(e.target.value)}
-            placeholder="10"
-          />
-
-          <label className="label">Interval (minutes)</label>
-          <input
-            className="input-field mb-4"
-            value={dcaIntervalMinutes}
-            onChange={(e) => setDcaIntervalMinutes(e.target.value)}
-            placeholder="60"
-          />
-
-          <label className="label">Quote Asset Code</label>
-          <input
-            className="input-field mb-4"
-            value={dcaQuoteAssetCode}
-            onChange={(e) => setDcaQuoteAssetCode(e.target.value)}
-            placeholder="USDC"
-          />
-
-          <label className="label">Quote Asset Issuer (required for non-XLM)</label>
-          <input
-            className="input-field mb-4"
-            value={dcaQuoteAssetIssuer}
-            onChange={(e) => setDcaQuoteAssetIssuer(e.target.value)}
-            placeholder="G..."
-          />
-
-          <button className="btn-primary w-full" onClick={deployDca} disabled={dcaSubmitting}>
-            {dcaSubmitting ? "Deploying..." : "Deploy DCA txFunction"}
-          </button>
-        </div>
-
-        <div className="card">
-          <h2 className="font-display text-xl text-white mb-4">Stop-loss</h2>
-
-          <label className="label">Threshold Price (USD)</label>
-          <input
-            className="input-field mb-4"
-            value={stopLossThreshold}
-            onChange={(e) => setStopLossThreshold(e.target.value)}
-            placeholder="0.09"
-          />
-
-          <label className="label">Amount to Sell</label>
-          <input
-            className="input-field mb-4"
-            value={stopLossAmountSell}
-            onChange={(e) => setStopLossAmountSell(e.target.value)}
-            placeholder="25"
-          />
-
-          <label className="label">Sell Asset Code</label>
-          <input
-            className="input-field mb-4"
-            value={stopLossAssetCode}
-            onChange={(e) => setStopLossAssetCode(e.target.value)}
-            placeholder="USDC"
-          />
-
-          <label className="label">Sell Asset Issuer (required for non-XLM)</label>
-          <input
-            className="input-field mb-4"
-            value={stopLossAssetIssuer}
-            onChange={(e) => setStopLossAssetIssuer(e.target.value)}
-            placeholder="G..."
-          />
-
-          <label className="label">Cooldown (minutes)</label>
-          <input
-            className="input-field mb-4"
-            value={stopLossCooldownMinutes}
-            onChange={(e) => setStopLossCooldownMinutes(e.target.value)}
-            placeholder="30"
-          />
-
-          <button
-            className="btn-primary w-full"
-            onClick={deployStopLoss}
-            disabled={stopLossSubmitting}
-          >
-            {stopLossSubmitting ? "Deploying..." : "Deploy Stop-loss txFunction"}
-          </button>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display text-xl text-white">Function Status & History</h2>
-          <button className="btn-secondary py-2 px-4" onClick={refreshDeployments}>
-            Refresh
-          </button>
-        </div>
-
-        {deployments.length === 0 ? (
-          <p className="text-slate-400 text-sm">No txFunctions deployed yet.</p>
-        ) : (
-          <div className="space-y-4">
-            {deployments.map((deployment) => {
-              const history = historyById[deployment.id] || [];
-
-              return (
-                <div key={deployment.id} className="border border-white/10 rounded-xl p-4">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div>
-                      <p className="text-white font-medium">
-                        {deployment.type === "dca" ? "DCA" : "Stop-loss"} · {deployment.status}
-                      </p>
-                      <p className="text-xs text-slate-400 break-all">ID: {deployment.id}</p>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        className="btn-secondary py-2 px-3 text-sm"
-                        onClick={() => toggleStatus(deployment)}
-                      >
-                        {deployment.status === "active" ? "Pause" : "Resume"}
-                      </button>
-                      <button
-                        className="btn-secondary py-2 px-3 text-sm"
-                        onClick={() => loadHistory(deployment.id)}
-                        disabled={loadingHistoryId === deployment.id}
-                      >
-                        {loadingHistoryId === deployment.id ? "Loading..." : "Load History"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 text-xs text-slate-400">
-                    <p>Created: {formatDate(deployment.createdAt)}</p>
-                    <p>Next Run: {formatDate(deployment.nextRunAt)}</p>
-                    <p>Last Checked: {formatDate(deployment.lastCheckedAt)}</p>
-                    <p>Last Executed: {formatDate(deployment.lastExecutedAt)}</p>
-                    <p>Last Observed Price: {deployment.lastObservedPriceUsd ?? "—"}</p>
-                    <p>Last Error: {deployment.lastError || "None"}</p>
-                  </div>
-
-                  <div className="mt-4">
-                    {history.length === 0 ? (
-                      <p className="text-xs text-slate-500">No history loaded yet.</p>
-                    ) : (
-                      <div className="space-y-2 max-h-56 overflow-auto pr-1">
-                        {history.map((entry) => (
-                          <div key={entry.id} className="text-xs border border-white/5 rounded-lg p-2">
-                            <p className="text-slate-200">
-                              {entry.status} · {entry.message}
-                            </p>
-                            <p className="text-slate-500">{formatDate(entry.createdAt)}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
+                  <label className="label" htmlFor="destination">
+                    Destination address
+                  </label>
+                  <input
+                    id="destination"
+                    type="text"
+                    className="input-field"
+                    value={destination}
+                    onChange={(event) => setDestination(event.target.value)}
+                    placeholder="G..."
+                    aria-describedby="destination-help"
+                    required
+                  />
+                  <p id="destination-help" className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+                    Enter the Stellar public key that will receive the remaining XLM.
+                  </p>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
 
-      <Toast message={toastMessage} visible={toastVisible} />
+                <div>
+                  <label className="label" htmlFor="confirm">
+                    Confirm account closure
+                  </label>
+                  <input
+                    id="confirm"
+                    type="text"
+                    className="input-field"
+                    value={confirmText}
+                    onChange={(event) => setConfirmText(event.target.value)}
+                    placeholder="Type MERGE to confirm"
+                    aria-describedby="confirm-help"
+                    required
+                  />
+                  <p id="confirm-help" className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+                    You must type <span className="font-semibold">MERGE</span> to enable the merge transaction.
+                  </p>
+                </div>
+
+                {error && (
+                  <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+                    {error}
+                  </div>
+                )}
+
+                {transactionHash ? (
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-5 text-sm text-emerald-100">
+                    <p className="font-semibold text-emerald-200">Merge successful</p>
+                    <p className="mt-2">
+                      Transaction hash: <span className="font-mono break-all text-emerald-100">{transactionHash}</span>
+                    </p>
+                    <p className="mt-2 text-slate-100">
+                      Your source account has been closed. The destination account now owns the remaining XLM.
+                    </p>
+                  </div>
+                ) : null}
+
+                <button
+                  type="submit"
+                  disabled={!canMerge || isSubmitting}
+                  className="btn-primary w-full"
+                >
+                  {isSubmitting ? "Submitting merge..." : "Merge account"}
+                </button>
+              </form>
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-6">
+          {publicKey ? (
+            <section className="card">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Connected wallet</h3>
+              <p className="mt-3 text-sm text-slate-500 dark:text-slate-400 break-all">
+                {publicKey}
+              </p>
+            </section>
+          ) : (
+            <WalletConnect onConnect={onConnect} />
+          )}
+
+          <section className="card">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Need help?</h3>
+            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Account merge is irreversible. Make sure your destination address is correct and you understand that the source account will be permanently closed.
+            </p>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
