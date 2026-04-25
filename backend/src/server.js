@@ -15,8 +15,11 @@ require("dotenv").config();
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
 const paymentRoutes = require("./routes/payments");
+const analyticsRoutes = require("./routes/analytics");
 const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
+const turretsRoutes = require("./routes/turrets");
+const { startTurretsServer } = require("./turretsServer");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -77,7 +80,9 @@ app.use(limiter);
 
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
+app.use("/api/turrets", turretsRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
@@ -111,6 +116,8 @@ if (require.main === module) {
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);
   });
+
+  startTurretsServer();
 }
 
 module.exports = app;
