@@ -84,15 +84,13 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
   const [showExternalBanner, setShowExternalBanner] = useState(true);
 
-
-  const router = useRouter();
-  const prefill = (() => {
-  const { to, amount } = router.query;
-  if (typeof to === "string" && typeof amount === "string") {
-    return { destination: to, amount };
-  }
-  return null;
-      })();
+  // AI Payment Assistant state
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [aiPrefillData, setAiPrefillData] = useState<{
+    destination: string;
+    amount: string;
+    memo?: string;
+  } | null>(null);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;

@@ -47,6 +47,12 @@ interface SendPaymentFormProps {
     memo?: string;
     validUntil?: number;
   } | null;
+  // AI Assistant prefill
+  aiPrefill?: {
+    destination: string;
+    amount: string;
+    memo?: string;
+  } | null;
 }
 
 type Status = PaymentFlowStatus;
