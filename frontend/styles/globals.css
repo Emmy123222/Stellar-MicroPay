@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 @layer base {
-  /* Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
+    /* Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
      Dark mode variables (default) and light mode overrides via :root.light */
 
   :root {
@@ -65,36 +65,36 @@
 }
 
 @layer components {
-  .card {
-    @apply bg-white dark:bg-[#0a1628] border border-[rgba(14,165,233,0.15)] rounded-2xl p-6 transition-colors duration-300;
-  }
+    .card {
+        @apply bg-white dark:bg-[#0a1628] border border-[rgba(14,165,233,0.15)] rounded-2xl p-6 transition-colors duration-300;
+    }
 
-  .btn-primary {
-    @apply bg-stellar-500 hover:bg-stellar-400 text-white font-medium px-6 py-3 rounded-xl
+    .btn-primary {
+        @apply bg-stellar-500 hover:bg-stellar-400 text-white font-medium px-6 py-3 rounded-xl
            transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
            focus:outline-none focus:ring-2 focus:ring-stellar-400 focus:ring-offset-2 dark:focus:ring-offset-cosmos-900 focus:ring-offset-white;
-  }
+    }
 
-  .btn-secondary {
-    @apply border border-stellar-500/40 hover:border-stellar-500/80 text-stellar-400 font-medium px-6 py-3 rounded-xl
+    .btn-secondary {
+        @apply border border-stellar-500/40 hover:border-stellar-500/80 text-stellar-400 font-medium px-6 py-3 rounded-xl
            transition-all duration-200 bg-stellar-500/5 hover:bg-stellar-500/10
            focus:outline-none focus:ring-2 focus:ring-stellar-400 focus:ring-offset-2 dark:focus:ring-offset-cosmos-900 focus:ring-offset-white;
-  }
+    }
 
-  .input-field {
-    @apply w-full dark:bg-cosmos-800 bg-white border border-[rgba(14,165,233,0.2)] rounded-xl px-4 py-3
+    .input-field {
+        @apply w-full dark:bg-cosmos-800 bg-white border border-[rgba(14,165,233,0.2)] rounded-xl px-4 py-3
            dark:text-slate-200 text-slate-800 placeholder-slate-400 font-mono text-sm
            focus:outline-none focus:border-stellar-500/60 focus:ring-1 focus:ring-stellar-500/40
            transition-all duration-200;
-  }
+    }
 
-  .label {
-    @apply block text-xs font-medium dark:text-slate-400 text-slate-500 uppercase tracking-wider mb-2;
-  }
+    .label {
+        @apply block text-xs font-medium dark:text-slate-400 text-slate-500 uppercase tracking-wider mb-2;
+    }
 
-  .address-pill {
-    @apply font-mono text-xs dark:bg-cosmos-800 bg-slate-100 text-stellar-400 px-3 py-1.5 rounded-lg border border-stellar-500/20;
-  }
+    .address-pill {
+        @apply font-mono text-xs dark:bg-cosmos-800 bg-slate-100 text-stellar-400 px-3 py-1.5 rounded-lg border border-stellar-500/20;
+    }
 
   .status-badge {
     @apply text-xs font-medium px-2.5 py-1 rounded-full;
