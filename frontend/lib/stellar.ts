@@ -372,6 +372,37 @@ export async function buildPaymentTransaction({
 }
 
 /**
+ * Build an unsigned Stellar account merge transaction ready for Freighter to sign.
+ *
+ * @param params - Merge parameters.
+ * @param params.fromPublicKey - Source account public key (will be closed).
+ * @param params.destinationPublicKey - Destination account public key.
+ * @returns A promise resolving to an unsigned {@link Transaction} object.
+ */
+export async function buildAccountMergeTransaction({
+  fromPublicKey,
+  destinationPublicKey,
+}: {
+  fromPublicKey: string;
+  destinationPublicKey: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const builder = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.accountMerge({
+        destination: destinationPublicKey,
+      })
+    )
+    .setTimeout(60);
+
+  return builder.build();
+}
+
+/**
  * Submit a signed transaction XDR string to the Stellar network.
  *
  * Deserializes the XDR envelope, submits it to Horizon, and returns the
