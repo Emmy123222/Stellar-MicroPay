@@ -1,32 +1,47 @@
 /**
  * pages/dashboard.tsx
  * Dashboard with wallet summary, payment stats, payment actions, and recent activity.
+ *
+ * Notification implementation uses the Push API as per MDN:
+ * https://developer.mozilla.org/en-US/docs/Web/API/Push_API
+ *
+ * Flow:
+ *  1. Register a service worker (required by Push API).
+ *  2. Call Notification.requestPermission() on user gesture.
+ *  3. Subscribe via PushManager.subscribe() with userVisibleOnly + VAPID key.
+ *  4. The service worker's push event handler calls showNotification().
  */
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
+import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import {
   getXLMBalance,
   getUSDCBalance,
-  fundWithFriendbot,
+  getFriendBotFunding,
+  waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
+  getRecentPaymentsForStats,
   PaymentRecord,
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
+import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 
 
 interface DashboardProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
+  stellarURI?: URIParseResult | null;
 }
 
 interface PaymentStats {
@@ -38,7 +53,7 @@ interface PaymentStats {
   totalTransactions: number;
 }
 
-export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
+export default function Dashboard({ publicKey, onConnect, stellarURI }: DashboardProps) {
   const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
@@ -47,14 +62,27 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const { visible: toastVisible, message: toastMessage, showToast } = useToast();
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   const isTestnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet";
+  const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const [accountNotFound, setAccountNotFound] = useState(false);
+
+  // Build prefill object from query parameters (e.g., from contacts page)
+  const prefill = router.query.prefillDestination
+    ? {
+        destination: router.query.prefillDestination as string,
+        amount: "",
+        memo: "",
+      }
+    : null;
   const [friendbotLoading, setFriendbotLoading] = useState(false);
+  const [friendbotSuccessMessage, setFriendbotSuccessMessage] = useState<string | null>(null);
   const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null);
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false);
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
+  const [showExternalBanner, setShowExternalBanner] = useState(true);
 
 
   const router = useRouter();
@@ -103,8 +131,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setPaymentStatsError(null);
 
     try {
+      const headers: HeadersInit = {};
+      const token = getJwtToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const response = await fetch(
-        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`
+        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`,
+        { headers }
       );
 
       if (!response.ok) {
@@ -140,14 +175,83 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   }, [publicKey]);
 
-  const handleFriendbot = async () => {
+  const fetchSpendingHistory = useCallback(async () => {
     if (!publicKey) return;
 
-    setFriendbotLoading(true);
+    setSpendingLoading(true);
     try {
-      await fundWithFriendbot(publicKey);
-      showToast("Account funded! Refreshing balance...");
-      setTimeout(() => setRefreshKey((k) => k + 1), 2000);
+      const payments = await getRecentPaymentsForStats(publicKey, 200);
+      
+      // Group by calendar month (last 6 months)
+      const now = new Date();
+      const months = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push({
+          month: d.toLocaleString("default", { month: "short" }),
+          monthIndex: d.getMonth(),
+          year: d.getFullYear(),
+          sent: 0,
+          received: 0,
+          label: d.toLocaleString("default", { month: "long", year: "numeric" }),
+        });
+      }
+
+      payments.forEach((p) => {
+        const pDate = new Date(p.createdAt);
+        const m = months.find(
+          (m) =>
+            m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
+        );
+        if (m) {
+          const amount = parseFloat(p.amount);
+          if (p.type === "sent") {
+            m.sent += amount;
+          } else {
+            m.received += amount;
+          }
+        }
+      });
+
+      setSpendingData(months);
+    } catch (err) {
+      console.error("Failed to fetch spending history:", err);
+    } finally {
+      setSpendingLoading(false);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    fetchSpendingHistory();
+  }, [fetchSpendingHistory, refreshKey]);
+
+  const handleFriendbot = async () => {
+    if (!publicKey) return;
+    if (!isTestnet) {
+      showToast("Friendbot is only available on testnet.");
+      return;
+    }
+
+    setFriendbotLoading(true);
+    setFriendbotSuccessMessage(null);
+
+    try {
+      await getFriendBotFunding(publicKey);
+
+      const funded = await waitForAccountFunding(publicKey, {
+        intervalMs: 1000,
+        timeoutMs: 20000,
+      });
+
+      if (!funded) {
+        showToast("Funding sent, but account is still syncing. Please refresh shortly.");
+        return;
+      }
+
+      setFriendbotSuccessMessage("Success! 10,000 XLM has been credited to your wallet.");
+      showToast("Wallet funded with 10,000 XLM.");
+
+      setRefreshKey((k) => k + 1);
     } catch {
       showToast("Friendbot funding failed. Please try again.");
     } finally {
@@ -160,8 +264,16 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   }, [fetchBalance, refreshKey]);
 
   useEffect(() => {
+    setFriendbotSuccessMessage(null);
+  }, [publicKey]);
+
+  useEffect(() => {
     fetchPaymentStats();
   }, [fetchPaymentStats, refreshKey]);
+
+  useEffect(() => {
+    fetchSparklineData();
+  }, [fetchSparklineData, refreshKey]);
 
   useEffect(() => {
     fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd")
@@ -169,6 +281,29 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       .then((data) => setXlmPrice(data?.stellar?.usd ?? null))
       .catch(() => setXlmPrice(null));
   }, [refreshKey]);
+
+  // Sync notification permission state on mount and whenever the user
+  // returns to the tab — they may have changed browser-level settings.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+    const syncPermission = () => {
+      const perm = Notification.permission;
+      setNotificationPermission(perm);
+      // If permission was revoked externally, disable notifications automatically.
+      if (perm !== 'granted') {
+        setNotificationEnabled(false);
+        localStorage.setItem('notificationOptIn', 'false');
+      }
+    };
+
+    syncPermission();
+    const optIn = localStorage.getItem('notificationOptIn') === 'true';
+    setNotificationEnabled(optIn && Notification.permission === 'granted');
+
+    window.addEventListener('focus', syncPermission);
+    return () => window.removeEventListener('focus', syncPermission);
+  }, []);
 
   const handleCopyAddress = async () => {
     if (!publicKey) return;
@@ -179,22 +314,197 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Onboarding tour logic
+  useEffect(() => {
+    if (publicKey) {
+      const hasSeenTour = localStorage.getItem("stellar-micropay:onboarding-completed");
+      if (!hasSeenTour) {
+        setShowOnboardingTour(true);
+      }
+    }
+  }, [publicKey]);
+
+  const handleTourComplete = () => {
+    setShowOnboardingTour(false);
+    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
+  };
+
+  const handleTourSkip = () => {
+    setShowOnboardingTour(false);
+    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
+  };
+
   const handlePaymentSuccess = () => {
     setTimeout(() => {
       setRefreshKey((k) => k + 1);
     }, 2000);
   };
 
-  // Start real-time payment streaming for the connected wallet
+  /**
+   * Subscribe to the Push API using the correct MDN-documented flow:
+   *  1. Register (or retrieve) the service worker.
+   *  2. Request notification permission on the user gesture.
+   *  3. Call PushManager.subscribe() with userVisibleOnly + VAPID key.
+   *  4. Send the PushSubscription endpoint to the server for future pushes.
+   *
+   * Reference: https://developer.mozilla.org/en-US/docs/Web/API/Push_API
+   */
+  const subscribeToPush = async (): Promise<boolean> => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      showToast('Push notifications are not supported in this browser.');
+      return false;
+    }
+
+    // Step 1 — Register the service worker (idempotent: returns existing if already registered).
+    const registration = await navigator.serviceWorker.register('/sw.js');
+
+    // Step 2 — Request notification permission. Must be called directly inside
+    // a user-gesture handler; async chains that break the gesture context will
+    // be silently rejected by some browsers.
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+
+    if (permission !== 'granted') {
+      showToast('Notification permission was not granted.');
+      return false;
+    }
+
+    // Step 3 — Subscribe via PushManager.
+    // userVisibleOnly: true is required by Chrome/Edge.
+    // applicationServerKey is the VAPID public key from the environment.
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) {
+      // No VAPID key configured — fall back to permission-only mode (no
+      // server-pushed messages, but in-app bubble notifications still work).
+      console.warn('NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set. Server push disabled.');
+      return true;
+    }
+
+    const existingSubscription = await registration.pushManager.getSubscription();
+    const subscription =
+      existingSubscription ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      }));
+
+    // Step 4 — Send the subscription to your server so it can push messages later.
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+    await fetch(`${apiBase}/api/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription, publicKey }),
+    }).catch((err) => {
+      // Non-fatal: subscription still works for same-session in-app notifications.
+      console.warn('Could not register push subscription with server:', err);
+    });
+
+    return true;
+  };
+
+  const handleToggleNotifications = async () => {
+    // --- Disable ---
+    if (notificationEnabled) {
+      localStorage.setItem('notificationOptIn', 'false');
+      setNotificationEnabled(false);
+      showToast('Payment notifications disabled');
+      return;
+    }
+
+    // --- Enable ---
+    if (!('Notification' in window)) {
+      showToast('This browser does not support notifications.');
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      showToast('Notifications are blocked. Please enable them in your browser settings.');
+      return;
+    }
+
+    try {
+      const subscribed = await subscribeToPush();
+      if (!subscribed) return;
+
+      localStorage.setItem('notificationOptIn', 'true');
+      setNotificationEnabled(true);
+      showToast('Payment notifications enabled');
+
+      // Confirm with an immediate notification so the user sees it working.
+      // Use showNotification() via the service worker registration —
+      // this is the Push API-correct method, not new Notification().
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification('Stellar Pay', {
+        body: 'You will now receive notifications for incoming payments.',
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+      });
+    } catch (err) {
+      console.error('Failed to enable push notifications:', err);
+      showToast('Could not enable notifications. Please try again.');
+    }
+  };
+
+  /**
+   * Dev-only test: fires a notification via the service worker registration
+   * (showNotification) to validate the full Push API path, not just UI state.
+   */
+  const handleTestNotification = async () => {
+    if (!notificationEnabled) return;
+
+    // In-app bubble for immediate visual feedback
+    setBubbleMessage('You received 10.00 XLM');
+    setShowBubble(true);
+    setTimeout(() => setShowBubble(false), 3000);
+
+    // Real notification via service worker — validates the actual push path
+    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification('Stellar Pay — Test', {
+          body: 'You received 10.00 XLM',
+          icon: '/favicon.svg',
+          badge: '/favicon.svg',
+        });
+      } catch (err) {
+        console.error('Test notification failed:', err);
+      }
+    }
+  };
+
+  // Real-time payment streaming for the connected wallet.
+  // On incoming payment: show OS notification when page is hidden,
+  // in-app bubble when page is visible.
   useEffect(() => {
     if (!publicKey) return;
 
     const unsubscribe = streamPayments(
       publicKey,
       async (payment) => {
-        // Only show toast / refresh balance for incoming payments
-        if (payment.type === "received") {
+        if (payment.type === 'received') {
           showToast(`Received ${payment.amount} ${payment.asset}`);
+
+          if (notificationEnabled && Notification.permission === 'granted') {
+            if (document.visibilityState === 'hidden') {
+              // Page is not visible — use the service worker showNotification()
+              // so the OS notification tray receives it.
+              try {
+                const registration = await navigator.serviceWorker.ready;
+                await registration.showNotification('Stellar Pay — Payment received', {
+                  body: `You received ${payment.amount} ${payment.asset}`,
+                  icon: '/favicon.svg',
+                  badge: '/favicon.svg',
+                });
+              } catch (err) {
+                console.error('showNotification failed:', err);
+              }
+            } else {
+              // Page is visible — in-app bubble is less intrusive.
+              setBubbleMessage(`You received ${payment.amount} ${payment.asset}`);
+              setShowBubble(true);
+              setTimeout(() => setShowBubble(false), 3000);
+            }
+          }
 
           // Refresh XLM balance after an incoming payment
           try {
@@ -208,14 +518,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         setIncomingPayment(payment);
       },
       (error) => {
-        console.error("Dashboard payment stream error:", error);
+        console.error('Dashboard payment stream error:', error);
       }
     );
 
     return () => {
       unsubscribe();
     };
-  }, [publicKey, showToast]);
+  }, [publicKey, showToast, notificationEnabled]);
 
   if (!publicKey) {
     return (
@@ -234,6 +544,34 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       <div className="mb-8">
         <h1 className="font-display text-3xl font-bold text-white mb-1">Dashboard</h1>
         <p className="text-slate-400 text-sm">Send and receive XLM globally</p>
+        <div className="mt-4">
+          <button
+            onClick={handleToggleNotifications}
+            disabled={notificationPermission === 'denied'}
+            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-stellar-400 hover:text-stellar-300 disabled:bg-white/5 disabled:text-slate-500 disabled:border-white/5 disabled:cursor-not-allowed transition-colors flex items-center justify-between cursor-pointer"
+          >
+            <span>
+              {notificationEnabled
+                ? 'Disable payment notifications'
+                : notificationPermission === 'denied'
+                ? 'Notifications blocked'
+                : 'Enable payment notifications'}
+            </span>
+            {notificationEnabled
+              ? <BellOffIcon className="w-4 h-4" />
+              : <BellIcon className="w-4 h-4" />}
+          </button>
+
+          {/* Test button: dev-only, shown only when notifications are enabled */}
+          {process.env.NODE_ENV === 'development' && notificationEnabled && (
+            <button
+              onClick={handleTestNotification}
+              className="mt-2 text-xs text-slate-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <TestIcon className="w-3.5 h-3.5" /> Test notification
+            </button>
+          )}
+        </div>
       </div>
 
       <PaymentStatsWidget
@@ -242,6 +580,38 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         error={paymentStatsError}
         onRetry={fetchPaymentStats}
       />
+
+      <MonthlySpendingChart 
+        data={spendingData} 
+        loading={spendingLoading}
+        onBarClick={setSelectedMonth}
+      />
+
+      {selectedMonth && (
+        <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
+          <div>
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">
+              Selected Period: {selectedMonth.label}
+            </p>
+            <div className="flex items-center gap-6">
+              <div>
+                <span className="text-xs text-slate-400">Total Sent</span>
+                <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
+              </div>
+              <div>
+                <span className="text-xs text-slate-400">Total Received</span>
+                <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
+              </div>
+            </div>
+          </div>
+          <button 
+            onClick={() => setSelectedMonth(null)}
+            className="p-2 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+          >
+            <CloseIcon className="w-5 h-5" />
+          </button>
+        </div>
+      )}
 
       <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
@@ -284,6 +654,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                     {formatUSD(parseFloat(xlmBalance) * xlmPrice)}
                   </p>
                 )}
+                {!sparklineLoading && sparklineData.length > 0 && (
+                  <div className="mt-3">
+                    <BalanceSparkline data={sparklineData} />
+                  </div>
+                )}
                 <button
                   onClick={fetchBalance}
                   className="mt-1 text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
@@ -294,21 +669,9 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ) : accountNotFound && isTestnet ? (
               <div className="sm:text-right">
                 <p className="text-amber-400 text-sm mb-2">Account not funded yet</p>
-                <button
-                  onClick={handleFriendbot}
-                  disabled={friendbotLoading}
-                  className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black font-semibold text-sm py-2 px-4 rounded-lg transition-colors cursor-pointer"
-                >
-                  {friendbotLoading ? (
-                    <>
-                      <SpinnerIcon className="w-4 h-4 animate-spin" /> Funding...
-                    </>
-                  ) : (
-                    <>
-                      <DropIcon className="w-4 h-4" /> Fund Testnet Account
-                    </>
-                  )}
-                </button>
+                <p className="text-xs text-slate-400">
+                  Use the funding card below to credit your wallet on testnet.
+                </p>
               </div>
             ) : (
               <div>
@@ -321,24 +684,60 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                 </button>
               </div>
             )}
+
+            {friendbotSuccessMessage && (
+              <p className="text-xs text-emerald-400 mt-2">{friendbotSuccessMessage}</p>
+            )}
           </div>
         </div>
 
         {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
           <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-amber-400/80">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-            You&apos;re on <strong>Testnet</strong> � funds are not real.{" "}
+            You&apos;re on <strong>Testnet</strong> — funds are not real.{" "}
             <a
               href="https://friendbot.stellar.org"
               target="_blank"
               rel="noopener noreferrer"
               className="underline hover:text-amber-300"
             >
-              Get test XLM ?
+              Get test XLM
             </a>
           </div>
         )}
       </div>
+
+      {accountNotFound && isTestnet && (
+        <div className="card mb-6 border-amber-500/30 bg-amber-500/5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <p className="font-semibold text-white mb-1">Fund Testnet Wallet</p>
+              <p className="text-sm text-amber-200/90">
+                Your wallet is not funded yet. Click once to receive 10,000 XLM from Friendbot.
+              </p>
+              {friendbotSuccessMessage && (
+                <p className="text-sm text-emerald-400 mt-2">{friendbotSuccessMessage}</p>
+              )}
+            </div>
+
+            <button
+              onClick={handleFriendbot}
+              disabled={friendbotLoading}
+              className="inline-flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black font-semibold text-sm py-2 px-4 rounded-lg transition-colors cursor-pointer"
+            >
+              {friendbotLoading ? (
+                <>
+                  <SpinnerIcon className="w-4 h-4 animate-spin" /> Funding...
+                </>
+              ) : (
+                <>
+                  <DropIcon className="w-4 h-4" /> Fund Testnet Wallet
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* USDC balance card — shown only when account has USDC trustline */}
       {usdcBalance !== null && (
@@ -356,8 +755,17 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
       )}
 
+      {/* External payment banner */}
+      {stellarURI && stellarURI.success && stellarURI.isExternal && showExternalBanner && (
+        <ExternalPaymentBanner
+          message={stellarURI.data?.msg}
+          originDomain={stellarURI.data?.originDomain}
+          onDismiss={() => setShowExternalBanner(false)}
+        />
+      )}
+
       <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 send-payment-form">
           <SendPaymentForm
             key={refreshKey}
             publicKey={publicKey}
@@ -369,7 +777,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
 
         <div className="lg:col-span-1">
-          <PaymentLinkGenerator />
+          <PaymentRequestGenerator />
         </div>
 
         <div className="lg:col-span-1">
@@ -383,7 +791,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                 href="/transactions"
                 className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors cursor-pointer"
               >
-                View all ?
+                View all →
               </Link>
             </div>
             <TransactionList key={refreshKey} publicKey={publicKey} limit={5} compact />
@@ -391,12 +799,32 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
       </div>
 
+      <BubbleNotification message={bubbleMessage} visible={showBubble} />
       <Toast message={toastMessage} visible={toastVisible} />
       <QRCodeModal
         isOpen={showQRModal}
         onClose={() => setShowQRModal(false)}
         publicKey={publicKey}
       />
+      <OnboardingTour
+        isVisible={showOnboardingTour}
+        onComplete={handleTourComplete}
+        onSkip={handleTourSkip}
+      />
+    </div>
+  );
+}
+
+function BubbleNotification({ message, visible }: { message: string; visible: boolean }) {
+  return (
+    <div
+      className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-500 ${
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'
+      }`}
+    >
+      <div className="bg-stellar-500 text-white px-4 py-2 rounded-lg shadow-lg max-w-xs">
+        <p className="text-sm whitespace-nowrap overflow-hidden text-ellipsis">{message}</p>
+      </div>
     </div>
   );
 }
@@ -472,6 +900,66 @@ function PaymentStatsWidget({
   );
 }
 
+function MonthlySpendingChart({
+  data,
+  loading,
+  onBarClick,
+}: {
+  data: any[];
+  loading: boolean;
+  onBarClick: (data: any) => void;
+}) {
+  if (loading && data.length === 0) {
+    return (
+      <div className="card mb-6 h-[350px] animate-pulse bg-white/[0.03] border-white/10" />
+    );
+  }
+
+  return (
+    <div className="card mb-6 overflow-hidden">
+      <h2 className="font-display text-lg font-semibold text-white mb-6">
+        Monthly Spending (XLM)
+      </h2>
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={data}
+            onClick={(state) =>
+              state &&
+              state.activePayload &&
+              onBarClick(state.activePayload[0].payload)
+            }
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <XAxis
+              dataKey="month"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tickFormatter={(value) => `${value}`}
+            />
+            <Tooltip
+              cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
+              contentStyle={{
+                backgroundColor: "#0f172a",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+              }}
+              itemStyle={{ color: "#38bdf8" }}
+            />
+            <Bar dataKey="sent" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 function StatsCard({
   label,
   value,
@@ -499,6 +987,103 @@ function formatStatsXLM(amount: string, suffix = "sent") {
     minimumFractionDigits: 2,
     maximumFractionDigits: 7,
   })} XLM ${suffix}`;
+}
+
+// ─── Sparkline chart ─────────────────────────────────────────────────────────
+
+/**
+ * Inline SVG sparkline showing balance change over the last N transactions.
+ * Green when the overall trend is upward, red when downward.
+ * Hover tooltip shows the running balance delta at each data point.
+ */
+function BalanceSparkline({ data }: { data: number[] }) {
+  const W = 160;
+  const H = 40;
+  const PAD = 4;
+
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1; // avoid division by zero for flat lines
+
+  const points = data.map((v, i) => {
+    const x = PAD + (i / Math.max(data.length - 1, 1)) * (W - PAD * 2);
+    const y = PAD + (1 - (v - min) / range) * (H - PAD * 2);
+    return { x, y, value: v };
+  });
+
+  const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
+
+  const trend = data[data.length - 1] >= data[0];
+  const color = trend ? "#22c55e" : "#ef4444"; // green-500 / red-500
+  const fillColor = trend ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)";
+
+  // Closed path for the fill area under the line
+  const fillPath =
+    `M ${points[0].x},${H - PAD} ` +
+    points.map((p) => `L ${p.x},${p.y}`).join(" ") +
+    ` L ${points[points.length - 1].x},${H - PAD} Z`;
+
+  return (
+    <div className="relative inline-block" aria-label="Balance sparkline chart">
+      <svg
+        width={W}
+        height={H}
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={`Balance trend: ${trend ? "upward" : "downward"}`}
+      >
+        {/* Fill area */}
+        <path d={fillPath} fill={fillColor} />
+        {/* Line */}
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {/* Interactive dots with tooltips */}
+        {points.map((p, i) => (
+          <g key={i} className="group">
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={5}
+              fill="transparent"
+              className="cursor-pointer"
+            />
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={2.5}
+              fill={color}
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+            />
+            {/* SVG foreignObject tooltip */}
+            <foreignObject
+              x={Math.min(p.x - 36, W - 76)}
+              y={p.y < H / 2 ? p.y + 6 : p.y - 30}
+              width={72}
+              height={24}
+              className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity overflow-visible"
+            >
+              <div
+                className="bg-cosmos-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white whitespace-nowrap text-center"
+                style={{ fontSize: "10px" }}
+              >
+                {p.value >= 0 ? "+" : ""}
+                {p.value.toFixed(4)} XLM
+              </div>
+            </foreignObject>
+          </g>
+        ))}
+      </svg>
+      <p className="text-xs mt-0.5" style={{ color, fontSize: "10px" }}>
+        {trend ? "▲ Upward trend" : "▼ Downward trend"}
+      </p>
+    </div>
+  );
 }
 
 function CheckIcon({ className }: { className?: string }) {
@@ -561,6 +1146,14 @@ function DropIcon({ className }: { className?: string }) {
   );
 }
 
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
 function HistoryIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -569,6 +1162,45 @@ function HistoryIcon({ className }: { className?: string }) {
         strokeLinejoin="round"
         strokeWidth={2}
         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
+    </svg>
+  );
+}
+
+function BellIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+      />
+    </svg>
+  );
+}
+
+function BellOffIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9.172 9.172a4 4 0 015.656 5.656M9.172 9.172A4 4 0 0115 7.858V7a3 3 0 00-6 0v.858m0 1.314A4 4 0 009 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9m3 0h.01M3 3l18 18"
+      />
+    </svg>
+  );
+}
+
+function TestIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
       />
     </svg>
   );

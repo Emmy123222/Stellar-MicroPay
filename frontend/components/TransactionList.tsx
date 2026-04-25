@@ -15,22 +15,53 @@ import {
 import { formatXLM, timeAgo, copyToClipboard } from "@/utils/format";
 import clsx from "clsx";
 
+export type TransactionDirectionFilter = "all" | "sent" | "received";
+
+export interface TransactionFilters {
+  direction: TransactionDirectionFilter;
+  minAmount: string;
+}
+
 interface TransactionListProps {
   publicKey: string;
   limit?: number;
   compact?: boolean;
+  filters?: TransactionFilters;
   /** Called whenever the payments array changes so the parent can access it. */
   onPaymentsChange?: (payments: PaymentRecord[]) => void;
+  /** Called when the user wants to print a receipt for a payment. */
+  onPrintReceipt?: (payment: PaymentRecord) => void;
   /** Optional single incoming payment to prepend in real-time. */
   incomingPayment?: PaymentRecord | null;
   onSendAgain?: (to: string, amount: string) => void;
+}
+
+export function filterPayments(
+  payments: PaymentRecord[],
+  filters: TransactionFilters
+): PaymentRecord[] {
+  const minimumAmount =
+    filters.minAmount.trim() === "" ? null : Number(filters.minAmount);
+  const hasMinimumAmount =
+    minimumAmount !== null && Number.isFinite(minimumAmount) && minimumAmount >= 0;
+
+  return payments.filter((payment) => {
+    const matchesDirection =
+      filters.direction === "all" || payment.type === filters.direction;
+    const matchesAmount =
+      !hasMinimumAmount || Number(payment.amount) >= (minimumAmount ?? 0);
+
+    return matchesDirection && matchesAmount;
+  });
 }
 
 export default function TransactionList({
   publicKey,
   limit = 20,
   compact = false,
+  filters = { direction: "all", minAmount: "" },
   onPaymentsChange,
+  onPrintReceipt,
   incomingPayment,
 }: TransactionListProps) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
@@ -116,6 +147,10 @@ export default function TransactionList({
     });
   }, [incomingPayment, onPaymentsChange]);
 
+  const visiblePayments = filterPayments(payments, filters);
+  const hasActiveFilters =
+    filters.direction !== "all" || filters.minAmount.trim() !== "";
+
   if (loading) {
     return (
       <div className={compact ? "" : "card"}>
@@ -181,75 +216,107 @@ export default function TransactionList({
 
   return (
     <div className={compact ? "" : "card"}>
-      {!compact && (
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
-            <HistoryIcon className="w-5 h-5 text-stellar-400" />
-            Recent Payments
-          </h2>
-          <button
-            onClick={() => fetchPayments()}
-            className="text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1"
-          >
-            <RefreshIcon className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {payments.map((tx) => (
+{!compact && (
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
+                <HistoryIcon className="w-5 h-5 text-stellar-400" />
+                Recent Payments
+              </h2>
+              <button
+                onClick={() => fetchPayments()}
+                className="text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1"
+              >
+                <RefreshIcon className="w-3.5 h-3.5" />
+                Refresh
+              </button>
+            </div>
+          )}
+          
+          <div className="mb-4 flex items-center gap-3 text-xs text-stellar-400">
+            <span className="w-1 h-1 rounded-full bg-stellar-400 flex-shrink-0" />
+            <span>Keyboard navigation: ↑ ↓ to navigate, Enter to copy address</span>
+          </div>
+          
+          <div className="space-y-2">
+        {payments.map((tx, index) => (
           <div
             key={tx.id}
-            className="flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group"
+            tabIndex={focusedIndex === index ? 0 : -1}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setFocusedIndex((prev) => Math.min(prev + 1, payments.length - 1));
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setFocusedIndex((prev) => Math.max(prev - 1, 0));
+              } else if (e.key === 'Enter' && focusedIndex === index) {
+                e.preventDefault();
+                // Trigger copy action on Enter (similar to clicking the address pill)
+                const address = tx.type === "sent" ? tx.to : tx.from;
+                copyToClipboard(address);
+                setCopiedId(tx.id);
+                setTimeout(() => setCopiedId(null), 2000);
+              }
+            }}
+            onBlur={() => setFocusedIndex(-1)}
+            onFocus={() => setFocusedIndex(index)}
+            className={clsx(
+              "flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group",
+              focusedIndex === index && "outline-none ring-2 ring-stellar-500 ring-offset-2"
+            )}
           >
             {/* Direction icon */}
             <div
-              className={clsx(
-                "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
-                tx.type === "sent"
-                  ? "bg-red-500/10 border border-red-500/20"
-                  : "bg-emerald-500/10 border border-emerald-500/20"
-              )}
+              key={tx.id}
+              className="flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group"
             >
-              {tx.type === "sent" ? (
-                <ArrowUpIcon className="w-4 h-4 text-red-400" />
-              ) : (
-                <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
-              )}
-            </div>
-
-            {/* Details */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-slate-200 capitalize">
-                  {tx.type === "sent" ? "Sent to" : "Received from"}
-                </span>
-                <button
-                  onClick={() =>
-                    handleCopy(
-                      tx.type === "sent" ? tx.to : tx.from,
-                      tx.id
-                    )
-                  }
-                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
-                >
-                  {copiedId === tx.id
-                    ? "Copied!"
-                    : shortenAddress(tx.type === "sent" ? tx.to : tx.from, 5)}
-                </button>
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-slate-500">
-                  {timeAgo(tx.createdAt)}
-                </span>
-                {tx.memo && (
-                  <span className="text-xs text-slate-600 truncate max-w-32">
-                    · &ldquo;{tx.memo}&rdquo;
-                  </span>
+              {/* Direction icon */}
+              <div
+                className={clsx(
+                  "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+                  tx.type === "sent"
+                    ? "bg-red-500/10 border border-red-500/20"
+                    : "bg-emerald-500/10 border border-emerald-500/20"
+                )}
+              >
+                {tx.type === "sent" ? (
+                  <ArrowUpIcon className="w-4 h-4 text-red-400" />
+                ) : (
+                  <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
                 )}
               </div>
-            </div>
+
+              {/* Details */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-slate-200 capitalize">
+                    {tx.type === "sent" ? "Sent to" : "Received from"}
+                  </span>
+                  <button
+                    onClick={() =>
+                      handleCopy(
+                        tx.type === "sent" ? tx.to : tx.from,
+                        tx.id
+                      )
+                    }
+                    className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
+                  >
+                    {copiedId === tx.id
+                      ? "Copied!"
+                      : shortenAddress(tx.type === "sent" ? tx.to : tx.from, 5)}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-slate-500">
+                    {timeAgo(tx.createdAt)}
+                  </span>
+                  {tx.memo && (
+                    <span className="text-xs text-slate-600 truncate max-w-32">
+                      · &ldquo;{tx.memo}&rdquo;
+                    </span>
+                  )}
+                </div>
+              </div>
 
             {/* Amount + link */}
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -287,8 +354,8 @@ export default function TransactionList({
                 <ExternalLinkIcon className="w-3.5 h-3.5" />
               </a>
             </div>
-          </div>
-        ))}
+          ))
+        )}
 
         {/* Load more */}
         {hasMore && payments.length > 0 && (
@@ -304,7 +371,7 @@ export default function TransactionList({
                   Loading...
                 </>
               ) : (
-                "Load more"
+                hasActiveFilters ? "Load more results" : "Load more"
               )}
             </button>
           </div>
@@ -356,10 +423,10 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
-function DownloadIcon({ className }: { className?: string }) {
+function PrinterIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 9V3.75A1.75 1.75 0 018.5 2h7a1.75 1.75 0 011.75 1.75V9M7.5 18.75h9M5.25 9H18.75A2.25 2.25 0 0121 11.25v5.25a1.5 1.5 0 01-1.5 1.5h-2.25V15H6.75v3H4.5A1.5 1.5 0 013 16.5v-5.25A2.25 2.25 0 015.25 9z" />
     </svg>
   );
 }
