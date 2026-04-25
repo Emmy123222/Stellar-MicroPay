@@ -4,11 +4,22 @@
  */
 
 import { useState, useEffect } from "react";
-import { connectWallet, isFreighterInstalled, detectBrowser, EXTENSION_URLS, performSEP0010Auth } from "@/lib/wallet";
+import { 
+  connectWallet, 
+  isFreighterInstalled, 
+  detectBrowser, 
+  EXTENSION_URLS, 
+  performSEP0010Auth,
+  getLedgerPublicKey,
+  signTransactionWithLedger,
+  isLedgerSupported
+} from "@/lib/wallet";
 
 interface WalletConnectProps {
   onConnect: (publicKey: string) => void;
 }
+
+type WalletType = "freighter" | "ledger";
 
 export default function WalletConnect({ onConnect }: WalletConnectProps) {
   const [loading, setLoading] = useState(false);
@@ -16,12 +27,17 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
   const [error, setError]     = useState<string | null>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [browser, setBrowser] = useState<"chrome" | "firefox" | "other">("other");
+  const [selectedWallet, setSelectedWallet] = useState<WalletType | null>(null);
+  const [ledgerSupported, setLedgerSupported] = useState(false);
 
   useEffect(() => {
     setBrowser(detectBrowser());
+    // Check if Ledger is supported
+    isLedgerSupported().then(setLedgerSupported);
   }, []);
 
-  const handleConnect = async () => {
+  const handleFreighterConnect = async () => {
+    setSelectedWallet("freighter");
     setLoading(true);
     setError(null);
     setStep("connecting");
@@ -39,6 +55,35 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
 
     if (walletError || !publicKey) {
       setError(walletError || "Could not retrieve public key.");
+      setLoading(false);
+      setStep("idle");
+      return;
+    }
+
+    // SEP-0010: prove ownership of the connected wallet
+    setStep("authenticating");
+    const { error: authError } = await performSEP0010Auth(publicKey);
+    setLoading(false);
+    setStep("idle");
+
+    if (authError) {
+      setError(authError);
+      return;
+    }
+
+    onConnect(publicKey);
+  };
+
+  const handleLedgerConnect = async () => {
+    setSelectedWallet("ledger");
+    setLoading(true);
+    setError(null);
+    setStep("connecting");
+
+    const { publicKey, error: ledgerError } = await getLedgerPublicKey();
+
+    if (ledgerError || !publicKey) {
+      setError(ledgerError || "Could not retrieve public key from Ledger device.");
       setLoading(false);
       setStep("idle");
       return;
@@ -117,7 +162,7 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
         </a>
 
         <button
-          onClick={handleConnect}
+          onClick={handleFreighterConnect}
           disabled={loading}
           className="btn-secondary w-full flex items-center justify-center gap-2"
         >
@@ -145,16 +190,7 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
         Connect your wallet
       </h2>
       <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-        Stellar MicroPay uses{" "}
-        <a
-          href="https://freighter.app"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-stellar-400 hover:text-stellar-300 underline underline-offset-2"
-        >
-          Freighter
-        </a>
-        , a browser wallet for the Stellar network. Connect to start sending payments.
+        Choose your preferred wallet to connect to the Stellar network and start sending payments.
       </p>
 
       {error && (
@@ -163,27 +199,61 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
         </div>
       )}
 
-      <button
-        onClick={handleConnect}
-        disabled={loading}
-        className="btn-primary w-full flex items-center justify-center gap-2"
-      >
-        {step === "connecting"     ? <><Spinner /> Connecting...</> :
-         step === "authenticating" ? <><Spinner /> Authenticating...</> :
-         <><WalletIcon className="w-4 h-4" /> Connect Freighter Wallet</>}
-      </button>
-
-      <p className="mt-4 text-xs text-slate-500">
-        Don&apos;t have Freighter?{" "}
-        <a
-          href={extensionUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-stellar-400 hover:underline"
+      {/* Wallet Options */}
+      <div className="space-y-3 mb-6">
+        {/* Freighter Option */}
+        <button
+          onClick={handleFreighterConnect}
+          disabled={loading}
+          className="btn-primary w-full flex items-center justify-center gap-3"
         >
-          Install the extension →
-        </a>
-      </p>
+          <div className="w-5 h-5 rounded bg-white/10 flex items-center justify-center">
+            <WalletIcon className="w-3 h-3" />
+          </div>
+          {step === "connecting" && selectedWallet === "freighter" ? <><Spinner /> Connecting...</> :
+           step === "authenticating" && selectedWallet === "freighter" ? <><Spinner /> Authenticating...</> :
+           "Connect Freighter Wallet"}
+        </button>
+
+        {/* Ledger Option */}
+        <button
+          onClick={handleLedgerConnect}
+          disabled={loading || !ledgerSupported}
+          className="btn-secondary w-full flex items-center justify-center gap-3"
+        >
+          <div className="w-5 h-5 rounded bg-blue-500/20 flex items-center justify-center">
+            <LedgerIcon className="w-3 h-3 text-blue-400" />
+          </div>
+          {step === "connecting" && selectedWallet === "ledger" ? <><Spinner /> Connecting...</> :
+           step === "authenticating" && selectedWallet === "ledger" ? <><Spinner /> Authenticating...</> :
+           "Connect Ledger Hardware Wallet"}
+        </button>
+      </div>
+
+      {/* Help Text */}
+      <div className="space-y-3 text-xs text-slate-500">
+        <div>
+          Don&apos;t have Freighter?{" "}
+          <a
+            href={extensionUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-stellar-400 hover:underline"
+          >
+            Install the extension →
+          </a>
+        </div>
+        
+        {!ledgerSupported && (
+          <div className="text-amber-400">
+            Ledger requires Chrome, Edge, or another Chromium-based browser with WebHID support.
+          </div>
+        )}
+        
+        <div>
+          Using Ledger? Make sure your device is connected, unlocked, and the Stellar app is open.
+        </div>
+      </div>
 
       {/* Network indicator */}
       <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-xs text-slate-500">
@@ -198,6 +268,17 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
+
+function LedgerIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <line x1="7" y1="8" x2="17" y2="8" />
+      <line x1="7" y1="12" x2="17" y2="12" />
+      <line x1="7" y1="16" x2="13" y2="16" />
+    </svg>
+  );
+}
 
 function WalletIcon({ className }: { className?: string }) {
   return (
