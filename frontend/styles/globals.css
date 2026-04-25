@@ -177,3 +177,48 @@
       );
   }
 }
+
+/* ── Hero particle animation (#165) ───────────────────────────────────── */
+@keyframes particle-float {
+  0%   { transform: translateY(0) translateX(0) scale(1); opacity: 0.6; }
+  33%  { transform: translateY(-18px) translateX(6px) scale(1.1); opacity: 0.9; }
+  66%  { transform: translateY(-8px) translateX(-4px) scale(0.9); opacity: 0.5; }
+  100% { transform: translateY(0) translateX(0) scale(1); opacity: 0.6; }
+}
+
+.hero-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero-particles::before,
+.hero-particles::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(14, 165, 233, 0.55);
+  animation: particle-float linear infinite;
+}
+
+/* Particle spread via nth-child-like selectors using CSS custom properties */
+.hero-particles [data-p] {
+  position: absolute;
+  width: var(--sz, 3px);
+  height: var(--sz, 3px);
+  border-radius: 50%;
+  background: rgba(14, 165, 233, var(--op, 0.5));
+  animation: particle-float var(--dur, 6s) var(--delay, 0s) ease-in-out infinite;
+  top: var(--top, 50%);
+  left: var(--left, 50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-particles [data-p],
+  .hero-particles::before,
+  .hero-particles::after {
+    animation: none;
+  }
+}

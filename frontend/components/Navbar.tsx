@@ -5,8 +5,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { shortenAddress } from "@/lib/stellar";
-import { getNetworkConfig } from "@/lib/stellar";
+import { useEffect, useState } from "react";
+import { shortenAddress, getNetworkConfig, fetchNetworkFeeStats, type FeeLevel } from "@/lib/stellar";
 import clsx from "clsx";
 import { useTheme } from "@/pages/_app";
 
@@ -41,8 +41,24 @@ export default function Navbar({
       : "border-amber-400/35 bg-amber-400/10 text-amber-300");
 
   // Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
-  // Consumes ThemeContext to read current theme and trigger toggle
   const { theme, toggleTheme } = useTheme();
+
+  // Issue #168 — Network status indicator
+  const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const stats = await fetchNetworkFeeStats();
+        if (!cancelled) setFeeLevel(stats.feeLevel);
+      } catch {
+        // silently ignore — dot simply won't show on error
+      }
+    };
+    void load();
+    const interval = setInterval(() => void load(), 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
 
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-white/80 dark:bg-cosmos-900/80 backdrop-blur-xl transition-colors duration-300">
@@ -66,6 +82,20 @@ export default function Navbar({
           >
             {networkLabel}
           </span>
+
+          {/* Network fee status dot */}
+          {feeLevel && (
+            <span
+              title={`Network: ${feeLevel.charAt(0).toUpperCase() + feeLevel.slice(1)}`}
+              aria-label={`Network fee status: ${feeLevel}`}
+              className={clsx(
+                "hidden md:inline-block w-2.5 h-2.5 rounded-full border transition-colors",
+                feeLevel === "normal"   && "bg-emerald-400 border-emerald-400/50",
+                feeLevel === "elevated" && "bg-amber-400 border-amber-400/50",
+                feeLevel === "high"     && "bg-red-400 border-red-400/50",
+              )}
+            />
+          )}
 
           {/* Nav links */}
           <div className="hidden md:flex items-center gap-1">
