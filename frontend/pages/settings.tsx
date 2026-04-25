@@ -6,9 +6,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Head from "next/head";
+import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
 import { disconnectWallet } from "@/lib/wallet";
+import { shortenAddress } from "@/lib/stellar";
 
 interface SettingsPageProps {
   publicKey: string | null;
@@ -29,6 +31,37 @@ export default function SettingsPage({
   const [customUrl, setCustomUrl] = useState("");
   const [showMainnetWarning, setShowMainnetWarning] = useState(false);
   const [pendingNetwork, setPendingNetwork] = useState<"testnet" | "mainnet" | "custom" | null>(null);
+
+  // Username registration state
+  const [username, setUsername] = useState("");
+  const [usernameLoading, setUsernameLoading] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [usernameSuccess, setUsernameSuccess] = useState<string | null>(null);
+  const [registeredUsername, setRegisteredUsername] = useState<string | null>(null);
+
+  // Fetch current username on mount
+  useEffect(() => {
+    const fetchUsername = async () => {
+      if (!publicKey) return;
+      
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+      try {
+        const response = await fetch(
+          `${apiBase}/api/accounts/resolve/${encodeURIComponent(publicKey)}`
+        );
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload?.success && payload?.data?.username) {
+            setRegisteredUsername(payload.data.username);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching username:", err);
+      }
+    };
+    
+    fetchUsername();
+  }, [publicKey]);
 
   useEffect(() => {
     const currentConfig = getNetworkConfig();
@@ -85,6 +118,53 @@ export default function SettingsPage({
         disconnectWallet();
         onDisconnect();
       }
+    }
+  };
+
+  // Username registration handler
+  const handleRegisterUsername = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!username.trim() || !publicKey) {
+      setUsernameError("Username and wallet connection required");
+      return;
+    }
+
+    // Validate username format
+    const usernameRegex = /^[a-zA-Z0-9]{3,20}$/;
+    if (!usernameRegex.test(username.trim())) {
+      setUsernameError("Username must be 3-20 characters, alphanumeric only");
+      return;
+    }
+
+    setUsernameLoading(true);
+    setUsernameError(null);
+    setUsernameSuccess(null);
+
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+      const response = await fetch(`${apiBase}/api/accounts/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: username.trim().toLowerCase(),
+          publicKey,
+        }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to register username");
+      }
+
+      setRegisteredUsername(username.trim().toLowerCase());
+      setUsernameSuccess(`Username @${username.trim()} registered successfully!`);
+      setUsername("");
+    } catch (err) {
+      setUsernameError(err instanceof Error ? err.message : "Failed to register username");
+    } finally {
+      setUsernameLoading(false);
     }
   };
 
@@ -191,6 +271,101 @@ export default function SettingsPage({
                 </div>
               </div>
             </div>
+
+            {/* Username Registration Section */}
+            {publicKey ? (
+              <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  Creator Username
+                </h2>
+
+                {registeredUsername ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <div>
+                        <p className="text-emerald-400 font-medium">@{registeredUsername}</p>
+                        <p className="text-xs text-slate-400">Your tip page: {typeof window !== "undefined" ? window.location.origin : ""}/tip/{registeredUsername}</p>
+                      </div>
+                    </div>
+                    <Link
+                      href={`/tip/${registeredUsername}`}
+                      className="inline-flex items-center gap-2 text-sm text-stellar-400 hover:text-stellar-300"
+                    >
+                      View your tip page →
+                    </Link>
+                  </div>
+                ) : (
+                  <form onSubmit={handleRegisterUsername} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Register a username
+                      </label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">@</span>
+                          <input
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            placeholder="yourname"
+                            className="w-full pl-7 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
+                            disabled={usernameLoading}
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={usernameLoading || !username.trim()}
+                          className="px-4 py-2 bg-stellar-500 hover:bg-stellar-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+                        >
+                          {usernameLoading ? "Registering..." : "Register"}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        3-20 characters, letters and numbers only
+                      </p>
+                    </div>
+
+                    {usernameError && (
+                      <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                        <p className="text-sm text-red-400">{usernameError}</p>
+                      </div>
+                    )}
+
+                    {usernameSuccess && (
+                      <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                        <p className="text-sm text-emerald-400">{usernameSuccess}</p>
+                      </div>
+                    )}
+                  </form>
+                )}
+
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-slate-600 dark:text-slate-400">Linked wallet:</span>
+                    <span className="font-mono text-slate-900 dark:text-white">
+                      {shortenAddress(publicKey)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+                <div className="text-center py-4">
+                  <svg className="w-12 h-12 mx-auto text-slate-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Connect your wallet to register a username
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </main>
       </div>
