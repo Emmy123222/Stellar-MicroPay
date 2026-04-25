@@ -4,9 +4,11 @@ import { test, expect } from '@playwright/test';
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).freighter = {
-      isConnected: async () => false,
-      getPublicKey: async () => '',
-      signTransaction: async () => '',
+      isConnected: async () => ({ isConnected: false }),
+      getPublicKey: async () => ({ publicKey: '' }),
+      signTransaction: async () => ({ signedTransaction: '' }),
+      requestAccess: async () => ({}),
+      isAllowed: async () => ({ isAllowed: false }),
     };
   });
 });
@@ -34,7 +36,6 @@ test('clicking Connect Wallet & Start opens the WalletConnect modal', async ({ p
   const btn = page.getByRole('button', { name: 'Connect Wallet & Start' });
   await btn.click();
 
-  // The modal renders WalletConnect — check for its heading
   const walletHeading = page.getByRole('heading', { name: 'Connect your wallet' });
   await expect(walletHeading).toBeVisible();
 });

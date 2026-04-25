@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/router";
 import {
   getPaymentHistory,
   shortenAddress,
@@ -32,6 +33,7 @@ interface TransactionListProps {
   onPrintReceipt?: (payment: PaymentRecord) => void;
   /** Optional single incoming payment to prepend in real-time. */
   incomingPayment?: PaymentRecord | null;
+  onSendAgain?: (to: string, amount: string) => void;
 }
 
 export function filterPayments(
@@ -69,6 +71,7 @@ export default function TransactionList({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const router = useRouter();
 
   const updatePayments = useCallback(
     (next: PaymentRecord[]) => {
@@ -213,35 +216,56 @@ export default function TransactionList({
 
   return (
     <div className={compact ? "" : "card"}>
-      {!compact && (
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
-            <HistoryIcon className="w-5 h-5 text-stellar-400" />
-            Recent Payments
-          </h2>
-          <button
-            onClick={() => fetchPayments()}
-            className="text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1"
-          >
-            <RefreshIcon className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {visiblePayments.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
-              <HistoryIcon className="w-6 h-6 text-slate-500" />
+{!compact && (
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
+                <HistoryIcon className="w-5 h-5 text-stellar-400" />
+                Recent Payments
+              </h2>
+              <button
+                onClick={() => fetchPayments()}
+                className="text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1"
+              >
+                <RefreshIcon className="w-3.5 h-3.5" />
+                Refresh
+              </button>
             </div>
-            <p className="text-slate-400 text-sm">No matching transactions</p>
-            <p className="text-slate-600 text-xs mt-1">
-              Adjust your filters or load more transaction history
-            </p>
+          )}
+          
+          <div className="mb-4 flex items-center gap-3 text-xs text-stellar-400">
+            <span className="w-1 h-1 rounded-full bg-stellar-400 flex-shrink-0" />
+            <span>Keyboard navigation: ↑ ↓ to navigate, Enter to copy address</span>
           </div>
-        ) : (
-          visiblePayments.map((tx) => (
+          
+          <div className="space-y-2">
+        {payments.map((tx, index) => (
+          <div
+            key={tx.id}
+            tabIndex={focusedIndex === index ? 0 : -1}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setFocusedIndex((prev) => Math.min(prev + 1, payments.length - 1));
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setFocusedIndex((prev) => Math.max(prev - 1, 0));
+              } else if (e.key === 'Enter' && focusedIndex === index) {
+                e.preventDefault();
+                // Trigger copy action on Enter (similar to clicking the address pill)
+                const address = tx.type === "sent" ? tx.to : tx.from;
+                copyToClipboard(address);
+                setCopiedId(tx.id);
+                setTimeout(() => setCopiedId(null), 2000);
+              }
+            }}
+            onBlur={() => setFocusedIndex(-1)}
+            onFocus={() => setFocusedIndex(index)}
+            className={clsx(
+              "flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group",
+              focusedIndex === index && "outline-none ring-2 ring-stellar-500 ring-offset-2"
+            )}
+          >
+            {/* Direction icon */}
             <div
               key={tx.id}
               className="flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group"
@@ -294,27 +318,41 @@ export default function TransactionList({
                 </div>
               </div>
 
-              {/* Amount + link */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <span
-                  className={clsx(
-                    "text-sm font-mono font-medium",
-                    tx.type === "sent" ? "text-red-400" : "text-emerald-400"
-                  )}
-                >
-                  {tx.type === "sent" ? "-" : "+"}
-                  {formatXLM(tx.amount)}
-                </span>
-                <a
-                  href={explorerUrl(tx.transactionHash)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
-                  title="View on Stellar Expert"
-                >
-                  <ExternalLinkIcon className="w-3.5 h-3.5" />
-                </a>
-              </div>
+            {/* Amount + link */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span
+                className={clsx(
+                  "text-sm font-mono font-medium",
+                  tx.type === "sent" ? "text-red-400" : "text-emerald-400"
+                )}
+              >
+                {tx.type === "sent" ? "-" : "+"}
+                {formatXLM(tx.amount)}
+              </span>
+
+
+                  {/* Send Again — only for sent transactions */}
+               {tx.type === "sent" && (
+               <button
+               onClick={() =>
+              router.push(`/dashboard?to=${encodeURIComponent(tx.to)}&amount=${encodeURIComponent(tx.amount)}`)
+                  }
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+             title="Pre-fill send form with this transaction"
+                 >
+               Send again
+               </button>
+               )}
+              
+              <a
+                href={explorerUrl(tx.transactionHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
+                title="View on Stellar Expert"
+              >
+                <ExternalLinkIcon className="w-3.5 h-3.5" />
+              </a>
             </div>
           ))
         )}

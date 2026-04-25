@@ -27,34 +27,24 @@ use soroban_sdk::{ contract, contractimpl, contracttype, token, Address, Env, Sy
 
 /// A single tip event recorded on-chain.
 #[contracttype]
-#[derive(Clone, Debug)]
-pub struct TipRecord {
-    pub from: Address,
-    pub to: Address,
-    /// Amount in stroops (1 XLM = 10_000_000 stroops)
-    pub amount: i128,
-    pub ledger: u32,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Stream {
+    pub payer: Address,
+    pub recipient: Address,
+    pub rate_per_ledger: i128,
+    pub deposited: i128,
+    pub claimed: i128,
+    pub start_ledger: u32,
 }
 
-/// A time-locked escrow holding funds until release_ledger.
 #[contracttype]
-#[derive(Clone, Debug)]
-pub struct Escrow {
-    /// The sender who locked the funds
-    pub from: Address,
-    /// The intended recipient
-    pub to: Address,
-    /// Amount in the token's smallest unit
-    pub amount: i128,
-    /// The SAC address of the token being escrowed
-    pub token: Address,
-    /// Ledger number after which funds can be released to recipient
-    pub release_ledger: u32,
-    /// True if the sender cancelled before release
-    pub cancelled: bool,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentCommitment {
+    pub commitment_hash: BytesN<32>,
+    pub timestamp: u64,
+    pub nullifier: BytesN<32>,
 }
 
-/// Storage keys for all contract state
 #[contracttype]
 pub enum DataKey {
     Admin,
@@ -83,55 +73,68 @@ pub struct ShieldedBalance {
     pub owner: Address,
 }
 
-// ─── Contract ─────────────────────────────────────────────────────────────────
+#[contracttype]
+pub enum DataKey {
+    Stream(u32),
+    StreamCounter,
+    PaymentCommitment(BytesN<32>),
+    MerkleRoot,
+    CommitmentCounter,
+    Nullifier(BytesN<32>),
+}
 
 #[contract]
-pub struct MicroPayContract;
+pub struct StellarMicroPay;
 
 #[contractimpl]
 impl MicroPayContract {
     // ─── Initialization ──────────────────────────────────────────────────────
 
-    /// Initialize the contract with an admin address. Can only be called once.
-    pub fn initialize(env: Env, admin: Address) {
-        if env.storage().instance().has(&DataKey::Admin) {
-            panic!("Contract already initialized");
-        }
-        env.storage().instance().set(&DataKey::Admin, &admin);
-    }
+        // Transfer deposit from payer to contract
+        env.current_contract_address().require_auth();
+        payer.require_auth();
+        env.token_stellar(&Address::from_contract_id(env.current_contract_address().contract_id()))
+            .transfer(&payer, &env.current_contract_address(), &deposit);
 
-    // ─── Tipping ─────────────────────────────────────────────────────────────
+        counter
+    }
 
     /// Send a tip from `from` to `to` using a Stellar token (SAC).
     pub fn send_tip(env: Env, token_address: Address, from: Address, to: Address, amount: i128) {
         from.require_auth();
 
-        if amount <= 0 {
-            panic!("Tip amount must be positive");
+        // Verify recipient
+        if stream.recipient != recipient {
+            panic!("Only the recipient can claim from this stream");
         }
 
-        let token = token::Client::new(&env, &token_address);
-        token.transfer(&from, &to, &amount);
+        // Calculate claimable amount
+        let current_ledger = env.ledger().sequence();
+        let elapsed_ledgers = current_ledger.saturating_sub(stream.start_ledger);
+        let total_streamed = stream.rate_per_ledger * elapsed_ledgers as i128;
+        let claimable = total_streamed - stream.claimed;
 
-        let current_total: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TipTotal(to.clone()))
-            .unwrap_or(0);
+        if claimable <= 0 {
+            return 0;
+        }
 
-        let current_count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TipCount(to.clone()))
-            .unwrap_or(0);
+        // Ensure we don't claim more than deposited
+        let actual_claim = claimable.min(stream.deposited - stream.claimed);
+        
+        if actual_claim <= 0 {
+            return 0;
+        }
 
+        // Update claimed amount
+        stream.claimed += actual_claim;
         env.storage()
-            .instance()
-            .set(&DataKey::TipTotal(to.clone()), &(current_total + amount));
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
 
-        env.storage()
-            .instance()
-            .set(&DataKey::TipCount(to.clone()), &(current_count + 1));
+        // Transfer funds to recipient
+        env.current_contract_address().require_auth();
+        env.token_stellar(&Address::from_contract_id(env.current_contract_address().contract_id()))
+            .transfer(&env.current_contract_address(), &recipient, &actual_claim);
 
         env.events().publish((Symbol::new(&env, "tip"), from, to.clone()), amount);
     }
@@ -154,10 +157,7 @@ impl MicroPayContract {
         from.require_auth();
 
         if amount <= 0 {
-            panic!("Escrow amount must be positive");
-        }
-        if release_ledger <= env.ledger().sequence() {
-            panic!("release_ledger must be in the future");
+            panic!("Top-up amount must be positive");
         }
 
         // Transfer funds from sender into this contract
@@ -178,38 +178,61 @@ impl MicroPayContract {
 
         env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
 
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowCount, &(escrow_id + 1));
+        // Verify payer
+        if stream.payer != payer {
+            panic!("Only the payer can top up this stream");
+        }
 
         env.events().publish(
             (Symbol::new(&env, "escrow_create"), from, to),
             (escrow_id, amount, release_ledger)
         );
 
-        escrow_id
+        // Transfer additional funds from payer to contract
+        env.current_contract_address().require_auth();
+        payer.require_auth();
+        env.token_stellar(&Address::from_contract_id(env.current_contract_address().contract_id()))
+            .transfer(&payer, &env.current_contract_address(), &amount);
     }
 
-    /// Release escrowed funds to the recipient.
-    /// Can be called by anyone once the current ledger >= release_ledger.
-    pub fn release_escrow(env: Env, escrow_id: u64) {
-        let mut escrow: Escrow = env
+    /// Close a stream and refund unstreamed portion to payer
+    /// 
+    /// # Arguments
+    /// * `stream_id` - ID of the stream to close
+    /// * `payer` - Address closing the stream (must match stream payer)
+    /// 
+    /// # Returns
+    /// Amount refunded to payer (in stroops)
+    pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
+        let stream: Stream = env
             .storage()
             .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("Escrow not found");
+            .get(&DataKey::Stream(stream_id))
+            .unwrap_or_else(|| panic!("Stream not found"));
 
-        if escrow.cancelled {
-            panic!("Escrow already cancelled");
+        // Verify payer
+        if stream.payer != payer {
+            panic!("Only the payer can close this stream");
         }
 
-        if escrow.amount == 0 {
-            panic!("Escrow already released");
+        // Calculate refundable amount
+        let current_ledger = env.ledger().sequence();
+        let elapsed_ledgers = current_ledger.saturating_sub(stream.start_ledger);
+        let total_streamed = stream.rate_per_ledger * elapsed_ledgers as i128;
+        let refundable = stream.deposited - total_streamed.max(stream.claimed);
+
+        if refundable <= 0 {
+            // Remove the stream even if no refund
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Stream(stream_id));
+            return 0;
         }
 
-        if env.ledger().sequence() < escrow.release_ledger {
-            panic!("Escrow is still locked");
-        }
+        // Remove the stream
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Stream(stream_id));
 
         let token_client = token::Client::new(&env, &escrow.token);
         token_client.transfer(&env.current_contract_address(), &escrow.to, &escrow.amount);
@@ -225,23 +248,44 @@ impl MicroPayContract {
         );
     }
 
-    /// Cancel an escrow and return funds to the sender.
-    /// Only the original sender (`from`) can cancel, and only before release.
-    pub fn cancel_escrow(env: Env, escrow_id: u64) {
-        let mut escrow: Escrow = env
+    /// Calculate claimable amount for a stream without claiming
+    /// 
+    /// # Arguments
+    /// * `stream_id` - ID of the stream to query
+    /// 
+    /// # Returns
+    /// Amount currently claimable (in stroops)
+    pub fn get_claimable(env: Env, stream_id: u32) -> i128 {
+        let stream: Stream = env
             .storage()
             .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("Escrow not found");
+            .get(&DataKey::Stream(stream_id))
+            .unwrap_or_else(|| panic!("Stream not found"));
 
-        // Only the original sender can cancel
-        escrow.from.require_auth();
+        let current_ledger = env.ledger().sequence();
+        let elapsed_ledgers = current_ledger.saturating_sub(stream.start_ledger);
+        let total_streamed = stream.rate_per_ledger * elapsed_ledgers as i128;
+        let claimable = total_streamed - stream.claimed;
 
-        if escrow.cancelled {
-            panic!("Escrow already cancelled");
-        }
-        if escrow.amount == 0 {
-            panic!("Escrow already released");
+        claimable.min(stream.deposited - stream.claimed).max(0)
+    }
+
+    /// Commit a payment hash to the blockchain for zero-knowledge proof verification
+    /// 
+    /// # Arguments
+    /// * `commitment_hash` - Hash of the payment commitment (amount + salt)
+    /// * `nullifier` - Unique identifier to prevent double-spending
+    /// 
+    /// # Returns
+    /// Commitment ID for tracking
+    pub fn commit_payment(
+        env: Env,
+        commitment_hash: BytesN<32>,
+        nullifier: BytesN<32>,
+    ) -> u32 {
+        // Check if nullifier already exists (prevent double-spending)
+        if env.storage().persistent().has(&DataKey::Nullifier(nullifier.clone())) {
+            panic!("Nullifier already used");
         }
 
         let token_client = token::Client::new(&env, &escrow.token);
@@ -263,7 +307,10 @@ impl MicroPayContract {
         env.storage().persistent().get(&DataKey::Escrow(escrow_id)).expect("Escrow not found")
     }
 
-    // ─── Getters ─────────────────────────────────────────────────────────────
+    /// Get the current Merkle root
+    pub fn get_merkle_root(env: Env) -> Option<BytesN<32>> {
+        env.storage().persistent().get(&DataKey::MerkleRoot)
+    }
 
     pub fn get_tip_total(env: Env, recipient: Address) -> i128 {
         env.storage().instance().get(&DataKey::TipTotal(recipient)).unwrap_or(0)
@@ -406,7 +453,16 @@ impl MicroPayContract {
         shielded_balance.commitment.value
     }
 
-    // ─── Placeholders (future features) ──────────────────────────────────────
+    /// Verify amount commitment (simplified ZK verification)
+    fn verify_amount_commitment(
+        amount_hash: BytesN<32>,
+        expected_hash: BytesN<32>,
+        minimum_amount: i128,
+    ) -> bool {
+        // Simplified verification - just check if hashes match
+        // In production, this would involve proper range proofs
+        amount_hash == expected_hash
+    }
 
     /// [PLACEHOLDER] Batch multiple micro-payments in a single transaction.
     /// See ROADMAP.md v2.0 — Multi-Currency Payments.
@@ -419,8 +475,6 @@ impl MicroPayContract {
         panic!("Batch payments coming in v2.0 — see ROADMAP.md");
     }
 }
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -439,249 +493,591 @@ mod tests {
         (env, client, admin)
     }
 
-    /// Helper: create a test token, mint `amount` to `to`, return token address
-    fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
-        let token_id = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_address = token_id.address();
-        let sac = StellarAssetClient::new(env, &token_address);
-        sac.mint(to, &amount);
-        token_address
-    }
-
-    // ─── Initialization tests ─────────────────────────────────────────────────
-
-    #[test]
-    fn test_initialize() {
-        let (_, client, admin) = setup();
-        assert_eq!(client.get_admin(), admin);
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract already initialized")]
-    fn test_double_initialize_fails() {
-        let (_, client, admin) = setup();
-        client.initialize(&admin);
+    fn setup_contract() -> (Env, Address, Address, Address) {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let payer = TestAddress::random(&env);
+        let recipient = TestAddress::random(&env);
+        let contract_id = TestAddress::random(&env);
+        
+        // Set up token contract
+        let token_contract = env.register_stellar_asset_contract(payer.clone());
+        let token_client = StellarAssetClient::new(&env, &token_contract);
+        
+        // Mint tokens to payer
+        token_client.mint(&payer, &1000000000); // 10,000 XLM in stroops
+        
+        (env, payer, recipient, contract_id)
     }
 
     #[test]
-    fn test_tip_totals_start_at_zero() {
-        let (env, client, _) = setup();
-        let recipient = Address::generate(&env);
-        assert_eq!(client.get_tip_total(&recipient), 0);
-        assert_eq!(client.get_tip_count(&recipient), 0);
-    }
-
-    // ─── Escrow: create ───────────────────────────────────────────────────────
-
-    #[test]
-    fn test_create_escrow() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-
-        // Current ledger is 0 by default; release at ledger 100
-        let escrow_id = client.create_escrow(&token, &sender, &recipient, &500_000, &100);
-        assert_eq!(escrow_id, 0);
-
-        let escrow = client.get_escrow(&escrow_id);
-        assert_eq!(escrow.from, sender);
-        assert_eq!(escrow.to, recipient);
-        assert_eq!(escrow.amount, 500_000);
-        assert_eq!(escrow.release_ledger, 100);
-        assert!(!escrow.cancelled);
-
-        // Sender's token balance should be reduced
-        let token_client = TokenClient::new(&env, &token);
-        assert_eq!(token_client.balance(&sender), 500_000);
+    fn test_open_stream() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000, // 0.00001 XLM per ledger
+            1000000, // 0.01 XLM deposit
+        );
+        
+        assert_eq!(stream_id, 1);
+        
+        let stream = StellarMicroPay::get_stream(&env, stream_id);
+        assert_eq!(stream.payer, payer);
+        assert_eq!(stream.recipient, recipient);
+        assert_eq!(stream.rate_per_ledger, 1000);
+        assert_eq!(stream.deposited, 1000000);
+        assert_eq!(stream.claimed, 0);
     }
 
     #[test]
-    #[should_panic(expected = "Escrow amount must be positive")]
-    fn test_create_escrow_zero_amount_fails() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-        client.create_escrow(&token, &sender, &recipient, &0, &100);
-    }
-
-    #[test]
-    #[should_panic(expected = "release_ledger must be in the future")]
-    fn test_create_escrow_past_ledger_fails() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-        // release_ledger = 0, current ledger = 0 → not in the future
-        client.create_escrow(&token, &sender, &recipient, &500_000, &0);
-    }
-
-    // ─── Escrow: release ──────────────────────────────────────────────────────
-
-    #[test]
-    fn test_release_escrow_after_lock() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-
-        let escrow_id = client.create_escrow(&token, &sender, &recipient, &500_000, &100);
-
-        // Advance ledger past release point
+    fn test_claim_stream_basic() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000, // 0.00001 XLM per ledger
+            1000000, // 0.01 XLM deposit
+        );
+        
+        // Advance ledger by 10
         env.ledger().set(LedgerInfo {
-            sequence_number: 101,
-            timestamp: 0,
             protocol_version: 20,
+            sequence_number: 10,
+            timestamp: 0,
             network_id: Default::default(),
-            base_reserve: 5_000_000,
-            min_temp_entry_ttl: 1,
-            min_persistent_entry_ttl: 1,
-            max_entry_ttl: 6_312_000,
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
         });
-
-        client.release_escrow(&escrow_id);
-
-        let token_client = TokenClient::new(&env, &token);
-        assert_eq!(token_client.balance(&recipient), 500_000);
-
-        // Escrow amount should be zeroed
-        let escrow = client.get_escrow(&escrow_id);
-        assert_eq!(escrow.amount, 0);
+        
+        let claimed = StellarMicroPay::claim_stream(&env, stream_id, recipient.clone());
+        assert_eq!(claimed, 10000); // 10 ledgers * 1000 stroops
+        
+        let stream = StellarMicroPay::get_stream(&env, stream_id);
+        assert_eq!(stream.claimed, 10000);
     }
 
     #[test]
-    #[should_panic(expected = "Escrow is still locked")]
-    fn test_release_escrow_before_lock_fails() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-
-        let escrow_id = client.create_escrow(&token, &sender, &recipient, &500_000, &100);
-        // Ledger is still at 0 — should panic
-        client.release_escrow(&escrow_id);
-    }
-
-    #[test]
-    #[should_panic(expected = "Escrow already released")]
-    fn test_release_escrow_twice_fails() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-
-        let escrow_id = client.create_escrow(&token, &sender, &recipient, &500_000, &100);
-
+    fn test_claim_stream_multiple_times() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000,
+            1000000,
+        );
+        
+        // Advance ledger by 5
         env.ledger().set(LedgerInfo {
-            sequence_number: 101,
-            timestamp: 0,
             protocol_version: 20,
+            sequence_number: 5,
+            timestamp: 0,
             network_id: Default::default(),
-            base_reserve: 5_000_000,
-            min_temp_entry_ttl: 1,
-            min_persistent_entry_ttl: 1,
-            max_entry_ttl: 6_312_000,
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
         });
-
-        client.release_escrow(&escrow_id);
-        // Second release should panic via cancel_escrow path — amount is 0
-        client.release_escrow(&escrow_id);
-    }
-
-    // ─── Escrow: cancel ───────────────────────────────────────────────────────
-
-    #[test]
-    fn test_cancel_escrow_refunds_sender() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-
-        let escrow_id = client.create_escrow(&token, &sender, &recipient, &500_000, &100);
-
-        // Cancel before release_ledger
-        client.cancel_escrow(&escrow_id);
-
-        let token_client = TokenClient::new(&env, &token);
-        // Full balance restored to sender
-        assert_eq!(token_client.balance(&sender), 1_000_000);
-
-        let escrow = client.get_escrow(&escrow_id);
-        assert!(escrow.cancelled);
-        assert_eq!(escrow.amount, 0);
-    }
-
-    #[test]
-    #[should_panic(expected = "Escrow already cancelled")]
-    fn test_cancel_escrow_twice_fails() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-
-        let escrow_id = client.create_escrow(&token, &sender, &recipient, &500_000, &100);
-        client.cancel_escrow(&escrow_id);
-        client.cancel_escrow(&escrow_id); // should panic
-    }
-
-    #[test]
-    #[should_panic(expected = "Escrow already released")]
-    fn test_cancel_after_release_fails() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 1_000_000);
-
-        let escrow_id = client.create_escrow(&token, &sender, &recipient, &500_000, &100);
-
+        
+        let first_claim = StellarMicroPay::claim_stream(&env, stream_id, recipient.clone());
+        assert_eq!(first_claim, 5000); // 5 ledgers * 1000 stroops
+        
+        // Advance ledger by 3 more
         env.ledger().set(LedgerInfo {
-            sequence_number: 101,
-            timestamp: 0,
             protocol_version: 20,
+            sequence_number: 8,
+            timestamp: 0,
             network_id: Default::default(),
-            base_reserve: 5_000_000,
-            min_temp_entry_ttl: 1,
-            min_persistent_entry_ttl: 1,
-            max_entry_ttl: 6_312_000,
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
         });
-
-        client.release_escrow(&escrow_id);
-        client.cancel_escrow(&escrow_id); // should panic
+        
+        let second_claim = StellarMicroPay::claim_stream(&env, stream_id, recipient.clone());
+        assert_eq!(second_claim, 3000); // 3 more ledgers * 1000 stroops
+        
+        let stream = StellarMicroPay::get_stream(&env, stream_id);
+        assert_eq!(stream.claimed, 8000); // 5000 + 3000
     }
 
     #[test]
-    fn test_multiple_escrows_independent() {
-        let (env, client, admin) = setup();
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let token = create_token(&env, &admin, &sender, 2_000_000);
+    fn test_claim_stream_exceeds_deposit() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000,
+            5000, // Small deposit
+        );
+        
+        // Advance ledger by 10 (should exceed deposit)
+        env.ledger().set(LedgerInfo {
+            protocol_version: 20,
+            sequence_number: 10,
+            timestamp: 0,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
+        });
+        
+        let claimed = StellarMicroPay::claim_stream(&env, stream_id, recipient.clone());
+        assert_eq!(claimed, 5000); // Can only claim what was deposited
+    }
 
-        let id0 = client.create_escrow(&token, &sender, &recipient, &500_000, &50);
-        let id1 = client.create_escrow(&token, &sender, &recipient, &300_000, &200);
+    #[test]
+    fn test_top_up_stream() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000,
+            1000000,
+        );
+        
+        // Advance ledger by 5
+        env.ledger().set(LedgerInfo {
+            protocol_version: 20,
+            sequence_number: 5,
+            timestamp: 0,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
+        });
+        
+        StellarMicroPay::top_up_stream(&env, stream_id, payer.clone(), 500000);
+        
+        let stream = StellarMicroPay::get_stream(&env, stream_id);
+        assert_eq!(stream.deposited, 1500000); // 1000000 + 500000
+    }
 
-        assert_eq!(id0, 0);
+    #[test]
+    fn test_close_stream_with_refund() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000,
+            1000000,
+        );
+        
+        // Advance ledger by 5
+        env.ledger().set(LedgerInfo {
+            protocol_version: 20,
+            sequence_number: 5,
+            timestamp: 0,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
+        });
+        
+        let refund = StellarMicroPay::close_stream(&env, stream_id, payer.clone());
+        
+        // 1000000 deposited - 5000 streamed = 995000 refund
+        assert_eq!(refund, 995000);
+    }
+
+    #[test]
+    fn test_close_stream_after_claims() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000,
+            1000000,
+        );
+        
+        // Advance ledger by 5
+        env.ledger().set(LedgerInfo {
+            protocol_version: 20,
+            sequence_number: 5,
+            timestamp: 0,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
+        });
+        
+        // Claim some amount
+        StellarMicroPay::claim_stream(&env, stream_id, recipient.clone());
+        
+        // Advance ledger by 3 more
+        env.ledger().set(LedgerInfo {
+            protocol_version: 20,
+            sequence_number: 8,
+            timestamp: 0,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
+        });
+        
+        let refund = StellarMicroPay::close_stream(&env, stream_id, payer.clone());
+        
+        // 1000000 deposited - 8000 streamed = 992000 refund
+        assert_eq!(refund, 992000);
+    }
+
+    #[test]
+    fn test_get_claimable() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000,
+            1000000,
+        );
+        
+        // Advance ledger by 5
+        env.ledger().set(LedgerInfo {
+            protocol_version: 20,
+            sequence_number: 5,
+            timestamp: 0,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 10,
+            min_persistent_entry_ttl: 10,
+            max_entry_ttl: 3110400,
+        });
+        
+        let claimable = StellarMicroPay::get_claimable(&env, stream_id);
+        assert_eq!(claimable, 5000); // 5 ledgers * 1000 stroops
+    }
+
+    #[test]
+    #[should_panic(expected = "Stream not found")]
+    fn test_claim_nonexistent_stream() {
+        let (env, _payer, recipient, _contract_id) = setup_contract();
+        
+        StellarMicroPay::claim_stream(&env, 999, recipient);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the recipient can claim from this stream")]
+    fn test_unauthorized_claim() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        let unauthorized = TestAddress::random(&env);
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000,
+            1000000,
+        );
+        
+        StellarMicroPay::claim_stream(&env, stream_id, unauthorized);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the payer can close this stream")]
+    fn test_unauthorized_close() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        let unauthorized = TestAddress::random(&env);
+        
+        let stream_id = StellarMicroPay::open_stream(
+            &env,
+            payer.clone(),
+            recipient.clone(),
+            1000,
+            1000000,
+        );
+        
+        StellarMicroPay::close_stream(&env, stream_id, unauthorized);
+    }
+
+    #[test]
+    #[should_panic(expected = "Rate per ledger must be positive")]
+    fn test_invalid_rate() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        StellarMicroPay::open_stream(&env, payer, recipient, 0, 1000000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Deposit must be positive")]
+    fn test_invalid_deposit() {
+        let (env, payer, recipient, _contract_id) = setup_contract();
+        
+        StellarMicroPay::open_stream(&env, payer, recipient, 1000, 0);
+    }
+
+    // Zero-Knowledge Proof Tests
+
+    #[test]
+    fn test_commit_payment() {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let amount = 1000000i128; // 0.01 XLM in stroops
+        let salt = BytesN::from_array(&env, &[1u8; 32]);
+        let commitment_hash = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt);
+        let nullifier = BytesN::from_array(&env, &[2u8; 32]);
+        
+        let commitment_id = StellarMicroPay::commit_payment(env.clone(), commitment_hash, nullifier);
+        
+        assert_eq!(commitment_id, 1);
+        
+        // Verify commitment was stored
+        let stored_commitment: PaymentCommitment = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PaymentCommitment(commitment_hash))
+            .unwrap();
+        
+        assert_eq!(stored_commitment.commitment_hash, commitment_hash);
+        assert_eq!(stored_commitment.nullifier, nullifier);
+    }
+
+    #[test]
+    #[should_panic(expected = "Nullifier already used")]
+    fn test_commit_payment_double_nullifier() {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let amount = 1000000i128;
+        let salt = BytesN::from_array(&env, &[1u8; 32]);
+        let commitment_hash = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt);
+        let nullifier = BytesN::from_array(&env, &[2u8; 32]);
+        
+        // First commitment should succeed
+        StellarMicroPay::commit_payment(env.clone(), commitment_hash, nullifier);
+        
+        // Second commitment with same nullifier should fail
+        let amount2 = 2000000i128;
+        let salt2 = BytesN::from_array(&env, &[3u8; 32]);
+        let commitment_hash2 = StellarMicroPay::generate_commitment_hash(env.clone(), amount2, salt2);
+        StellarMicroPay::commit_payment(env.clone(), commitment_hash2, nullifier);
+    }
+
+    #[test]
+    fn test_verify_payment_valid_proof() {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let amount = 1000000i128;
+        let minimum_amount = 500000i128;
+        let salt = BytesN::from_array(&env, &[1u8; 32]);
+        
+        // Create commitment
+        let commitment_hash = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt);
+        let nullifier = BytesN::from_array(&env, &[2u8; 32]);
+        StellarMicroPay::commit_payment(env.clone(), commitment_hash, nullifier);
+        
+        // Create proof
+        let amount_hash = StellarMicroPay::hash_amount_with_salt(&env, minimum_amount, salt);
+        let proof = ZKProof {
+            commitment_hash,
+            amount_hash,
+            salt,
+            merkle_proof: Vec::new(&env),
+            leaf_index: 0,
+        };
+        
+        // Verify proof
+        let is_valid = StellarMicroPay::verify_payment(env, proof, minimum_amount);
+        assert!(is_valid);
+    }
+
+    #[test]
+    fn test_verify_payment_invalid_commitment() {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let amount = 1000000i128;
+        let minimum_amount = 500000i128;
+        let salt = BytesN::from_array(&env, &[1u8; 32]);
+        
+        // Don't create commitment - use non-existent hash
+        let fake_commitment_hash = BytesN::from_array(&env, &[99u8; 32]);
+        let amount_hash = StellarMicroPay::hash_amount_with_salt(&env, minimum_amount, salt);
+        
+        let proof = ZKProof {
+            commitment_hash: fake_commitment_hash,
+            amount_hash,
+            salt,
+            merkle_proof: Vec::new(&env),
+            leaf_index: 0,
+        };
+        
+        // Verify proof should fail
+        let is_valid = StellarMicroPay::verify_payment(env, proof, minimum_amount);
+        assert!(!is_valid);
+    }
+
+    #[test]
+    fn test_verify_payment_invalid_amount_hash() {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let amount = 1000000i128;
+        let minimum_amount = 500000i128;
+        let salt = BytesN::from_array(&env, &[1u8; 32]);
+        
+        // Create commitment
+        let commitment_hash = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt);
+        let nullifier = BytesN::from_array(&env, &[2u8; 32]);
+        StellarMicroPay::commit_payment(env.clone(), commitment_hash, nullifier);
+        
+        // Create proof with wrong amount hash
+        let wrong_salt = BytesN::from_array(&env, &[99u8; 32]);
+        let wrong_amount_hash = StellarMicroPay::hash_amount_with_salt(&env, minimum_amount, wrong_salt);
+        
+        let proof = ZKProof {
+            commitment_hash,
+            amount_hash: wrong_amount_hash,
+            salt: wrong_salt,
+            merkle_proof: Vec::new(&env),
+            leaf_index: 0,
+        };
+        
+        // Verify proof should fail
+        let is_valid = StellarMicroPay::verify_payment(env, proof, minimum_amount);
+        assert!(!is_valid);
+    }
+
+    #[test]
+    fn test_generate_commitment_hash() {
+        let env = Env::new();
+        
+        let amount = 1000000i128;
+        let salt = BytesN::from_array(&env, &[1u8; 32]);
+        
+        let hash1 = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt);
+        let hash2 = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt);
+        
+        // Same inputs should produce same hash
+        assert_eq!(hash1, hash2);
+        
+        // Different salt should produce different hash
+        let different_salt = BytesN::from_array(&env, &[2u8; 32]);
+        let hash3 = StellarMicroPay::generate_commitment_hash(env.clone(), amount, different_salt);
+        assert_ne!(hash1, hash3);
+        
+        // Different amount should produce different hash
+        let different_amount = 2000000i128;
+        let hash4 = StellarMicroPay::generate_commitment_hash(env.clone(), different_amount, salt);
+        assert_ne!(hash1, hash4);
+    }
+
+    // ─── Invoice: sequential IDs and independence ─────────────────────────────
+
+    #[test]
+    fn test_merkle_root_update() {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let amount = 1000000i128;
+        let salt = BytesN::from_array(&env, &[1u8; 32]);
+        let commitment_hash = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt);
+        let nullifier = BytesN::from_array(&env, &[2u8; 32]);
+        
+        // Initially no Merkle root
+        assert_eq!(StellarMicroPay::get_merkle_root(env.clone()), None);
+        
+        // Commit payment should create Merkle root
+        StellarMicroPay::commit_payment(env.clone(), commitment_hash, nullifier);
+        
+        let merkle_root = StellarMicroPay::get_merkle_root(env.clone());
+        assert!(merkle_root.is_some());
+        assert_eq!(merkle_root.unwrap(), commitment_hash);
+    }
+
+    #[test]
+    fn test_multiple_commitments_merkle_root() {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let amount1 = 1000000i128;
+        let salt1 = BytesN::from_array(&env, &[1u8; 32]);
+        let commitment_hash1 = StellarMicroPay::generate_commitment_hash(env.clone(), amount1, salt1);
+        let nullifier1 = BytesN::from_array(&env, &[2u8; 32]);
+        
+        let amount2 = 2000000i128;
+        let salt2 = BytesN::from_array(&env, &[3u8; 32]);
+        let commitment_hash2 = StellarMicroPay::generate_commitment_hash(env.clone(), amount2, salt2);
+        let nullifier2 = BytesN::from_array(&env, &[4u8; 32]);
+        
+        // First commitment
+        StellarMicroPay::commit_payment(env.clone(), commitment_hash1, nullifier1);
+        let root1 = StellarMicroPay::get_merkle_root(env.clone()).unwrap();
+        
+        // Second commitment should update root
+        StellarMicroPay::commit_payment(env.clone(), commitment_hash2, nullifier2);
+        let root2 = StellarMicroPay::get_merkle_root(env.clone()).unwrap();
+        
+        // Roots should be different
+        assert_ne!(root1, root2);
+    }
+
+    #[test]
+    fn test_commitment_counter() {
+        let env = Env::new();
+        env.mock_all_auths();
+        
+        let amount = 1000000i128;
+        let salt1 = BytesN::from_array(&env, &[1u8; 32]);
+        let commitment_hash1 = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt1);
+        let nullifier1 = BytesN::from_array(&env, &[2u8; 32]);
+        
+        let salt2 = BytesN::from_array(&env, &[3u8; 32]);
+        let commitment_hash2 = StellarMicroPay::generate_commitment_hash(env.clone(), amount, salt2);
+        let nullifier2 = BytesN::from_array(&env, &[4u8; 32]);
+        
+        // First commitment
+        let id1 = StellarMicroPay::commit_payment(env.clone(), commitment_hash1, nullifier1);
         assert_eq!(id1, 1);
+        
+        // Second commitment
+        let id2 = StellarMicroPay::commit_payment(env.clone(), commitment_hash2, nullifier2);
+        assert_eq!(id2, 2);
+    }
 
-        // Cancel first escrow
-        client.cancel_escrow(&id0);
+    #[test]
+    fn test_invoice_and_escrow_ids_independent() {
+        // Invoice counter and escrow counter are separate — both start at 0
+        let (env, client, admin) = setup();
+        let user = Address::generate(&env);
+        let other = Address::generate(&env);
+        let token = create_token(&env, &admin, &user, 5_000_000);
 
-        // Advance past first release but not second
-        env.ledger().set(LedgerInfo {
-            sequence_number: 60,
-            timestamp: 0,
-            protocol_version: 20,
-            network_id: Default::default(),
-            base_reserve: 5_000_000,
-            min_temp_entry_ttl: 1,
-            min_persistent_entry_ttl: 1,
-            max_entry_ttl: 6_312_000,
-        });
+        let escrow_id = client.create_escrow(&token, &user, &other, &1_000_000, &50);
+        let invoice_id = client.create_invoice(&token, &user, &other, &1_000_000);
 
-        // Second escrow still locked at ledger 60 < 200
-        let escrow1 = client.get_escrow(&id1);
-        assert_eq!(escrow1.amount, 300_000);
-        assert!(!escrow1.cancelled);
+        // Both start from 0 independently
+        assert_eq!(escrow_id, 0);
+        assert_eq!(invoice_id, 0);
+
+        // Each can be retrieved without interference
+        let _ = client.get_escrow(&escrow_id);
+        let _ = client.get_invoice(&invoice_id);
     }
 
     // ─── Confidential Transactions tests ───────────────────────────────────────
