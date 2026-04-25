@@ -10,8 +10,8 @@ import WalletConnect from "@/components/WalletConnect";
 import { useCountUp } from "@/lib/useCountUp";
 
 interface HomeProps {
-  publicKey: string | null;
-  onConnect: (pk: string) => void;
+    publicKey: string | null;
+    onConnect: (pk: string) => void;
 }
 
 const FEATURES = [
@@ -107,7 +107,6 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed">{f.desc}</p>
             </div>
-          ))}
         </div>
 
         <section className="mb-24">

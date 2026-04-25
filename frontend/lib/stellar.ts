@@ -88,6 +88,16 @@ export const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 /**
+ * Enum for transaction categories.
+ */
+export enum TransactionCategory {
+  Payment = "Payment",
+  Transfer = "Transfer",
+  Merge = "Merge",
+  // Add more as needed
+}
+
+/**
  * Represents a single asset balance on a Stellar account.
 */
 export interface WalletBalance {
@@ -113,13 +123,13 @@ export interface Trustline {
   limit: string;
 }
 /**
- * Represents a single payment operation in a user's transaction history.
+ * Represents a single transaction operation in a user's transaction history.
 */
 export interface PaymentRecord {
   /** Unique operation ID assigned by Horizon. */
   id: string;
   /** Whether this payment was sent or received by the queried account. */
-  type: "sent" | "received";
+  type: "sent" | "received" | "merge";
   /** Whether this payment was sent or received by the queried account. */
   amount: string;
   /** Asset code, e.g. `"XLM"` */
@@ -136,6 +146,8 @@ export interface PaymentRecord {
   transactionHash: string;
   /** Horizon paging token used for cursor-based pagination. */
   pagingToken?: string;
+  /** Category of the transaction. */
+  category?: TransactionCategory;
 }
 
 /**
@@ -404,6 +416,37 @@ export async function buildChangeTrustTransaction({
 }
 
 /**
+ * Build an unsigned Stellar account merge transaction ready for Freighter to sign.
+ *
+ * @param params - Merge parameters.
+ * @param params.fromPublicKey - Source account public key (will be closed).
+ * @param params.destinationPublicKey - Destination account public key.
+ * @returns A promise resolving to an unsigned {@link Transaction} object.
+ */
+export async function buildAccountMergeTransaction({
+  fromPublicKey,
+  destinationPublicKey,
+}: {
+  fromPublicKey: string;
+  destinationPublicKey: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const builder = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.accountMerge({
+        destination: destinationPublicKey,
+      })
+    )
+    .setTimeout(60);
+
+  return builder.build();
+}
+
+/**
  * Submit a signed transaction XDR string to the Stellar network.
  *
  * Deserializes the XDR envelope, submits it to Horizon, and returns the
@@ -474,58 +517,79 @@ export async function getPaymentHistory(
   limit = 20,
   cursor?: string
 ): Promise<PaymentHistoryResponse> {
-  let paymentsBuilder = server
-    .payments()
+  let operationsBuilder = server
+    .operations()
     .forAccount(publicKey)
     .limit(limit)
     .order("desc");
 
   if (cursor) {
-    paymentsBuilder = paymentsBuilder.cursor(cursor);
+    operationsBuilder = operationsBuilder.cursor(cursor);
   }
 
-  const payments = await paymentsBuilder.call();
+  const operations = await operationsBuilder.call();
 
   const records: PaymentRecord[] = [];
 
-  for (const op of payments.records) {
-    // Only process payment operations
-    if (op.type !== "payment") continue;
+  for (const op of operations.records) {
+    let record: PaymentRecord | null = null;
 
-    const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
+    if (op.type === "payment") {
+      const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
 
-    // Fetch transaction for memo
-    let memo: string | undefined;
-    try {
-      const tx = await server.transactions().transaction(payment.transaction_hash).call();
-      if (tx.memo && tx.memo_type === "text") {
-        memo = tx.memo;
+      // Fetch transaction for memo
+      let memo: string | undefined;
+      try {
+        const tx = await server.transactions().transaction(payment.transaction_hash).call();
+        if (tx.memo && tx.memo_type === "text") {
+          memo = tx.memo;
+        }
+      } catch {
+        // memo is optional, don't fail
       }
-    } catch {
-      // memo is optional, don't fail
+
+      const assetCode =
+        payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
+
+      record = {
+        id: payment.id,
+        type: payment.from === publicKey ? "sent" : "received",
+        amount: payment.amount,
+        asset: assetCode,
+        from: payment.from,
+        to: payment.to,
+        memo,
+        createdAt: payment.created_at,
+        transactionHash: payment.transaction_hash,
+        pagingToken: payment.paging_token,
+        category: TransactionCategory.Payment,
+      };
+    } else if (op.type === "account_merge") {
+      const merge = op as Horizon.HorizonApi.AccountMergeOperationResponse;
+
+      record = {
+        id: merge.id,
+        type: "merge",
+        amount: "0", // Account merge doesn't have an amount
+        asset: "XLM",
+        from: merge.account, // The account being merged
+        to: merge.into, // The destination account
+        createdAt: merge.created_at,
+        transactionHash: merge.transaction_hash,
+        pagingToken: merge.paging_token,
+        category: TransactionCategory.Merge,
+      };
     }
 
-    const assetCode =
-      payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
-
-    records.push({
-      id: payment.id,
-      type: payment.from === publicKey ? "sent" : "received",
-      amount: payment.amount,
-      asset: assetCode,
-      from: payment.from,
-      to: payment.to,
-      memo,
-      createdAt: payment.created_at,
-      transactionHash: payment.transaction_hash,
-      pagingToken: payment.paging_token,
-    });
+    if (record) {
+      records.push(record);
+    }
   }
 
   return {
     records,
-    hasMore: payments.records.length === limit && !!payments.next,
-    nextCursor: payments.next ? payments.next.toString() : undefined,
+    hasMore: operations.records.length === limit && !!operations.next,
+    nextCursor: operations.next ? operations.next.toString() : undefined,
   };
 }
 
@@ -768,6 +832,7 @@ export function streamPayments(
         createdAt: payment.created_at,
         transactionHash: payment.transaction_hash,
         pagingToken: payment.paging_token,
+        category: TransactionCategory.Payment,
       };
 
       onPayment(record);

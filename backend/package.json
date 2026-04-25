@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
+    "dev:turrets": "TURRETS_PORT=4100 nodemon src/server.js",
     "start": "node src/server.js",
     "test": "jest",
     "lint": "eslint src/**/*.js"
