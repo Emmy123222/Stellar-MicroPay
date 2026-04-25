@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { shortenAddress } from "@/lib/stellar";
+import { getNetworkConfig } from "@/lib/stellar";
 import clsx from "clsx";
 import { useTheme } from "@/pages/_app";
 
@@ -30,14 +31,14 @@ export default function Navbar({
   onDisconnect,
 }: NavbarProps) {
   const router = useRouter();
-  const networkEnv = (
-    process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "testnet"
-  ).toLowerCase();
-  const isMainnet = networkEnv === "mainnet";
-  const networkLabel = isMainnet ? "Mainnet" : "Testnet";
-  const networkBadgeClassName = isMainnet
-    ? "border-emerald-400/35 bg-emerald-400/10 text-emerald-300"
-    : "border-amber-400/35 bg-amber-400/10 text-amber-300";
+  const config = getNetworkConfig();
+  const isMainnet = config.network === "mainnet";
+  const networkLabel = config.network === "custom" ? "Custom" : (isMainnet ? "Mainnet" : "Testnet");
+  const networkBadgeClassName = config.network === "custom"
+    ? "border-purple-400/35 bg-purple-400/10 text-purple-300"
+    : (isMainnet
+      ? "border-emerald-400/35 bg-emerald-400/10 text-emerald-300"
+      : "border-amber-400/35 bg-amber-400/10 text-amber-300");
 
   // Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
   // Consumes ThemeContext to read current theme and trigger toggle

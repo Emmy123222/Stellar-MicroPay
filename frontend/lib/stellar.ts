@@ -27,20 +27,80 @@ import {
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
-const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as
-  | "testnet"
-  | "mainnet";
+export interface NetworkConfig {
+  network: "testnet" | "mainnet" | "custom";
+  horizonUrl: string;
+}
 
-const HORIZON_URL =
-  process.env.NEXT_PUBLIC_HORIZON_URL ||
-  "https://horizon-testnet.stellar.org";
+const DEFAULT_CONFIGS: Record<"testnet" | "mainnet", NetworkConfig> = {
+  testnet: {
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+  },
+  mainnet: {
+    network: "mainnet",
+    horizonUrl: "https://horizon.stellar.org",
+  },
+};
+
+export function getNetworkConfig(): NetworkConfig {
+  if (typeof window === "undefined") {
+    // Server-side: use env vars as fallback
+    const network = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
+    return DEFAULT_CONFIGS[network];
+  }
+
+  const stored = localStorage.getItem("stellar-micropay:network");
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch {
+      // Invalid stored config, fall back to default
+    }
+  }
+
+  // Default to testnet
+  return DEFAULT_CONFIGS.testnet;
+}
+
+export function setNetworkConfig(config: NetworkConfig): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("stellar-micropay:network", JSON.stringify(config));
+  }
+}
+
+// Get current network config
+const config = getNetworkConfig();
+
+// For backwards compatibility, keep these as computed values
+export const NETWORK = config.network === "custom" ? "testnet" : config.network; // Default to testnet for custom
+export const HORIZON_URL = config.horizonUrl;
 
 /** The network passphrase is used to sign and verify transactions. */
-export const NETWORK_PASSPHRASE =
-  NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+export function getNetworkPassphrase(): string {
+  const config = getNetworkConfig();
+  return config.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+}
+
+// For backwards compatibility
+export const NETWORK_PASSPHRASE = getNetworkPassphrase();
 
 /** Pre-configured Horizon server instance for the active network. */
-export const server = new Horizon.Server(HORIZON_URL);
+let _server: Horizon.Server | null = null;
+export function getServer(): Horizon.Server {
+  const currentConfig = getNetworkConfig();
+  if (!_server || _server.serverURL.toString() !== currentConfig.horizonUrl) {
+    _server = new Horizon.Server(currentConfig.horizonUrl);
+  }
+  return _server;
+}
+
+// For backwards compatibility, export server as getter
+export const server = new Proxy({} as Horizon.Server, {
+  get(target, prop) {
+    return getServer()[prop as keyof Horizon.Server];
+  },
+});
 
 /**
  * USDC issuer (Circle) for the active network.
@@ -75,12 +135,38 @@ export function getKnownAssets() {
 }
 
 /** Soroban RPC server URL. Defaults to testnet. */
-export const SOROBAN_RPC_URL =
-  process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ||
-  "https://soroban-testnet.stellar.org";
+export function getSorobanRpcUrl(): string {
+  const config = getNetworkConfig();
+  if (config.network === "mainnet") {
+    return "https://soroban.stellar.org";
+  } else if (config.network === "testnet") {
+    return "https://soroban-testnet.stellar.org";
+  } else {
+    // For custom networks, try to infer from Horizon URL
+    const url = new URL(config.horizonUrl);
+    return `https://soroban.${url.hostname}`;
+  }
+}
+
+// For backwards compatibility
+export const SOROBAN_RPC_URL = getSorobanRpcUrl();
 
 /** Pre-configured Soroban RPC server instance. */
-export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL);
+let _sorobanServer: SorobanRpc.Server | null = null;
+export function getSorobanServer(): SorobanRpc.Server {
+  const currentUrl = getSorobanRpcUrl();
+  if (!_sorobanServer || _sorobanServer.serverURL.toString() !== currentUrl) {
+    _sorobanServer = new SorobanRpc.Server(currentUrl);
+  }
+  return _sorobanServer;
+}
+
+// For backwards compatibility
+export const sorobanServer = new Proxy({} as SorobanRpc.Server, {
+  get(target, prop) {
+    return getSorobanServer()[prop as keyof SorobanRpc.Server];
+  },
+});
 
 /** The deployed Soroban contract ID for recording tips. */
 export const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
