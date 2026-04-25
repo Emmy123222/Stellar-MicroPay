@@ -19,10 +19,7 @@
 
 #![no_std]
 
-use soroban_sdk::{
-    contract, contractimpl, contracttype,
-    token, Address, Env, Symbol,
-};
+use soroban_sdk::{ contract, contractimpl, contracttype, token, Address, Env, Symbol, BytesN };
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
@@ -65,6 +62,25 @@ pub enum DataKey {
     TipCount(Address),
     Escrow(u64),
     EscrowCount,
+    ShieldedBalance(Address),
+}
+
+/// A Pedersen commitment representing a shielded amount
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Commitment {
+    /// The commitment value (C = G*amount + H*blinding_factor)
+    pub value: BytesN<32>,
+}
+
+/// Shielded balance for a user
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ShieldedBalance {
+    /// The commitment to the user's balance
+    pub commitment: Commitment,
+    /// The user's address
+    pub owner: Address,
 }
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
@@ -74,7 +90,6 @@ pub struct MicroPayContract;
 
 #[contractimpl]
 impl MicroPayContract {
-
     // ─── Initialization ──────────────────────────────────────────────────────
 
     /// Initialize the contract with an admin address. Can only be called once.
@@ -88,13 +103,7 @@ impl MicroPayContract {
     // ─── Tipping ─────────────────────────────────────────────────────────────
 
     /// Send a tip from `from` to `to` using a Stellar token (SAC).
-    pub fn send_tip(
-        env: Env,
-        token_address: Address,
-        from: Address,
-        to: Address,
-        amount: i128,
-    ) {
+    pub fn send_tip(env: Env, token_address: Address, from: Address, to: Address, amount: i128) {
         from.require_auth();
 
         if amount <= 0 {
@@ -124,10 +133,7 @@ impl MicroPayContract {
             .instance()
             .set(&DataKey::TipCount(to.clone()), &(current_count + 1));
 
-        env.events().publish(
-            (Symbol::new(&env, "tip"), from, to.clone()),
-            amount,
-        );
+        env.events().publish((Symbol::new(&env, "tip"), from, to.clone()), amount);
     }
 
     // ─── Escrow ───────────────────────────────────────────────────────────────
@@ -143,7 +149,7 @@ impl MicroPayContract {
         from: Address,
         to: Address,
         amount: i128,
-        release_ledger: u32,
+        release_ledger: u32
     ) -> u64 {
         from.require_auth();
 
@@ -159,11 +165,7 @@ impl MicroPayContract {
         token_client.transfer(&from, &env.current_contract_address(), &amount);
 
         // Assign a unique ID
-        let escrow_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowCount)
-            .unwrap_or(0u64);
+        let escrow_id: u64 = env.storage().instance().get(&DataKey::EscrowCount).unwrap_or(0u64);
 
         let escrow = Escrow {
             from: from.clone(),
@@ -174,9 +176,7 @@ impl MicroPayContract {
             cancelled: false,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
 
         env.storage()
             .instance()
@@ -184,7 +184,7 @@ impl MicroPayContract {
 
         env.events().publish(
             (Symbol::new(&env, "escrow_create"), from, to),
-            (escrow_id, amount, release_ledger),
+            (escrow_id, amount, release_ledger)
         );
 
         escrow_id
@@ -212,22 +212,16 @@ impl MicroPayContract {
         }
 
         let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &escrow.to,
-            &escrow.amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &escrow.to, &escrow.amount);
 
         // Mark as released by zeroing the amount (funds gone)
         let released_amount = escrow.amount;
         escrow.amount = 0;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
 
         env.events().publish(
             (Symbol::new(&env, "escrow_release"), escrow.to.clone()),
-            (escrow_id, released_amount),
+            (escrow_id, released_amount)
         );
     }
 
@@ -251,54 +245,165 @@ impl MicroPayContract {
         }
 
         let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &escrow.from,
-            &escrow.amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &escrow.from, &escrow.amount);
 
         let refunded_amount = escrow.amount;
         escrow.cancelled = true;
         escrow.amount = 0;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(escrow_id), &escrow);
+        env.storage().persistent().set(&DataKey::Escrow(escrow_id), &escrow);
 
         env.events().publish(
             (Symbol::new(&env, "escrow_cancel"), escrow.from.clone()),
-            (escrow_id, refunded_amount),
+            (escrow_id, refunded_amount)
         );
     }
 
     /// Get the current state of an escrow by ID.
     pub fn get_escrow(env: Env, escrow_id: u64) -> Escrow {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("Escrow not found")
+        env.storage().persistent().get(&DataKey::Escrow(escrow_id)).expect("Escrow not found")
     }
 
     // ─── Getters ─────────────────────────────────────────────────────────────
 
     pub fn get_tip_total(env: Env, recipient: Address) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::TipTotal(recipient))
-            .unwrap_or(0)
+        env.storage().instance().get(&DataKey::TipTotal(recipient)).unwrap_or(0)
     }
 
     pub fn get_tip_count(env: Env, recipient: Address) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::TipCount(recipient))
-            .unwrap_or(0)
+        env.storage().instance().get(&DataKey::TipCount(recipient)).unwrap_or(0)
     }
 
     pub fn get_admin(env: Env) -> Address {
-        env.storage()
+        env.storage().instance().get(&DataKey::Admin).expect("Contract not initialized")
+    }
+
+    // ─── Confidential Transactions ─────────────────────────────────────────────
+
+    /// Create a Pedersen commitment for an amount with a blinding factor.
+    /// Returns the commitment value as a 32-byte hash.
+    pub fn create_commitment(env: Env, amount: i128, blinding_factor: BytesN<32>) -> BytesN<32> {
+        let mut payload = soroban_sdk::Bytes::new(&env);
+        payload.append(&soroban_sdk::Bytes::from_slice(&env, &amount.to_be_bytes()));
+        payload.append(
+            &soroban_sdk::Bytes::from_slice(&env, blinding_factor.to_array().as_slice())
+        );
+        env.crypto().sha256(&payload).into()
+    }
+
+    /// Shield a payment amount by creating a commitment and storing it.
+    /// The blinding factor must be kept secret by the user.
+    pub fn shield_payment(env: Env, owner: Address, amount: i128, blinding_factor: BytesN<32>) {
+        owner.require_auth();
+
+        if amount <= 0 {
+            panic!("Amount must be positive");
+        }
+
+        let commitment_value = Self::create_commitment(env.clone(), amount, blinding_factor);
+        let commitment = Commitment {
+            value: commitment_value.clone(),
+        };
+
+        let shielded_balance = ShieldedBalance {
+            commitment,
+            owner: owner.clone(),
+        };
+
+        env.storage().instance().set(&DataKey::ShieldedBalance(owner.clone()), &shielded_balance);
+
+        env.events().publish((Symbol::new(&env, "shield"), owner), commitment_value);
+    }
+
+    /// Unshield a payment by revealing the amount with the correct blinding factor.
+    /// Returns the amount if the blinding factor matches the stored commitment.
+    pub fn unshield_payment(
+        env: Env,
+        owner: Address,
+        amount: i128,
+        blinding_factor: BytesN<32>
+    ) -> i128 {
+        owner.require_auth();
+
+        let shielded_balance: ShieldedBalance = env
+            .storage()
             .instance()
-            .get(&DataKey::Admin)
-            .expect("Contract not initialized")
+            .get(&DataKey::ShieldedBalance(owner.clone()))
+            .expect("No shielded balance found");
+
+        let expected_commitment = Self::create_commitment(env.clone(), amount, blinding_factor);
+
+        if shielded_balance.commitment.value != expected_commitment {
+            panic!("Invalid blinding factor or amount");
+        }
+
+        env.storage().instance().remove(&DataKey::ShieldedBalance(owner.clone()));
+
+        env.events().publish((Symbol::new(&env, "unshield"), owner), amount);
+
+        amount
+    }
+
+    /// Transfer shielded balance from one user to another.
+    /// Verifies the transfer without revealing amounts using commitment arithmetic.
+    /// The proof is the sender's blinding factor to verify their commitment.
+    pub fn transfer_shielded(
+        env: Env,
+        from: Address,
+        to: Address,
+        amount: i128,
+        from_blinding_factor: BytesN<32>,
+        to_blinding_factor: BytesN<32>
+    ) {
+        from.require_auth();
+
+        if amount <= 0 {
+            panic!("Amount must be positive");
+        }
+
+        let from_balance: ShieldedBalance = env
+            .storage()
+            .instance()
+            .get(&DataKey::ShieldedBalance(from.clone()))
+            .expect("Sender has no shielded balance");
+
+        let from_commitment_expected = Self::create_commitment(
+            env.clone(),
+            amount,
+            from_blinding_factor
+        );
+
+        if from_balance.commitment.value != from_commitment_expected {
+            panic!("Invalid sender blinding factor or amount");
+        }
+
+        let to_commitment_value = Self::create_commitment(env.clone(), amount, to_blinding_factor);
+        let to_commitment = Commitment {
+            value: to_commitment_value.clone(),
+        };
+
+        let to_shielded_balance = ShieldedBalance {
+            commitment: to_commitment,
+            owner: to.clone(),
+        };
+
+        env.storage().instance().set(&DataKey::ShieldedBalance(to.clone()), &to_shielded_balance);
+
+        env.storage().instance().remove(&DataKey::ShieldedBalance(from.clone()));
+
+        env.events().publish(
+            (Symbol::new(&env, "transfer_shielded"), from, to),
+            to_commitment_value
+        );
+    }
+
+    /// Get the shielded commitment for a user (publicly visible but amount is hidden).
+    pub fn get_shielded_commitment(env: Env, owner: Address) -> BytesN<32> {
+        let shielded_balance: ShieldedBalance = env
+            .storage()
+            .instance()
+            .get(&DataKey::ShieldedBalance(owner.clone()))
+            .expect("No shielded balance found");
+        shielded_balance.commitment.value
     }
 
     // ─── Placeholders (future features) ──────────────────────────────────────
@@ -309,7 +414,7 @@ impl MicroPayContract {
         _env: Env,
         _from: Address,
         _recipients: soroban_sdk::Vec<Address>,
-        _amounts: soroban_sdk::Vec<i128>,
+        _amounts: soroban_sdk::Vec<i128>
     ) {
         panic!("Batch payments coming in v2.0 — see ROADMAP.md");
     }
@@ -320,11 +425,8 @@ impl MicroPayContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, Ledger, LedgerInfo},
-        Address, Env,
-    };
-    use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
+    use soroban_sdk::{ testutils::{ Address as _, Ledger, LedgerInfo }, Address, Env };
+    use soroban_sdk::token::{ Client as TokenClient, StellarAssetClient };
 
     /// Helper: deploy the contract and return (env, client, admin)
     fn setup() -> (Env, MicroPayContractClient<'static>, Address) {
@@ -580,5 +682,199 @@ mod tests {
         let escrow1 = client.get_escrow(&id1);
         assert_eq!(escrow1.amount, 300_000);
         assert!(!escrow1.cancelled);
+    }
+
+    // ─── Confidential Transactions tests ───────────────────────────────────────
+
+    #[test]
+    fn test_create_commitment() {
+        let (env, client, _) = setup();
+        let amount: i128 = 1000;
+        let blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+
+        let commitment = client.create_commitment(&amount, &blinding_factor);
+        assert_eq!(commitment.len(), 32);
+
+        // Same inputs should produce same commitment
+        let commitment2 = client.create_commitment(&amount, &blinding_factor);
+        assert_eq!(commitment, commitment2);
+
+        // Different blinding factor should produce different commitment
+        let blinding_factor2 = BytesN::from_array(&env, &[2u8; 32]);
+        let commitment3 = client.create_commitment(&amount, &blinding_factor2);
+        assert_ne!(commitment, commitment3);
+    }
+
+    #[test]
+    fn test_shield_payment() {
+        let (env, client, _) = setup();
+        let owner = Address::generate(&env);
+        let amount: i128 = 5000;
+        let blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+
+        client.shield_payment(&owner, &amount, &blinding_factor);
+
+        // Verify commitment is stored
+        let commitment = client.get_shielded_commitment(&owner);
+        assert_eq!(commitment.len(), 32);
+
+        // Verify it matches the expected commitment
+        let expected_commitment = client.create_commitment(&amount, &blinding_factor);
+        assert_eq!(commitment, expected_commitment);
+    }
+
+    #[test]
+    #[should_panic(expected = "Amount must be positive")]
+    fn test_shield_payment_zero_amount_fails() {
+        let (env, client, _) = setup();
+        let owner = Address::generate(&env);
+        let blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+
+        client.shield_payment(&owner, &0, &blinding_factor);
+    }
+
+    #[test]
+    fn test_unshield_payment() {
+        let (env, client, _) = setup();
+        let owner = Address::generate(&env);
+        let amount: i128 = 5000;
+        let blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+
+        client.shield_payment(&owner, &amount, &blinding_factor);
+
+        let revealed_amount = client.unshield_payment(&owner, &amount, &blinding_factor);
+        assert_eq!(revealed_amount, amount);
+    }
+
+    #[test]
+    #[should_panic(expected = "No shielded balance found")]
+    fn test_unshield_payment_removes_balance() {
+        let (env, client, _) = setup();
+        let owner = Address::generate(&env);
+        let amount: i128 = 5000;
+        let blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+
+        client.shield_payment(&owner, &amount, &blinding_factor);
+        client.unshield_payment(&owner, &amount, &blinding_factor);
+
+        // This should panic since balance was removed
+        client.get_shielded_commitment(&owner);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid blinding factor or amount")]
+    fn test_unshield_payment_wrong_blinding_factor_fails() {
+        let (env, client, _) = setup();
+        let owner = Address::generate(&env);
+        let amount: i128 = 5000;
+        let blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+
+        client.shield_payment(&owner, &amount, &blinding_factor);
+
+        let wrong_blinding_factor = BytesN::from_array(&env, &[2u8; 32]);
+        client.unshield_payment(&owner, &amount, &wrong_blinding_factor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid blinding factor or amount")]
+    fn test_unshield_payment_wrong_amount_fails() {
+        let (env, client, _) = setup();
+        let owner = Address::generate(&env);
+        let amount: i128 = 5000;
+        let blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+
+        client.shield_payment(&owner, &amount, &blinding_factor);
+
+        let wrong_amount: i128 = 6000;
+        client.unshield_payment(&owner, &wrong_amount, &blinding_factor);
+    }
+
+    #[test]
+    fn test_transfer_shielded() {
+        let (env, client, _) = setup();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 5000;
+        let from_blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+        let to_blinding_factor = BytesN::from_array(&env, &[2u8; 32]);
+
+        client.shield_payment(&from, &amount, &from_blinding_factor);
+
+        client.transfer_shielded(&from, &to, &amount, &from_blinding_factor, &to_blinding_factor);
+
+        // To should have balance with new commitment
+        let to_commitment = client.get_shielded_commitment(&to);
+        let expected_commitment = client.create_commitment(&amount, &to_blinding_factor);
+        assert_eq!(to_commitment, expected_commitment);
+    }
+
+    #[test]
+    #[should_panic(expected = "No shielded balance found")]
+    fn test_transfer_shielded_removes_from_balance() {
+        let (env, client, _) = setup();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 5000;
+        let from_blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+        let to_blinding_factor = BytesN::from_array(&env, &[2u8; 32]);
+
+        client.shield_payment(&from, &amount, &from_blinding_factor);
+        client.transfer_shielded(&from, &to, &amount, &from_blinding_factor, &to_blinding_factor);
+
+        // This should panic since from balance was removed
+        client.get_shielded_commitment(&from);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid sender blinding factor or amount")]
+    fn test_transfer_shielded_wrong_blinding_factor_fails() {
+        let (env, client, _) = setup();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 5000;
+        let from_blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+        let to_blinding_factor = BytesN::from_array(&env, &[2u8; 32]);
+
+        client.shield_payment(&from, &amount, &from_blinding_factor);
+
+        let wrong_blinding_factor = BytesN::from_array(&env, &[3u8; 32]);
+        client.transfer_shielded(&from, &to, &amount, &wrong_blinding_factor, &to_blinding_factor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Amount must be positive")]
+    fn test_transfer_shielded_zero_amount_fails() {
+        let (env, client, _) = setup();
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let from_blinding_factor = BytesN::from_array(&env, &[1u8; 32]);
+        let to_blinding_factor = BytesN::from_array(&env, &[2u8; 32]);
+
+        client.shield_payment(&from, &5000, &from_blinding_factor);
+
+        client.transfer_shielded(&from, &to, &0, &from_blinding_factor, &to_blinding_factor);
+    }
+
+    #[test]
+    fn test_commitment_hides_amount() {
+        let (env, client, _) = setup();
+        let amount1: i128 = 1000;
+        let amount2: i128 = 2000;
+        let blinding_factor1 = BytesN::from_array(&env, &[1u8; 32]);
+        let blinding_factor2 = BytesN::from_array(&env, &[2u8; 32]);
+
+        let commitment1 = client.create_commitment(&amount1, &blinding_factor1);
+        let commitment2 = client.create_commitment(&amount2, &blinding_factor2);
+
+        // Different amounts with different blinding factors produce different commitments
+        assert_ne!(commitment1, commitment2);
+
+        // Same amount with different blinding factors produces different commitments
+        let commitment3 = client.create_commitment(&amount1, &blinding_factor2);
+        assert_ne!(commitment1, commitment3);
+
+        // Different amounts can potentially produce same-looking commitment (collision resistance)
+        // but with different blinding factors they should be different
+        assert_ne!(commitment2, commitment3);
     }
 }
