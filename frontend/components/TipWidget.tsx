@@ -90,10 +90,27 @@ export default function TipWidget({
     onConnect(connectedPublicKey);
   };
 
-  const handleSuccess = () => {
+  const handleSuccess = async () => {
     setShowCelebration(true);
     setFormVersion((current) => current + 1);
     window.setTimeout(() => setShowCelebration(false), 4200);
+
+    // Record tip in backend
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+      await fetch(`${apiBase}/api/tips`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderPublicKey: publicKey,
+          creatorPublicKey: destination,
+          amount: parsedAmount.toString(),
+          asset: "XLM",
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to record tip:", err);
+    }
   };
 
   return (

@@ -34,6 +34,7 @@ import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
+import CreatorTipsDashboard from "@/components/CreatorTipsDashboard";
 import {
   getXLMBalance,
   getUSDCBalance,
@@ -108,6 +109,33 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
     amount: string;
     memo?: string;
   } | null>(null);
+
+  // Creator username for tips dashboard
+  const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
+
+  // Fetch username for connected wallet
+  const fetchUsername = useCallback(async () => {
+    if (!publicKey) return;
+    
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    try {
+      const response = await fetch(
+        `${apiBase}/api/accounts/resolve/${encodeURIComponent(publicKey)}`
+      );
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload?.success && payload?.data?.username) {
+          setCreatorUsername(payload.data.username);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching username:", err);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    fetchUsername();
+  }, [fetchUsername]);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -769,6 +797,13 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
           </div>
         </div>
       )}
+
+      {/* Creator Tips Dashboard */}
+      <CreatorTipsDashboard 
+        publicKey={publicKey} 
+        username={creatorUsername}
+        xlmPrice={xlmPrice}
+      />
 
       <div className="grid lg:grid-cols-4 gap-6">
         <div className="lg:col-span-1">
