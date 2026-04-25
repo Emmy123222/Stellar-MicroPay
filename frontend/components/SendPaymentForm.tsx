@@ -46,6 +46,8 @@ interface SendPaymentFormProps {
     amount: string;
     memo?: string;
     validUntil?: number;
+    /** True when pre-filled from the "Send again" action in transaction history. */
+    fromHistory?: boolean;
   } | null;
   // AI Assistant prefill
   aiPrefill?: {
@@ -948,11 +950,12 @@ export default function SendPaymentForm({
 
 
         {/* Pre-fill notice */}
-          {prefill && (
+        {prefill?.fromHistory && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-stellar-500/10 border border-stellar-500/20 text-stellar-400 text-xs">
-         <InfoIcon className="w-3.5 h-3.5 flex-shrink-0" />
-           Pre-filled from transaction history
-         </div>)}
+            <InfoIcon className="w-3.5 h-3.5 flex-shrink-0" />
+            Pre-filled from transaction history
+          </div>
+        )}
 
         {/* Destination */}
         {!hideDestinationField && (
@@ -1125,13 +1128,29 @@ export default function SendPaymentForm({
             <input
               type="text"
               value={memo}
-              onChange={(e) => setMemo(e.target.value)}
+              onChange={(e) => setMemo(e.target.value.slice(0, 28))}
               placeholder="Payment note..."
               maxLength={28}
               className="input-field"
               disabled={status !== "idle"}
             />
-            <p className="mt-1 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
+            <p
+              className={clsx(
+                "mt-1 text-xs",
+                memo.length >= 28
+                  ? "text-red-400"
+                  : memo.length >= 25
+                  ? "text-red-400"
+                  : memo.length >= 20
+                  ? "text-amber-400"
+                  : "text-slate-500"
+              )}
+              title="Stellar memos are limited to 28 bytes"
+            >
+              {memo.length >= 28
+                ? "Max reached (28 chars)"
+                : `${memo.length}/28 characters`}
+            </p>
           </div>
             disabled={status !== "idle"}
           />
@@ -1151,15 +1170,24 @@ export default function SendPaymentForm({
         {!hideMemoField && (
           <div>
           <label className="label">{`Memo (optional)`}</label>
-          <input
-            type="text"
-            value={memo}
-            onChange={(e) => handleMemoChange(e.target.value)}
-            placeholder="Payment note..."
-            maxLength={28}
-            className="input-field"
-            disabled={status !== "idle"}
-          />
+          <div className="relative">
+            <input
+              type="text"
+              value={memo}
+              onChange={(e) => handleMemoChange(e.target.value.slice(0, 28))}
+              placeholder="Payment note..."
+              maxLength={28}
+              className="input-field pr-10"
+              disabled={status !== "idle"}
+            />
+            <span
+              title="Stellar memos are limited to 28 bytes — this keeps transactions compatible with the Stellar network."
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 cursor-help select-none"
+              aria-label="Stellar memo byte limit info"
+            >
+              ℹ
+            </span>
+          </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
             {memoTemplates.map((template) => {
@@ -1184,7 +1212,22 @@ export default function SendPaymentForm({
             })}
           </div>
 
-          <p className="mt-3 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
+          <p
+            className={clsx(
+              "mt-1 text-xs",
+              memo.length >= 28
+                ? "text-red-400"
+                : memo.length >= 25
+                ? "text-red-400"
+                : memo.length >= 20
+                ? "text-amber-400"
+                : "text-slate-500"
+            )}
+          >
+            {memo.length >= 28
+              ? "Max reached (28 chars)"
+              : `${memo.length}/28 characters`}
+          </p>
         </div>
 
         {/* Record as Tip On-Chain (Soroban) */}

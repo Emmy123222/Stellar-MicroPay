@@ -86,14 +86,21 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   const router = useRouter();
   const [activePaymentTab, setActivePaymentTab] = useState<"single" | "batch">("single");
 
-  // Build prefill object from query parameters (e.g., from contacts page)
-  const prefill = router.query.prefillDestination
-    ? {
-        destination: router.query.prefillDestination as string,
-        amount: "",
-        memo: "",
-      }
-    : null;
+  // Build prefill object from query parameters.
+  // Supports legacy ?prefillDestination= (contacts page) and
+  // new ?to=&amount= (Send Again from transaction history).
+  const { prefillDestination, to, amount: queryAmount } = router.query;
+  const prefill =
+    prefillDestination
+      ? { destination: prefillDestination as string, amount: "", memo: "" }
+      : to
+      ? {
+          destination: to as string,
+          amount: typeof queryAmount === "string" ? queryAmount : "",
+          memo: "",
+          fromHistory: true,
+        }
+      : null;
   const [friendbotLoading, setFriendbotLoading] = useState(false);
   const [friendbotSuccessMessage, setFriendbotSuccessMessage] = useState<string | null>(null);
   const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null);

@@ -1016,3 +1016,50 @@ export async function resolveFederationAddress(
     );
   }
 }
+
+// ── Network fee status (#168) ──────────────────────────────────────────────
+
+export type FeeLevel = "normal" | "elevated" | "high";
+
+export interface NetworkFeeStats {
+  feeLevel: FeeLevel;
+  /** Most-recent base fee in XLM (e.g. 0.00001) */
+  baseFeeXlm: number;
+}
+
+/**
+ * Fetches the current network fee statistics from Horizon and classifies
+ * the fee level for the network status indicator.
+ *
+ * Thresholds (mode base fee in stroops):
+ *   normal   — < 100 stroops (< 0.00001 XLM)
+ *   elevated — 100–1000 stroops
+ *   high     — > 1000 stroops
+ */
+export async function fetchNetworkFeeStats(): Promise<NetworkFeeStats> {
+  const config = getNetworkConfig();
+  const url = `${config.horizonUrl}/fee_stats`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Horizon fee_stats returned ${res.status}`);
+  }
+
+  const data = await res.json() as {
+    fee_charged: { mode: string };
+  };
+
+  const modeStroops = parseInt(data.fee_charged?.mode ?? "100", 10);
+  const baseFeeXlm = modeStroops / 10_000_000;
+
+  let feeLevel: FeeLevel;
+  if (modeStroops < 100) {
+    feeLevel = "normal";
+  } else if (modeStroops <= 1000) {
+    feeLevel = "elevated";
+  } else {
+    feeLevel = "high";
+  }
+
+  return { feeLevel, baseFeeXlm };
+}
