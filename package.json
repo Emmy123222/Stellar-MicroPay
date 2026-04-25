@@ -1,16 +1,10 @@
 {
-  "name": "stellar-micropay-zk",
-  "version": "1.0.0",
-  "description": "Zero-Knowledge proof helper for Stellar MicroPay",
-  "main": "lib/stellar.ts",
-  "scripts": {
-    "build": "tsc",
-    "test": "jest",
-    "lint": "eslint lib/**/*.ts"
-  },
   "dependencies": {
-    "js-sha256": "^0.9.0"
+    "clsx": "^2.1.1"
   },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "playwright": "^1.59.1"
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",

@@ -3,9 +3,11 @@ import { test, expect } from '@playwright/test';
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).freighter = {
-      isConnected: async () => false,
-      getPublicKey: async () => '',
-      signTransaction: async () => '',
+      isConnected: async () => ({ isConnected: false }),
+      getPublicKey: async () => ({ publicKey: '' }),
+      signTransaction: async () => ({ signedTransaction: '' }),
+      requestAccess: async () => ({}),
+      isAllowed: async () => ({ isAllowed: false }),
     };
   });
 });
@@ -21,7 +23,6 @@ test('transactions page shows wallet connect prompt when no wallet connected', a
   const prompt = page.getByText('Connect your wallet to view your payments');
   await expect(prompt).toBeVisible();
 
-  // WalletConnect component is rendered
   const connectBtn = page.getByRole('button', { name: /Connect Freighter Wallet/i });
   await expect(connectBtn).toBeVisible();
 });

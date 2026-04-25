@@ -15,6 +15,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import PaymentLinkGenerator from "../components/PaymentLinkGenerator";
+import WalletConnect from "../components/WalletConnect";
+import SendPaymentForm from "../components/SendPaymentForm";
+import TransactionList from "../components/TransactionList";
+import MultiSigFlow from "../components/MultiSigFlow";
+import Toast from "../components/Toast";
+import QRCodeModal from "../components/QRCodeModal";
 import { useRouter } from "next/router";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import WalletConnect from "@/components/WalletConnect";
@@ -36,6 +43,9 @@ import {
   streamPayments,
   getRecentPaymentsForStats,
   PaymentRecord,
+} from "../lib/stellar";
+import { formatUSD, copyToClipboard } from "../utils/format";
+import { useToast } from "../lib/useToast";
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
@@ -757,6 +767,8 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
         </div>
       )}
 
+      <div className="grid lg:grid-cols-4 gap-6">
+        <div className="lg:col-span-1">
       {/* External payment banner */}
       {stellarURI && stellarURI.success && stellarURI.isExternal && showExternalBanner && (
         <ExternalPaymentBanner
@@ -780,6 +792,14 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
 
         <div className="lg:col-span-1">
           <PaymentRequestGenerator />
+        </div>
+
+        <div className="lg:col-span-1">
+          <MultiSigFlow
+            publicKey={publicKey}
+            xlmBalance={xlmBalance || "0"}
+            onSuccess={handlePaymentSuccess}
+          />
         </div>
 
         <div className="lg:col-span-1">
