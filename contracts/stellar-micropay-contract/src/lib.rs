@@ -937,6 +937,8 @@ mod tests {
         assert_ne!(hash1, hash4);
     }
 
+    // ─── Invoice: sequential IDs and independence ─────────────────────────────
+
     #[test]
     fn test_merkle_root_update() {
         let env = Env::new();
@@ -1006,5 +1008,25 @@ mod tests {
         // Second commitment
         let id2 = StellarMicroPay::commit_payment(env.clone(), commitment_hash2, nullifier2);
         assert_eq!(id2, 2);
+    }
+
+    #[test]
+    fn test_invoice_and_escrow_ids_independent() {
+        // Invoice counter and escrow counter are separate — both start at 0
+        let (env, client, admin) = setup();
+        let user = Address::generate(&env);
+        let other = Address::generate(&env);
+        let token = create_token(&env, &admin, &user, 5_000_000);
+
+        let escrow_id = client.create_escrow(&token, &user, &other, &1_000_000, &50);
+        let invoice_id = client.create_invoice(&token, &user, &other, &1_000_000);
+
+        // Both start from 0 independently
+        assert_eq!(escrow_id, 0);
+        assert_eq!(invoice_id, 0);
+
+        // Each can be retrieved without interference
+        let _ = client.get_escrow(&escrow_id);
+        let _ = client.get_invoice(&invoice_id);
     }
 }

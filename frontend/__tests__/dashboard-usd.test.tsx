@@ -16,6 +16,8 @@ jest.mock("@/lib/stellar", () => ({
   fundWithFriendbot: jest.fn(),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
   streamPayments: jest.fn(() => jest.fn()),
+  getRecentPaymentsForSparkline: jest.fn().mockResolvedValue([]),
+  getPaymentHistory: jest.fn().mockResolvedValue({ records: [], hasMore: false }),
   isValidStellarAddress: jest.fn().mockReturnValue(true),
   shortenAddress: jest.fn((pk: string) => pk.slice(0, 6)),
   explorerUrl: jest.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
@@ -35,6 +37,8 @@ describe("Dashboard USD price display", () => {
     stellar.getXLMBalance.mockResolvedValue("500.0000000");
     stellar.getUSDCBalance.mockResolvedValue(null);
     stellar.streamPayments.mockImplementation(() => jest.fn());
+    stellar.getRecentPaymentsForSparkline.mockResolvedValue([]);
+    stellar.getPaymentHistory.mockResolvedValue({ records: [], hasMore: false });
     stellar.isValidStellarAddress.mockReturnValue(true);
     stellar.shortenAddress.mockImplementation((pk: string) => pk.slice(0, 6));
   });
