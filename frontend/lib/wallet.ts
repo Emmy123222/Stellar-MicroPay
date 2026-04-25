@@ -18,6 +18,8 @@ import {
 } from "@stellar/freighter-api";
 
 import { NETWORK_PASSPHRASE } from "./stellar";
+import TransportWebHID from "@ledgerhq/hw-transport-webhid";
+import StellarApp from "@ledgerhq/hw-app-stellar";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -248,5 +250,166 @@ export async function signTransactionWithWallet(
     }
 
     return { signedXDR: null, error: `Signing failed: ${message}` };
+  }
+}
+
+// ─── Ledger Hardware Wallet Support ───────────────────────────────────────────
+
+/**
+ * Check if WebHID is supported and a Ledger device might be available.
+ */
+export async function isLedgerSupported(): Promise<boolean> {
+  try {
+    // Check if WebHID is supported
+    if (typeof navigator === "undefined" || !navigator.hid) {
+      return false;
+    }
+    
+    // Try to create a transport to test connectivity
+    const transport = await TransportWebHID.create();
+    await transport.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get the public key from a Ledger device.
+ * @param accountPath - BIP32 path (default: "44'/148'/0'")
+ * @param confirmOnDevice - Whether to require confirmation on the device
+ */
+export async function getLedgerPublicKey(
+  accountPath: string = "44'/148'/0'",
+  confirmOnDevice: boolean = false
+): Promise<{ publicKey: string | null; error: string | null }> {
+  try {
+    // Check WebHID support first
+    if (typeof navigator === "undefined" || !navigator.hid) {
+      return {
+        publicKey: null,
+        error: "WebHID is not supported in this browser. Use Chrome, Edge, or another Chromium-based browser.",
+      };
+    }
+
+    // Create transport and connect to Ledger
+    const transport = await TransportWebHID.create();
+    const stellar = new StellarApp(transport);
+
+    try {
+      const result = await stellar.getPublicKey(accountPath, confirmOnDevice);
+      const publicKey = result.publicKey;
+      
+      if (!publicKey) {
+        return { publicKey: null, error: "No public key returned from Ledger device." };
+      }
+
+      return { publicKey, error: null };
+    } finally {
+      await transport.close();
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    // Handle common Ledger errors
+    if (message.includes("Device not found") || message.includes("No device selected")) {
+      return {
+        publicKey: null,
+        error: "Ledger device not found. Make sure your Ledger is connected and unlocked.",
+      };
+    }
+
+    if (message.includes("App not open") || message.includes("6985")) {
+      return {
+        publicKey: null,
+        error: "Stellar app is not open on your Ledger device. Open the Stellar app and try again.",
+      };
+    }
+
+    if (message.includes("6986") || message.includes("denied") || message.includes("rejected")) {
+      return {
+        publicKey: null,
+        error: "Action rejected on the Ledger device. Please try again.",
+      };
+    }
+
+    if (message.includes("6480")) {
+      return {
+        publicKey: null,
+        error: "Stellar app is not installed on your Ledger device. Install it from Ledger Live.",
+      };
+    }
+
+    return { publicKey: null, error: `Ledger connection failed: ${message}` };
+  }
+}
+
+/**
+ * Sign a transaction using a Ledger device.
+ * @param transactionXDR - The transaction XDR to sign
+ * @param accountPath - BIP32 path (default: "44'/148'/0'")
+ */
+export async function signTransactionWithLedger(
+  transactionXDR: string,
+  accountPath: string = "44'/148'/0'"
+): Promise<{ signedXDR: string | null; error: string | null }> {
+  try {
+    // Check WebHID support first
+    if (typeof navigator === "undefined" || !navigator.hid) {
+      return {
+        signedXDR: null,
+        error: "WebHID is not supported in this browser. Use Chrome, Edge, or another Chromium-based browser.",
+      };
+    }
+
+    // Create transport and connect to Ledger
+    const transport = await TransportWebHID.create();
+    const stellar = new StellarApp(transport);
+
+    try {
+      const result = await stellar.signTransaction(accountPath, transactionXDR);
+      const signedXDR = result.signature;
+      
+      if (!signedXDR) {
+        return { signedXDR: null, error: "No signature returned from Ledger device." };
+      }
+
+      return { signedXDR, error: null };
+    } finally {
+      await transport.close();
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    // Handle common Ledger errors
+    if (message.includes("Device not found") || message.includes("No device selected")) {
+      return {
+        signedXDR: null,
+        error: "Ledger device not found. Make sure your Ledger is connected and unlocked.",
+      };
+    }
+
+    if (message.includes("App not open") || message.includes("6985")) {
+      return {
+        signedXDR: null,
+        error: "Stellar app is not open on your Ledger device. Open the Stellar app and try again.",
+      };
+    }
+
+    if (message.includes("6986") || message.includes("denied") || message.includes("rejected")) {
+      return {
+        signedXDR: null,
+        error: "Transaction signing was rejected on the Ledger device.",
+      };
+    }
+
+    if (message.includes("6480")) {
+      return {
+        signedXDR: null,
+        error: "Stellar app is not installed on your Ledger device. Install it from Ledger Live.",
+      };
+    }
+
+    return { signedXDR: null, error: `Ledger signing failed: ${message}` };
   }
 }
