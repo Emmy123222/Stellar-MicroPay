@@ -115,6 +115,25 @@ export const USDC_ISSUER =
 /** USDC asset helper. */
 export const USDC = new Asset("USDC", USDC_ISSUER);
 
+/** Known assets for trustline management. */
+export const KNOWN_ASSETS = {
+  testnet: [
+    { code: "USDC", issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" },
+    { code: "AQUA", issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA7" }, // Example issuer
+    { code: "yXLM", issuer: "GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55" }, // Example issuer
+  ],
+  mainnet: [
+    { code: "USDC", issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" },
+    { code: "AQUA", issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA7" }, // Example issuer
+    { code: "yXLM", issuer: "GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55" }, // Example issuer
+  ],
+};
+
+/** Get known assets for the current network. */
+export function getKnownAssets() {
+  return KNOWN_ASSETS[NETWORK];
+}
+
 /** Soroban RPC server URL. Defaults to testnet. */
 export function getSorobanRpcUrl(): string {
   const config = getNetworkConfig();
@@ -155,6 +174,16 @@ export const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 /**
+ * Enum for transaction categories.
+ */
+export enum TransactionCategory {
+  Payment = "Payment",
+  Transfer = "Transfer",
+  Merge = "Merge",
+  // Add more as needed
+}
+
+/**
  * Represents a single asset balance on a Stellar account.
 */
 export interface WalletBalance {
@@ -165,14 +194,28 @@ export interface WalletBalance {
   /** Short asset code shown in the UI, e.g. `"XLM"` or `"USDC"` */
   assetCode: string;
 }
+
 /**
- * Represents a single payment operation in a user's transaction history.
+ * Represents a trustline for a non-native asset.
+ */
+export interface Trustline {
+  /** Asset code, e.g. "USDC" */
+  assetCode: string;
+  /** Asset issuer public key */
+  issuer: string;
+  /** Current balance */
+  balance: string;
+  /** Trust limit */
+  limit: string;
+}
+/**
+ * Represents a single transaction operation in a user's transaction history.
 */
 export interface PaymentRecord {
   /** Unique operation ID assigned by Horizon. */
   id: string;
   /** Whether this payment was sent or received by the queried account. */
-  type: "sent" | "received";
+  type: "sent" | "received" | "merge";
   /** Whether this payment was sent or received by the queried account. */
   amount: string;
   /** Asset code, e.g. `"XLM"` */
@@ -189,6 +232,8 @@ export interface PaymentRecord {
   transactionHash: string;
   /** Horizon paging token used for cursor-based pagination. */
   pagingToken?: string;
+  /** Category of the transaction. */
+  category?: TransactionCategory;
 }
 
 /**
@@ -229,28 +274,26 @@ export interface FundingPollOptions {
 }
 
 /**
- * Fetch all asset balances for a Stellar account.
+ * Fetch all trustlines (non-native asset balances) for a Stellar account.
  *
  * @param publicKey - The Stellar public key (G...) of the account to query.
- * @returns A promise resolving to an array of {@link WalletBalance} objects.
+ * @returns A promise resolving to an array of {@link Trustline} objects.
  * @throws {Error} With message `ACCOUNT_NOT_FOUND` if the account has never been funded.
- *
- * @see {@link https://developers.stellar.org/docs/data/horizon/api-reference/resources/accounts | Horizon Accounts API}
-*/
-export async function getBalances(publicKey: string): Promise<WalletBalance[]> {
+ */
+export async function getTrustlines(publicKey: string): Promise<Trustline[]> {
   try {
     const account = await server.loadAccount(publicKey);
-    return account.balances.map((b: Horizon.HorizonApi.BalanceLine) => {
-      if (b.asset_type === "native") {
-        return { asset: "native", balance: b.balance, assetCode: "XLM" };
-      }
-      const typed = b as Horizon.HorizonApi.BalanceLineAsset;
-      return {
-        asset: `${typed.asset_code}:${typed.asset_issuer}`,
-        balance: typed.balance,
-        assetCode: typed.asset_code,
-      };
-    });
+    return account.balances
+      .filter((b): b is Horizon.HorizonApi.BalanceLineAsset => b.asset_type !== "native")
+      .map((b) => {
+        const typed = b as Horizon.HorizonApi.BalanceLineAsset;
+        return {
+          assetCode: typed.asset_code,
+          issuer: typed.asset_issuer,
+          balance: typed.balance,
+          limit: typed.limit,
+        };
+      });
   } catch (err: unknown) {
     // Horizon returns 404 for unfunded accounts — surface a sentinel so the
     // UI can offer the Friendbot funding button instead of a generic error.
@@ -258,8 +301,8 @@ export async function getBalances(publicKey: string): Promise<WalletBalance[]> {
     if (horizonErr?.response?.status === 404) {
       throw new Error(ACCOUNT_NOT_FOUND_ERROR);
     }
-    console.error("Failed to load account balances:", err);
-    throw new Error("Could not fetch account. Is this address funded?");
+    console.error("Failed to load account trustlines:", err);
+    throw new Error("Could not fetch account trustlines. Is this address funded?");
   }
 }
 
@@ -363,35 +406,48 @@ export async function getUSDCBalance(publicKey: string): Promise<string | null> 
 }
 
 /**
- * Build an unsigned XLM payment transaction ready for Freighter to sign.
+ * Build an unsigned changeTrust transaction to add or remove a trustline.
  *
- * This function loads the source account sequence number from Horizon,
- * constructs a `TransactionBuilder`, adds a payment operation, and
- * optionally attaches a text memo (truncated to 28 bytes per Stellar spec).
- *
- * @param params - Payment parameters.
- * @param params.fromPublicKey - Sender's Stellar public key (G...).
- * @param params.toPublicKey - Recipient's Stellar public key (G...).
- * @param params.amount - XLM amount to send as a string, e.g. `"0.5"`.
- * @param params.memo - Optional text memo (max 28 bytes; longer strings are truncated).
+ * @param params - Trustline parameters.
+ * @param params.fromPublicKey - The account adding/removing the trustline.
+ * @param params.assetCode - Asset code, e.g. "USDC".
+ * @param params.issuer - Asset issuer public key.
+ * @param params.limit - Trust limit. Use "0" to remove the trustline.
  * @returns A promise resolving to an unsigned {@link Transaction} object.
  * @throws {Error} If the source account cannot be loaded from Horizon.
- *
- * @see {@link https://developers.stellar.org/docs/learn/fundamentals/transactions | Stellar Transactions}
- *
- * @example
- * ```ts
- * const tx = await buildPaymentTransaction({
- *   fromPublicKey: "GABC...sender",
- *   toPublicKey:   "GXYZ...recipient",
- *   amount:        "0.5",
- *   memo:          "coffee ☕",
- * });
- * // Pass `tx` to Freighter for signing:
- * const signedXDR = await signTransaction(tx.toXDR(), { networkPassphrase: NETWORK_PASSPHRASE });
- * ```
-*/
-export async function buildPaymentTransaction({
+ */
+export async function buildChangeTrustTransaction({
+  fromPublicKey,
+  assetCode,
+  issuer,
+  limit = "922337203685.4775807", // Max limit for adding
+}: {
+  fromPublicKey: string;
+  assetCode: string;
+  issuer: string;
+  limit?: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const asset = new Asset(assetCode, issuer);
+
+  const builder = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.changeTrust({
+        asset: asset,
+        limit: limit,
+      })
+    )
+    .setTimeout(60);
+
+  return builder.build();
+}
+
+/**
+ * Build an unsigned XLM payment transaction ready for Freighter to sign.
   fromPublicKey,
   toPublicKey,
   amount,
@@ -441,6 +497,37 @@ export async function buildPaymentTransaction({
   if (memo) {
     builder.addMemo(Memo.text(memo.slice(0, 28))); // Stellar memo max 28 bytes
   }
+
+  return builder.build();
+}
+
+/**
+ * Build an unsigned Stellar account merge transaction ready for Freighter to sign.
+ *
+ * @param params - Merge parameters.
+ * @param params.fromPublicKey - Source account public key (will be closed).
+ * @param params.destinationPublicKey - Destination account public key.
+ * @returns A promise resolving to an unsigned {@link Transaction} object.
+ */
+export async function buildAccountMergeTransaction({
+  fromPublicKey,
+  destinationPublicKey,
+}: {
+  fromPublicKey: string;
+  destinationPublicKey: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const builder = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.accountMerge({
+        destination: destinationPublicKey,
+      })
+    )
+    .setTimeout(60);
 
   return builder.build();
 }
@@ -516,58 +603,79 @@ export async function getPaymentHistory(
   limit = 20,
   cursor?: string
 ): Promise<PaymentHistoryResponse> {
-  let paymentsBuilder = server
-    .payments()
+  let operationsBuilder = server
+    .operations()
     .forAccount(publicKey)
     .limit(limit)
     .order("desc");
 
   if (cursor) {
-    paymentsBuilder = paymentsBuilder.cursor(cursor);
+    operationsBuilder = operationsBuilder.cursor(cursor);
   }
 
-  const payments = await paymentsBuilder.call();
+  const operations = await operationsBuilder.call();
 
   const records: PaymentRecord[] = [];
 
-  for (const op of payments.records) {
-    // Only process payment operations
-    if (op.type !== "payment") continue;
+  for (const op of operations.records) {
+    let record: PaymentRecord | null = null;
 
-    const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
+    if (op.type === "payment") {
+      const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
 
-    // Fetch transaction for memo
-    let memo: string | undefined;
-    try {
-      const tx = await server.transactions().transaction(payment.transaction_hash).call();
-      if (tx.memo && tx.memo_type === "text") {
-        memo = tx.memo;
+      // Fetch transaction for memo
+      let memo: string | undefined;
+      try {
+        const tx = await server.transactions().transaction(payment.transaction_hash).call();
+        if (tx.memo && tx.memo_type === "text") {
+          memo = tx.memo;
+        }
+      } catch {
+        // memo is optional, don't fail
       }
-    } catch {
-      // memo is optional, don't fail
+
+      const assetCode =
+        payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
+
+      record = {
+        id: payment.id,
+        type: payment.from === publicKey ? "sent" : "received",
+        amount: payment.amount,
+        asset: assetCode,
+        from: payment.from,
+        to: payment.to,
+        memo,
+        createdAt: payment.created_at,
+        transactionHash: payment.transaction_hash,
+        pagingToken: payment.paging_token,
+        category: TransactionCategory.Payment,
+      };
+    } else if (op.type === "account_merge") {
+      const merge = op as Horizon.HorizonApi.AccountMergeOperationResponse;
+
+      record = {
+        id: merge.id,
+        type: "merge",
+        amount: "0", // Account merge doesn't have an amount
+        asset: "XLM",
+        from: merge.account, // The account being merged
+        to: merge.into, // The destination account
+        createdAt: merge.created_at,
+        transactionHash: merge.transaction_hash,
+        pagingToken: merge.paging_token,
+        category: TransactionCategory.Merge,
+      };
     }
 
-    const assetCode =
-      payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
-
-    records.push({
-      id: payment.id,
-      type: payment.from === publicKey ? "sent" : "received",
-      amount: payment.amount,
-      asset: assetCode,
-      from: payment.from,
-      to: payment.to,
-      memo,
-      createdAt: payment.created_at,
-      transactionHash: payment.transaction_hash,
-      pagingToken: payment.paging_token,
-    });
+    if (record) {
+      records.push(record);
+    }
   }
 
   return {
     records,
-    hasMore: payments.records.length === limit && !!payments.next,
-    nextCursor: payments.next ? payments.next.toString() : undefined,
+    hasMore: operations.records.length === limit && !!operations.next,
+    nextCursor: operations.next ? operations.next.toString() : undefined,
   };
 }
 
@@ -810,6 +918,7 @@ export function streamPayments(
         createdAt: payment.created_at,
         transactionHash: payment.transaction_hash,
         pagingToken: payment.paging_token,
+        category: TransactionCategory.Payment,
       };
 
       onPayment(record);

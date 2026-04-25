@@ -13,15 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { useRouter } from "next/router";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
@@ -33,6 +25,8 @@ import PaymentRequestGenerator from "./PaymentRequestGenerator";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
+import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
+import OnboardingTour from "@/components/OnboardingTour";
 import {
   getXLMBalance,
   getUSDCBalance,
@@ -46,6 +40,7 @@ import {
 import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
+
 
 interface DashboardProps {
   publicKey: string | null;
@@ -92,6 +87,14 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   const [paymentStatsError, setPaymentStatsError] = useState<string | null>(null);
   const [incomingPayment, setIncomingPayment] = useState<PaymentRecord | null>(null);
   const [showExternalBanner, setShowExternalBanner] = useState(true);
+
+  // AI Payment Assistant state
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [aiPrefillData, setAiPrefillData] = useState<{
+    destination: string;
+    amount: string;
+    memo?: string;
+  } | null>(null);
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -771,7 +774,7 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
             xlmBalance={xlmBalance || "0"}
             usdcBalance={usdcBalance}
             onSuccess={handlePaymentSuccess}
-            prefill={stellarURI && stellarURI.success ? uriToPrefillData(stellarURI.data!) : null}
+            prefill={prefill}
           />
         </div>
 

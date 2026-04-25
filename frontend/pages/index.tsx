@@ -10,8 +10,8 @@ import WalletConnect from "@/components/WalletConnect";
 import { useCountUp } from "@/lib/useCountUp";
 
 interface HomeProps {
-  publicKey: string | null;
-  onConnect: (pk: string) => void;
+    publicKey: string | null;
+    onConnect: (pk: string) => void;
 }
 
 const FEATURES = [
@@ -81,15 +81,14 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
 
         <div className="grid grid-cols-3 gap-px bg-stellar-500/10 rounded-2xl overflow-hidden mb-24 border border-stellar-500/15 cursor-default">
           {STATS.map((stat) => {
-            const { count, elementRef } = useCountUp(stat.target);
             const formatValue = () => {
               if (stat.decimals !== undefined) {
-                return count.toFixed(stat.decimals);
+                return stat.target.toFixed(stat.decimals);
               }
-              return count.toString();
+              return stat.target.toString();
             };
             return (
-              <div key={stat.label} ref={elementRef} className="bg-cosmos-900 text-center py-8 px-4">
+              <div key={stat.label} className="bg-cosmos-900 text-center py-8 px-4">
                 <div className="font-display text-3xl font-bold text-gradient mb-1">
                   {stat.prefix || ""}{formatValue()}{stat.suffix || ""}
                 </div>
@@ -108,7 +107,6 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed">{f.desc}</p>
             </div>
-          ))}
         </div>
 
         <section className="mb-24">
