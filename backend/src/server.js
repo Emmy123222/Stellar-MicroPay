@@ -15,6 +15,7 @@ require("dotenv").config();
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
 const paymentRoutes = require("./routes/payments");
+const analyticsRoutes = require("./routes/analytics");
 const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
@@ -79,6 +80,7 @@ app.use(limiter);
 
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/federation", federationRoutes);
