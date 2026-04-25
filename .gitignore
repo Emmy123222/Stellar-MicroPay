@@ -45,3 +45,4 @@ build/
 # Playwright
 playwright-report/
 test-results/
+test_snapshots/
