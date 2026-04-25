@@ -1,205 +1,225 @@
 /**
  * pages/settings.tsx
- * Advanced settings for Stellar MicroPay, including account merge support.
+ * Settings page with trustline management.
  */
 
-import { FormEvent, useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import WalletConnect from "@/components/WalletConnect";
+import Toast from "@/components/Toast";
 import {
-  buildAccountMergeTransaction,
-  isValidStellarAddress,
+  getTrustlines,
+  buildChangeTrustTransaction,
   submitTransaction,
+  getKnownAssets,
+  Trustline,
+  ACCOUNT_NOT_FOUND_ERROR,
+  NETWORK_PASSPHRASE,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { useToast } from "@/lib/useToast";
 
 interface SettingsProps {
   publicKey: string | null;
-  onConnect: (publicKey: string) => void;
+  onConnect: (pk: string) => void;
 }
 
 export default function Settings({ publicKey, onConnect }: SettingsProps) {
-  const [destination, setDestination] = useState("");
-  const [confirmText, setConfirmText] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [transactionHash, setTransactionHash] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [trustlines, setTrustlines] = useState<Trustline[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [accountNotFound, setAccountNotFound] = useState(false);
+  const { visible: toastVisible, message: toastMessage, showToast } = useToast();
+  const knownAssets = getKnownAssets();
 
-  const destinationTrimmed = destination.trim();
-  const canMerge =
-    isValidStellarAddress(destinationTrimmed) && confirmText.trim() === "MERGE";
+  const fetchTrustlines = useCallback(async () => {
+    if (!publicKey) return;
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    setTransactionHash(null);
-
-    if (!publicKey) {
-      setError("Connect your Freighter wallet before merging accounts.");
-      return;
-    }
-
-    if (!isValidStellarAddress(destinationTrimmed)) {
-      setError("Please enter a valid Stellar destination address.");
-      return;
-    }
-
-    if (confirmText.trim() !== "MERGE") {
-      setError("Type MERGE to confirm closing your account.");
-      return;
-    }
-
-    setIsSubmitting(true);
+    setLoading(true);
+    setAccountNotFound(false);
 
     try {
-      const transaction = await buildAccountMergeTransaction({
+      const tls = await getTrustlines(publicKey);
+      setTrustlines(tls);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      if (msg === ACCOUNT_NOT_FOUND_ERROR) {
+        setAccountNotFound(true);
+      } else {
+        showToast(`Failed to load trustlines: ${msg}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [publicKey, showToast]);
+
+  useEffect(() => {
+    fetchTrustlines();
+  }, [fetchTrustlines]);
+
+  const handleAddTrustline = async (assetCode: string, issuer: string) => {
+    if (!publicKey) return;
+
+    try {
+      const tx = await buildChangeTrustTransaction({
         fromPublicKey: publicKey,
-        destinationPublicKey: destinationTrimmed,
+        assetCode,
+        issuer,
       });
 
-      const { signedXDR, error: signError } = await signTransactionWithWallet(
-        transaction.toXDR()
-      );
-
-      if (signError || !signedXDR) {
-        throw new Error(signError || "Unable to sign the merge transaction.");
+      const { signedXDR, error } = await signTransactionWithWallet(tx.toXDR());
+      if (error) {
+        showToast(`Signing failed: ${error}`);
+        return;
       }
 
-      const result = await submitTransaction(signedXDR);
-      setTransactionHash(result.hash);
-      setDestination("");
-      setConfirmText("");
+      await submitTransaction(signedXDR!);
+      showToast(`Trustline for ${assetCode} added successfully!`);
+      fetchTrustlines(); // Refresh
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    } finally {
-      setIsSubmitting(false);
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      showToast(`Failed to add trustline: ${msg}`);
     }
   };
 
+  const handleRemoveTrustline = async (assetCode: string, issuer: string, balance: string) => {
+    if (!publicKey) return;
+
+    if (parseFloat(balance) > 0) {
+      const confirm = window.confirm(
+        `Warning: You have ${balance} ${assetCode} in your account. Removing the trustline will make these assets inaccessible. Are you sure?`
+      );
+      if (!confirm) return;
+    }
+
+    try {
+      const tx = await buildChangeTrustTransaction({
+        fromPublicKey: publicKey,
+        assetCode,
+        issuer,
+        limit: "0",
+      });
+
+      const { signedXDR, error } = await signTransactionWithWallet(tx.toXDR());
+      if (error) {
+        showToast(`Signing failed: ${error}`);
+        return;
+      }
+
+      await submitTransaction(signedXDR!);
+      showToast(`Trustline for ${assetCode} removed successfully!`);
+      fetchTrustlines(); // Refresh
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      showToast(`Failed to remove trustline: ${msg}`);
+    }
+  };
+
+  if (!publicKey) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-cosmos-950">
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-8">
+            Settings
+          </h1>
+          <WalletConnect onConnect={onConnect} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mb-10">
-        <h1 className="font-display text-3xl font-semibold text-slate-900 dark:text-white">
+    <div className="min-h-screen bg-slate-50 dark:bg-cosmos-950">
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-8">
           Settings
         </h1>
-        <p className="mt-3 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-          Manage your wallet, advanced network settings and account consolidation options.
-        </p>
-      </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-        <div className="space-y-6">
-          <section className="card">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">
-                  Advanced
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold text-slate-900 dark:text-white">
-                  Account Merge
-                </h2>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  Consolidate your Stellar account by transferring all native XLM and closing the source account.
-                </p>
-              </div>
-            </div>
+        <div className="bg-white dark:bg-cosmos-900 rounded-xl shadow-sm border border-slate-200 dark:border-cosmos-800 p-6 mb-8">
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">
+            Trustlines
+          </h2>
 
-            <div className="mt-8 space-y-6">
-              <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-5 text-sm text-red-100">
-                <p className="font-semibold text-red-200">Warning</p>
-                <p className="mt-2 text-sm leading-6 text-red-100">
-                  This will close your account and transfer all XLM to the destination address. Once completed, the source account can no longer be used.
-                </p>
-              </div>
-
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div>
-                  <label className="label" htmlFor="destination">
-                    Destination address
-                  </label>
-                  <input
-                    id="destination"
-                    type="text"
-                    className="input-field"
-                    value={destination}
-                    onChange={(event) => setDestination(event.target.value)}
-                    placeholder="G..."
-                    aria-describedby="destination-help"
-                    required
-                  />
-                  <p id="destination-help" className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-                    Enter the Stellar public key that will receive the remaining XLM.
+          {accountNotFound ? (
+            <p className="text-slate-500 dark:text-slate-400">
+              Account not found. Please fund your account first.
+            </p>
+          ) : loading ? (
+            <p className="text-slate-500 dark:text-slate-400">Loading trustlines...</p>
+          ) : (
+            <>
+              <div className="mb-6">
+                <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                  Existing Trustlines
+                </h3>
+                {trustlines.length === 0 ? (
+                  <p className="text-slate-500 dark:text-slate-400">
+                    No trustlines found.
                   </p>
-                </div>
-
-                <div>
-                  <label className="label" htmlFor="confirm">
-                    Confirm account closure
-                  </label>
-                  <input
-                    id="confirm"
-                    type="text"
-                    className="input-field"
-                    value={confirmText}
-                    onChange={(event) => setConfirmText(event.target.value)}
-                    placeholder="Type MERGE to confirm"
-                    aria-describedby="confirm-help"
-                    required
-                  />
-                  <p id="confirm-help" className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-                    You must type <span className="font-semibold">MERGE</span> to enable the merge transaction.
-                  </p>
-                </div>
-
-                {error && (
-                  <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
-                    {error}
-                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {trustlines.map((tl) => (
+                      <li
+                        key={`${tl.assetCode}:${tl.issuer}`}
+                        className="flex items-center justify-between p-3 bg-slate-50 dark:bg-cosmos-800 rounded-lg"
+                      >
+                        <div>
+                          <span className="font-medium text-slate-900 dark:text-white">
+                            {tl.assetCode}
+                          </span>
+                          <span className="text-slate-500 dark:text-slate-400 ml-2">
+                            Balance: {tl.balance}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveTrustline(tl.assetCode, tl.issuer, tl.balance)}
+                          className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 )}
+              </div>
 
-                {transactionHash ? (
-                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-5 text-sm text-emerald-100">
-                    <p className="font-semibold text-emerald-200">Merge successful</p>
-                    <p className="mt-2">
-                      Transaction hash: <span className="font-mono break-all text-emerald-100">{transactionHash}</span>
-                    </p>
-                    <p className="mt-2 text-slate-100">
-                      Your source account has been closed. The destination account now owns the remaining XLM.
-                    </p>
-                  </div>
-                ) : null}
-
-                <button
-                  type="submit"
-                  disabled={!canMerge || isSubmitting}
-                  className="btn-primary w-full"
-                >
-                  {isSubmitting ? "Submitting merge..." : "Merge account"}
-                </button>
-              </form>
-            </div>
-          </section>
+              <div>
+                <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                  Known Assets
+                </h3>
+                <ul className="space-y-2">
+                  {knownAssets.map((asset) => {
+                    const hasTrustline = trustlines.some(
+                      (tl) => tl.assetCode === asset.code && tl.issuer === asset.issuer
+                    );
+                    return (
+                      <li
+                        key={`${asset.code}:${asset.issuer}`}
+                        className="flex items-center justify-between p-3 bg-slate-50 dark:bg-cosmos-800 rounded-lg"
+                      >
+                        <span className="font-medium text-slate-900 dark:text-white">
+                          {asset.code}
+                        </span>
+                        {hasTrustline ? (
+                          <span className="text-green-600 dark:text-green-400">
+                            Trusted
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleAddTrustline(asset.code, asset.issuer)}
+                            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                          >
+                            Add Trustline
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </>
+          )}
         </div>
 
-        <aside className="space-y-6">
-          {publicKey ? (
-            <section className="card">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Connected wallet</h3>
-              <p className="mt-3 text-sm text-slate-500 dark:text-slate-400 break-all">
-                {publicKey}
-              </p>
-            </section>
-          ) : (
-            <WalletConnect onConnect={onConnect} />
-          )}
-
-          <section className="card">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Need help?</h3>
-            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-              Account merge is irreversible. Make sure your destination address is correct and you understand that the source account will be permanently closed.
-            </p>
-          </section>
-        </aside>
+        <Toast visible={toastVisible} message={toastMessage} />
       </div>
     </div>
   );

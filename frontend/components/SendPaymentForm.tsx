@@ -927,31 +927,29 @@ export default function SendPaymentForm({
           <p className="mt-3 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
         </div>
 
-          {CONTRACT_ID && (
-            <div className="flex items-start gap-3 rounded-xl border border-stellar-500/10 bg-stellar-500/5 p-3 transition-colors hover:bg-stellar-500/8">
-              <div className="flex h-5 items-center">
-                <input
-                  id="tip-on-chain"
-                  type="checkbox"
-                  checked={isTipOnChain}
-                  onChange={(e) => setIsTipOnChain(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-stellar-500 focus:ring-stellar-500/20"
-                  disabled={status !== "idle"}
-                />
-              </div>
-              <div className="flex flex-col">
-                <label
-                  htmlFor="tip-on-chain"
-                  className="cursor-pointer text-sm font-medium text-slate-200"
-                >
-                  {`Record as tip on-chain`}
-                </label>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {`This payment will be permanently recorded as a tip on the Soroban smart contract.`}
-                </p>
-              </div>
+        {/* Record as Tip On-Chain (Soroban) */}
+        {/* {CONTRACT_ID && (
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/10 transition-colors hover:bg-stellar-500/8">
+            <div className="flex items-center h-5">
+              <input
+                id="tip-on-chain"
+                type="checkbox"
+                checked={isTipOnChain}
+                onChange={(e) => setIsTipOnChain(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-stellar-500 focus:ring-stellar-500/20"
+                disabled={status !== "idle"}
+              />
             </div>
-          )}
+            <div className="flex flex-col">
+              <label htmlFor="tip-on-chain" className="text-sm font-medium text-slate-200 cursor-pointer">
+                {`Record as tip on-chain`}
+              </label>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {`This payment will be permanently recorded as a tip on the Soroban smart contract.`}
+              </p>
+            </div>
+          </div>
+        )} */}
 
           <button
             onClick={openConfirmation}
