@@ -29,7 +29,7 @@ interface SendPaymentFormProps {
   publicKey: string;
   xlmBalance: string;
   usdcBalance?: string | null;
-  onSuccess?: () => void;
+  onSuccess?: (txHash?: string) => void;
   title?: string;
   submitLabel?: string;
   successTitle?: string;
@@ -532,7 +532,7 @@ export default function SendPaymentForm({
 
       setStatus("success");
       saveRecipient(destination);
-      onSuccess?.();
+      onSuccess?.(result.hash);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "An unexpected error occurred";
@@ -715,7 +715,7 @@ export default function SendPaymentForm({
         setIsStatusModalOpen(false);
         if (status === "success") {
           resetTracker();
-          if (onSuccess) onSuccess();
+          if (onSuccess) onSuccess(txHash ?? undefined);
         }
       }}
       status={status}
@@ -870,7 +870,14 @@ export default function SendPaymentForm({
   if (status === "success" && txHash) {
     const truncatedHash = `${txHash.slice(0, 12)}…${txHash.slice(-6)}`;
     return (
-      <div className="card text-center animate-slide-up">
+      <div className="card text-center animate-slide-up relative overflow-hidden">
+        {/* Confetti burst on payment success (#169). CSS-only, plays once,
+            self-stops after ~2s via the keyframe `forwards`. */}
+        <div className="confetti" aria-hidden="true">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <span key={i} className={`confetti__piece confetti__piece--${i}`} />
+          ))}
+        </div>
         <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
           <CheckIcon className="w-7 h-7 text-emerald-400" />
         </div>

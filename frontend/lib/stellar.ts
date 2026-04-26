@@ -390,6 +390,71 @@ export async function getXLMBalance(publicKey: string): Promise<string> {
 }
 
 /**
+ * Stellar base reserve in XLM (#164).
+ *
+ * Each account holds (2 + subentry_count) base reserves of 0.5 XLM. Trustlines,
+ * offers, signers, and data entries each count as one subentry. Submitting a
+ * transaction that would drop the balance below this minimum fails with
+ * `tx_insufficient_balance`, so the dashboard warns the user before they get
+ * there.
+ *
+ * @see https://developers.stellar.org/docs/learn/fundamentals/stellar-data-structures/accounts#base-reserves
+ */
+export const STELLAR_BASE_RESERVE_XLM = 0.5;
+
+/**
+ * Returns the minimum XLM balance required for an account with the given
+ * subentry count.
+ */
+export function calculateMinimumBalance(subentryCount: number): number {
+  const safeSubentryCount = Number.isFinite(subentryCount) && subentryCount >= 0
+    ? subentryCount
+    : 0;
+  return (2 + safeSubentryCount) * STELLAR_BASE_RESERVE_XLM;
+}
+
+export interface AccountReserveInfo {
+  /** Total XLM held by the account (native balance). */
+  xlmBalance: number;
+  /** Number of subentries on the account (trustlines + offers + signers + data). */
+  subentryCount: number;
+  /** Minimum balance the account must keep to remain submittable. */
+  minimumBalance: number;
+  /** XLM available to spend without breaching the reserve. */
+  spendableBalance: number;
+}
+
+/**
+ * Loads native balance + subentry count and derives the reserve numbers in a
+ * single Horizon call. Returns `null` when the account is unfunded so callers
+ * can show the Friendbot path instead of a generic error.
+ */
+export async function getAccountReserveInfo(
+  publicKey: string
+): Promise<AccountReserveInfo | null> {
+  try {
+    const account = await server.loadAccount(publicKey);
+    const native = account.balances.find((b) => b.asset_type === "native");
+    const xlmBalance = native ? Number(native.balance) : 0;
+    const subentryCount = account.subentry_count ?? 0;
+    const minimumBalance = calculateMinimumBalance(subentryCount);
+
+    return {
+      xlmBalance,
+      subentryCount,
+      minimumBalance,
+      spendableBalance: Math.max(0, xlmBalance - minimumBalance),
+    };
+  } catch (err: unknown) {
+    const horizonErr = err as { response?: { status?: number } };
+    if (horizonErr?.response?.status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
  * Fetch the USDC (Circle) balance for a Stellar account.
  * Returns null if the account has no USDC trustline.
  */
