@@ -19,6 +19,7 @@ import {
   isValidStellarAddress,
   server,
   submitTransaction,
+  fetchNetworkFeeStats,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLM, parseAddressBookCSV } from "@/utils/format";
@@ -143,6 +144,7 @@ export default function SendPaymentForm({
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [networkFee, setNetworkFee] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -197,6 +199,18 @@ export default function SendPaymentForm({
     if (prefill.amount) setAmount(prefill.amount);
     if (prefill.memo) setMemo(prefill.memo);
   }, [prefill]);
+
+  useEffect(() => {
+    const fetchFee = async () => {
+      try {
+        const stats = await fetchNetworkFeeStats();
+        setNetworkFee(stats.baseFeeXlm.toFixed(5));
+      } catch {
+        setNetworkFee(null);
+      }
+    };
+    fetchFee();
+  }, []);
 
   const xlmBal = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
@@ -1127,6 +1141,14 @@ export default function SendPaymentForm({
                     : `Insufficient USDC balance`
                   : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
               </p>
+            )}
+            {networkFee && amount && isValidAmt && (
+              <div className="mt-2 space-y-1 text-xs text-slate-400">
+                <p>Network fee: ~{networkFee} XLM</p>
+                <p className="text-slate-300">
+                  Total deducted: {(amountNum + parseFloat(networkFee)).toFixed(5)} XLM
+                </p>
+              </div>
             )}
           </div>
 

@@ -78,6 +78,7 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [countdown, setCountdown] = useState(30);
   const { visible: toastVisible, message: toastMessage, showToast } = useToast();
   const [showQRModal, setShowQRModal] = useState(false);
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
@@ -320,6 +321,20 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   }, [fetchBalance, refreshKey]);
 
   useEffect(() => {
+    if (!publicKey) return;
+    const interval = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          fetchBalance();
+          return 30;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [publicKey, fetchBalance]);
+
+  useEffect(() => {
     setFriendbotSuccessMessage(null);
   }, [publicKey]);
 
@@ -368,6 +383,11 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
     if (ok) showToast("Address copied!");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleManualRefresh = () => {
+    setCountdown(30);
+    fetchBalance();
   };
 
   // Onboarding tour logic
@@ -716,10 +736,16 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
                   </div>
                 )}
                 <button
-                  onClick={fetchBalance}
+                  onClick={handleManualRefresh}
                   className="mt-1 text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
+                  disabled={balanceLoading}
                 >
-                  <RefreshIcon className="w-3 h-3" /> Refresh
+                  {balanceLoading ? (
+                    <SpinnerIcon className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RefreshIcon className="w-3 h-3" />
+                  )}
+                  {balanceLoading ? `Refreshing...` : `Refresh (${countdown}s)`}
                 </button>
               </div>
             ) : accountNotFound && isTestnet ? (
