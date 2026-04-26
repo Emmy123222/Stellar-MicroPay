@@ -34,8 +34,11 @@ import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
+import CreatorTipsDashboard from "@/components/CreatorTipsDashboard";
 import {
   getXLMBalance,
+  getAccountReserveInfo,
+  type AccountReserveInfo,
   getUSDCBalance,
   getFriendBotFunding,
   waitForAccountFunding,
@@ -69,6 +72,7 @@ interface PaymentStats {
 
 export default function Dashboard({ publicKey, onConnect, stellarURI }: DashboardProps) {
   const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
+  const [reserveInfo, setReserveInfo] = useState<AccountReserveInfo | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
@@ -85,14 +89,21 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   const router = useRouter();
   const [activePaymentTab, setActivePaymentTab] = useState<"single" | "batch">("single");
 
-  // Build prefill object from query parameters (e.g., from contacts page)
-  const prefill = router.query.prefillDestination
-    ? {
-        destination: router.query.prefillDestination as string,
-        amount: "",
-        memo: "",
-      }
-    : null;
+  // Build prefill object from query parameters.
+  // Supports legacy ?prefillDestination= (contacts page) and
+  // new ?to=&amount= (Send Again from transaction history).
+  const { prefillDestination, to, amount: queryAmount } = router.query;
+  const prefill =
+    prefillDestination
+      ? { destination: prefillDestination as string, amount: "", memo: "" }
+      : to
+      ? {
+          destination: to as string,
+          amount: typeof queryAmount === "string" ? queryAmount : "",
+          memo: "",
+          fromHistory: true,
+        }
+      : null;
   const [friendbotLoading, setFriendbotLoading] = useState(false);
   const [friendbotSuccessMessage, setFriendbotSuccessMessage] = useState<string | null>(null);
   const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null);
@@ -109,6 +120,33 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
     memo?: string;
   } | null>(null);
 
+  // Creator username for tips dashboard
+  const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
+
+  // Fetch username for connected wallet
+  const fetchUsername = useCallback(async () => {
+    if (!publicKey) return;
+    
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    try {
+      const response = await fetch(
+        `${apiBase}/api/accounts/resolve/${encodeURIComponent(publicKey)}`
+      );
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload?.success && payload?.data?.username) {
+          setCreatorUsername(payload.data.username);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching username:", err);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    fetchUsername();
+  }, [fetchUsername]);
+
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
 
@@ -116,12 +154,14 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
     setAccountNotFound(false);
 
     try {
-      const [bal, usdc] = await Promise.all([
+      const [bal, usdc, reserve] = await Promise.all([
         getXLMBalance(publicKey),
         getUSDCBalance(publicKey),
+        getAccountReserveInfo(publicKey),
       ]);
       setXlmBalance(bal);
       setUsdcBalance(usdc);
+      setReserveInfo(reserve);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       if (
@@ -132,6 +172,7 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
         setAccountNotFound(true);
       }
       setXlmBalance(null);
+      setReserveInfo(null);
     } finally {
       setBalanceLoading(false);
     }
@@ -722,6 +763,50 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
         )}
       </div>
 
+      {/* Reserve warning (#164). Amber when balance is within 2 XLM of the
+          minimum reserve, red when at or below it. Suppressed when the
+          account isn't funded — the Friendbot card below covers that path. */}
+      {!accountNotFound && reserveInfo && (() => {
+        const { xlmBalance: bal, minimumBalance: min, subentryCount } = reserveInfo;
+        const atOrBelow = bal <= min;
+        const nearMin = bal > min && bal <= min + 2;
+        if (!atOrBelow && !nearMin) return null;
+        const tone = atOrBelow
+          ? "border-red-500/40 bg-red-500/5 text-red-200"
+          : "border-amber-500/40 bg-amber-500/5 text-amber-200";
+        const headline = atOrBelow
+          ? "XLM balance is at or below the minimum reserve"
+          : "XLM balance is close to the minimum reserve";
+        return (
+          <div
+            className={`card mb-6 ${tone}`}
+            role="alert"
+            aria-live="polite"
+            data-testid="reserve-warning"
+          >
+            <p className="font-semibold mb-1">{headline}</p>
+            <p className="text-sm opacity-90">
+              You hold <strong>{bal.toFixed(4)} XLM</strong>. Your account
+              must keep at least{" "}
+              <strong>{min.toFixed(4)} XLM</strong> reserved
+              ({subentryCount} subentries × 0.5 XLM + 2 XLM base). Top up
+              before submitting transactions to avoid{" "}
+              <code className="text-xs opacity-80">tx_insufficient_balance</code>.
+            </p>
+            <p className="text-sm mt-2">
+              <a
+                href="https://developers.stellar.org/docs/learn/fundamentals/stellar-data-structures/accounts#base-reserves"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:opacity-100 opacity-80"
+              >
+                Stellar base reserves docs →
+              </a>
+            </p>
+          </div>
+        );
+      })()}
+
       {accountNotFound && isTestnet && (
         <div className="card mb-6 border-amber-500/30 bg-amber-500/5">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -769,6 +854,13 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
           </div>
         </div>
       )}
+
+      {/* Creator Tips Dashboard */}
+      <CreatorTipsDashboard 
+        publicKey={publicKey} 
+        username={creatorUsername}
+        xlmPrice={xlmPrice}
+      />
 
       <div className="grid lg:grid-cols-4 gap-6">
         <div className="lg:col-span-1">

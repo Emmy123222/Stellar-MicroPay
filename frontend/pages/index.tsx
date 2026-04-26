@@ -41,6 +41,44 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-stellar-500/5 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute top-20 right-0 w-[300px] h-[300px] bg-stellar-600/5 rounded-full blur-2xl pointer-events-none" />
 
+      {/* Star particle animation — CSS-only, respects prefers-reduced-motion */}
+      <div className="hero-particles" aria-hidden="true">
+        {[
+          { top: "8%",  left: "12%", sz: "2px", op: "0.7", dur: "7s",  delay: "0s"   },
+          { top: "15%", left: "80%", sz: "3px", op: "0.5", dur: "9s",  delay: "1s"   },
+          { top: "25%", left: "35%", sz: "2px", op: "0.6", dur: "6s",  delay: "2s"   },
+          { top: "40%", left: "90%", sz: "2px", op: "0.4", dur: "8s",  delay: "0.5s" },
+          { top: "55%", left: "5%",  sz: "3px", op: "0.6", dur: "11s", delay: "1.5s" },
+          { top: "60%", left: "60%", sz: "2px", op: "0.5", dur: "7s",  delay: "3s"   },
+          { top: "70%", left: "25%", sz: "2px", op: "0.4", dur: "9s",  delay: "0.8s" },
+          { top: "80%", left: "70%", sz: "3px", op: "0.6", dur: "6s",  delay: "2.2s" },
+          { top: "5%",  left: "50%", sz: "2px", op: "0.5", dur: "8s",  delay: "1.8s" },
+          { top: "35%", left: "18%", sz: "2px", op: "0.7", dur: "10s", delay: "0.3s" },
+          { top: "50%", left: "45%", sz: "3px", op: "0.4", dur: "7s",  delay: "2.5s" },
+          { top: "88%", left: "88%", sz: "2px", op: "0.6", dur: "9s",  delay: "1.1s" },
+          { top: "20%", left: "65%", sz: "2px", op: "0.5", dur: "6s",  delay: "3.5s" },
+          { top: "75%", left: "40%", sz: "3px", op: "0.4", dur: "11s", delay: "0.7s" },
+          { top: "45%", left: "78%", sz: "2px", op: "0.6", dur: "8s",  delay: "1.4s" },
+          { top: "12%", left: "95%", sz: "2px", op: "0.3", dur: "7s",  delay: "2.8s" },
+          { top: "65%", left: "8%",  sz: "3px", op: "0.5", dur: "9s",  delay: "0.6s" },
+          { top: "92%", left: "22%", sz: "2px", op: "0.4", dur: "6s",  delay: "1.9s" },
+          { top: "30%", left: "52%", sz: "2px", op: "0.6", dur: "10s", delay: "3.1s" },
+          { top: "85%", left: "55%", sz: "3px", op: "0.5", dur: "8s",  delay: "0.4s" },
+        ].map((p, i) => (
+          <span
+            key={i}
+            data-p=""
+            style={{
+              top: p.top, left: p.left,
+              ["--sz" as string]: p.sz,
+              ["--op" as string]: p.op,
+              ["--dur" as string]: p.dur,
+              ["--delay" as string]: p.delay,
+            }}
+          />
+        ))}
+      </div>
+
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-20">
         <div className="text-center mb-20 animate-fade-in">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-stellar-500/25 bg-stellar-500/8 text-stellar-400 text-xs font-medium mb-8">

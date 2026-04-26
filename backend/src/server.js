@@ -19,6 +19,7 @@ const analyticsRoutes = require("./routes/analytics");
 const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
+const tipsRoutes = require("./routes/tips");
 const { startTurretsServer } = require("./turretsServer");
 
 const app = express();
@@ -83,6 +84,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
+app.use("/api/tips", tipsRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── Error Handling ────────────────────────────────────────────────────────────

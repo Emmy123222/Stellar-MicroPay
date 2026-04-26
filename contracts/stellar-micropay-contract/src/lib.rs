@@ -45,16 +45,6 @@ pub struct PaymentCommitment {
     pub nullifier: BytesN<32>,
 }
 
-#[contracttype]
-pub enum DataKey {
-    Admin,
-    TipTotal(Address),
-    TipCount(Address),
-    Escrow(u64),
-    EscrowCount,
-    ShieldedBalance(Address),
-}
-
 /// A Pedersen commitment representing a shielded amount
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -73,8 +63,17 @@ pub struct ShieldedBalance {
     pub owner: Address,
 }
 
+// Merged from a botched merge that left two `DataKey` enums (#153). Both
+// enums were referenced by different contract methods, so the contract
+// failed to compile and `stellar contract deploy` had nothing to deploy.
 #[contracttype]
 pub enum DataKey {
+    Admin,
+    TipTotal(Address),
+    TipCount(Address),
+    Escrow(u64),
+    EscrowCount,
+    ShieldedBalance(Address),
     Stream(u32),
     StreamCounter,
     PaymentCommitment(BytesN<32>),

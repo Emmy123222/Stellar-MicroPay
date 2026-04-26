@@ -177,3 +177,84 @@
       );
   }
 }
+
+/* ── Hero particle animation (#165) ───────────────────────────────────── */
+@keyframes particle-float {
+  0%   { transform: translateY(0) translateX(0) scale(1); opacity: 0.6; }
+  33%  { transform: translateY(-18px) translateX(6px) scale(1.1); opacity: 0.9; }
+  66%  { transform: translateY(-8px) translateX(-4px) scale(0.9); opacity: 0.5; }
+  100% { transform: translateY(0) translateX(0) scale(1); opacity: 0.6; }
+}
+
+.hero-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero-particles::before,
+.hero-particles::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(14, 165, 233, 0.55);
+  animation: particle-float linear infinite;
+}
+
+/* Particle spread via nth-child-like selectors using CSS custom properties */
+.hero-particles [data-p] {
+  position: absolute;
+  width: var(--sz, 3px);
+  height: var(--sz, 3px);
+  border-radius: 50%;
+  background: rgba(14, 165, 233, var(--op, 0.5));
+  animation: particle-float var(--dur, 6s) var(--delay, 0s) ease-in-out infinite;
+  top: var(--top, 50%);
+  left: var(--left, 50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-particles [data-p],
+  .hero-particles::before,
+  .hero-particles::after {
+    animation: none;
+  }
+}
+
+/* Payment success confetti (#169) — CSS-only, plays once, ~2s. */
+.confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.confetti__piece {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: confetti-fall 1.8s ease-out forwards;
+}
+.confetti__piece--0 { background: #34d399; transform: translateX(-80px) rotate(15deg); animation-delay: 0ms; }
+.confetti__piece--1 { background: #60a5fa; transform: translateX(-50px) rotate(-25deg); animation-delay: 60ms; }
+.confetti__piece--2 { background: #fbbf24; transform: translateX(-25px) rotate(45deg); animation-delay: 120ms; }
+.confetti__piece--3 { background: #f472b6; transform: translateX(0) rotate(-10deg); animation-delay: 30ms; }
+.confetti__piece--4 { background: #a78bfa; transform: translateX(25px) rotate(30deg); animation-delay: 90ms; }
+.confetti__piece--5 { background: #34d399; transform: translateX(50px) rotate(-40deg); animation-delay: 150ms; }
+.confetti__piece--6 { background: #fb7185; transform: translateX(75px) rotate(20deg); animation-delay: 0ms; }
+.confetti__piece--7 { background: #38bdf8; transform: translateX(-65px) rotate(-15deg); animation-delay: 180ms; }
+.confetti__piece--8 { background: #facc15; transform: translateX(60px) rotate(35deg); animation-delay: 100ms; }
+.confetti__piece--9 { background: #c084fc; transform: translateX(-15px) rotate(-30deg); animation-delay: 200ms; }
+@keyframes confetti-fall {
+  0%   { opacity: 0; translate: 0 0; }
+  10%  { opacity: 1; }
+  100% { opacity: 0; translate: 0 220px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .confetti__piece { animation: none; opacity: 0; }
+}
