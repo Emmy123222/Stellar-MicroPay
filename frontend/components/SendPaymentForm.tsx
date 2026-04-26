@@ -20,6 +20,7 @@ import {
   isValidStellarAddress,
   server,
   submitTransaction,
+  fetchNetworkFeeStats,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLM, parseAddressBookCSV } from "@/utils/format";
@@ -226,6 +227,18 @@ export default function SendPaymentForm({
     if (prefill.amount) setAmount(prefill.amount);
     if (prefill.memo) setMemo(prefill.memo);
   }, [prefill]);
+
+  useEffect(() => {
+    const fetchFee = async () => {
+      try {
+        const stats = await fetchNetworkFeeStats();
+        setNetworkFee(stats.baseFeeXlm.toFixed(5));
+      } catch {
+        setNetworkFee(null);
+      }
+    };
+    fetchFee();
+  }, []);
 
   const xlmBal = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;

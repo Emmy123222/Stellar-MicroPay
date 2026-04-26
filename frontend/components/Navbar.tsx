@@ -44,6 +44,28 @@ export default function Navbar({
   // Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
   const { theme, toggleTheme } = useTheme();
 
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [disconnectTimeout, setDisconnectTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  const handleDisconnectClick = () => {
+    setShowDisconnectConfirm(true);
+    const timeout = setTimeout(() => {
+      setShowDisconnectConfirm(false);
+    }, 5000);
+    setDisconnectTimeout(timeout);
+  };
+
+  const handleConfirmDisconnect = () => {
+    if (disconnectTimeout) clearTimeout(disconnectTimeout);
+    setShowDisconnectConfirm(false);
+    onDisconnect();
+  };
+
+  const handleCancelDisconnect = () => {
+    if (disconnectTimeout) clearTimeout(disconnectTimeout);
+    setShowDisconnectConfirm(false);
+  };
+
   // Issue #168 — Network status indicator
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   useEffect(() => {

@@ -400,6 +400,11 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleManualRefresh = () => {
+    setCountdown(30);
+    fetchBalance();
+  };
+
   // Onboarding tour logic
   useEffect(() => {
     if (publicKey) {
@@ -748,6 +753,7 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
                 <button
                   onClick={() => void refreshBalance()}
                   className="mt-1 text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
+                  disabled={balanceLoading}
                 >
                   <RefreshIcon className={`w-3 h-3 ${isRefreshingBalance ? "animate-spin" : ""}`} />
                   {isRefreshingBalance ? "Refreshing..." : "Refresh"}
