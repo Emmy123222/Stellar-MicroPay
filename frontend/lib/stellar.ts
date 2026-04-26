@@ -248,6 +248,12 @@ export interface PaymentHistoryResponse {
   nextCursor?: string | (() => any);
 }
 
+export interface FetchAllPaymentsProgress {
+  fetchedRecords: number;
+  fetchedPages: number;
+  done: boolean;
+}
+
 /**
  * Handle function invoked for each streamed payment operation.
  */
@@ -784,6 +790,87 @@ export async function getPaymentHistory(
     hasMore: operations.records.length === limit && !!operations.next,
     nextCursor: operations.next ? operations.next.toString() : undefined,
   };
+}
+
+/**
+ * Fetches full payment history by following Horizon paging cursors until exhausted.
+ * Use this for exports that must include complete account history.
+ */
+export async function fetchAllPayments(
+  publicKey: string,
+  options: {
+    pageSize?: number;
+    maxPages?: number;
+    onProgress?: (progress: FetchAllPaymentsProgress) => void;
+  } = {}
+): Promise<PaymentRecord[]> {
+  const pageSize = Math.max(1, Math.min(options.pageSize ?? 200, 200));
+  const maxPages = Math.max(1, options.maxPages ?? 1000);
+
+  let cursor: string | undefined;
+  let pageCount = 0;
+  const allRecords: PaymentRecord[] = [];
+
+  while (pageCount < maxPages) {
+    let operationsBuilder = server
+      .operations()
+      .forAccount(publicKey)
+      .limit(pageSize)
+      .order("desc");
+
+    if (cursor) {
+      operationsBuilder = operationsBuilder.cursor(cursor);
+    }
+
+    const operations = await operationsBuilder.call();
+    pageCount += 1;
+
+    let pageRecordsCount = 0;
+    for (const op of operations.records) {
+      if (op.type !== "payment") continue;
+
+      const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
+      const assetCode =
+        payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
+
+      allRecords.push({
+        id: payment.id,
+        type: payment.from === publicKey ? "sent" : "received",
+        amount: payment.amount,
+        asset: assetCode,
+        from: payment.from,
+        to: payment.to,
+        createdAt: payment.created_at,
+        transactionHash: payment.transaction_hash,
+        pagingToken: payment.paging_token,
+        category: TransactionCategory.Payment,
+      });
+      pageRecordsCount += 1;
+    }
+
+    const lastRecord = operations.records[operations.records.length - 1];
+    if (!lastRecord || !("paging_token" in lastRecord)) {
+      options.onProgress?.({
+        fetchedRecords: allRecords.length,
+        fetchedPages: pageCount,
+        done: true,
+      });
+      break;
+    }
+
+    cursor = String(lastRecord.paging_token);
+    const reachedEnd = operations.records.length < pageSize || pageRecordsCount === 0;
+
+    options.onProgress?.({
+      fetchedRecords: allRecords.length,
+      fetchedPages: pageCount,
+      done: reachedEnd || pageCount >= maxPages,
+    });
+
+    if (reachedEnd) break;
+  }
+
+  return allRecords;
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────

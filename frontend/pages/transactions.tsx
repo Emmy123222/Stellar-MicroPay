@@ -10,8 +10,8 @@ import TransactionList, {
   TransactionDirectionFilter,
   TransactionFilters,
 } from "@/components/TransactionList";
-import { shortenAddress, PaymentRecord } from "@/lib/stellar";
-import { exportToCSV } from "@/utils/format";
+import { fetchAllPayments, NETWORK, shortenAddress, PaymentRecord } from "@/lib/stellar";
+import { exportToCSV, exportToJSON, formatDate, formatXLM } from "@/utils/format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "stellar-micropay:transaction-filters";
@@ -37,10 +37,13 @@ function isDirectionFilter(value: unknown): value is TransactionDirectionFilter 
 export default function Transactions({ publicKey, onConnect }: TransactionsProps) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [exportCount, setExportCount] = useState(0);
+  const [exportFormat, setExportFormat] = useState<"csv" | "json" | null>(null);
   const [directionFilter, setDirectionFilter] =
     useState<TransactionDirectionFilter>("all");
   const [minimumAmount, setMinimumAmount] = useState("");
   const [filtersReady, setFiltersReady] = useState(false);
+  const [receiptPayment, setReceiptPayment] = useState<PaymentRecord | null>(null);
 
   const transactionFilters = useMemo<TransactionFilters>(
     () => ({
@@ -59,6 +62,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
     (directionFilter !== "all" ? 1 : 0) + (minimumAmount.trim() !== "" ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
   const exportPayments = filteredPayments;
+  const networkLabel = NETWORK === "mainnet" ? "Mainnet" : "Testnet";
 
   // Receives the latest payments array from the list whenever it changes
   const handlePaymentsChange = useCallback((records: PaymentRecord[]) => {
@@ -106,14 +110,28 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
     setMinimumAmount("");
   };
 
-  const handleExport = () => {
-    if (exportPayments.length === 0) return;
+  const handleExport = async (format: "csv" | "json") => {
+    if (!publicKey) return;
     setExporting(true);
+    setExportFormat(format);
+    setExportCount(0);
     try {
-      exportToCSV(exportPayments);
+      const allPayments = await fetchAllPayments(publicKey, {
+        onProgress: ({ fetchedRecords }) => setExportCount(fetchedRecords),
+      });
+      if (allPayments.length === 0) return;
+
+      if (format === "csv") {
+        exportToCSV(allPayments);
+      } else {
+        exportToJSON(allPayments);
+      }
     } finally {
       // Small delay so the button flash feels intentional
-      setTimeout(() => setExporting(false), 800);
+      setTimeout(() => {
+        setExporting(false);
+        setExportFormat(null);
+      }, 800);
     }
   };
 
@@ -191,12 +209,12 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
         <div className="flex items-center gap-2 shrink-0 pt-1">
           {/* Download CSV */}
           <button
-            onClick={handleExport}
-            disabled={exportPayments.length === 0 || exporting}
+            onClick={() => void handleExport("csv")}
+            disabled={exportPayments.length === 0 || exporting || !publicKey}
             title={
               exportPayments.length === 0
                 ? "No transactions to export"
-                : `Export ${exportPayments.length} transaction${exportPayments.length !== 1 ? "s" : ""} as CSV`
+                : "Export full history as CSV"
             }
             className={[
               "inline-flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg",
@@ -206,7 +224,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
                 : "border-stellar-500/30 text-stellar-400 hover:bg-stellar-500/10 hover:border-stellar-500/50 cursor-pointer",
             ].join(" ")}
           >
-            {exporting ? (
+            {exporting && exportFormat === "csv" ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
                 {`Exporting…`}
@@ -232,11 +250,55 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
             )}
           </button>
 
+          <button
+            onClick={() => void handleExport("json")}
+            disabled={exportPayments.length === 0 || exporting || !publicKey}
+            title={
+              exportPayments.length === 0
+                ? "No transactions to export"
+                : "Export full history as JSON"
+            }
+            className={[
+              "inline-flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg",
+              "border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400/60",
+              exportPayments.length === 0 || exporting
+                ? "border-white/10 text-slate-600 cursor-not-allowed"
+                : "border-stellar-500/30 text-stellar-400 hover:bg-stellar-500/10 hover:border-stellar-500/50 cursor-pointer",
+            ].join(" ")}
+          >
+            {exporting && exportFormat === "json" ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                {`Exporting…`}
+              </>
+            ) : (
+              <>
+                <svg
+                  className="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17h6m-6-4h6m-6-4h6M6.75 3h10.5A2.25 2.25 0 0119.5 5.25v13.5A2.25 2.25 0 0117.25 21H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3z" />
+                </svg>
+                {`Download JSON`}
+              </>
+            )}
+          </button>
+
           <Link href="/dashboard" className="btn-secondary text-sm py-2 px-4 cursor-pointer">
             {`← Dashboard`}
           </Link>
         </div>
       </div>
+
+      {exporting && (
+        <p className="mb-4 text-xs text-slate-400">
+          {`Preparing full account history export… ${exportCount} records processed.`}
+        </p>
+      )}
 
       {/* Export hint */}
       <div className="mb-5 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/15 flex items-center justify-between">

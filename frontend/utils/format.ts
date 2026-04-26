@@ -169,6 +169,21 @@ function csvCell(value: string | number | undefined | null): string {
   // Escape double-quotes by doubling them, then wrap the whole cell
   return `"${str.replace(/"/g, '""')}"`;
 }
+
+function triggerDownload(contents: string, filename: string, type: string): void {
+  const blob = new Blob([contents], { type });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
  
 /**
  * Convert an array of PaymentRecords to a CSV string and trigger a browser
@@ -204,22 +219,17 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     ...rows.map((r) => r.join(",")),
   ].join("\r\n");
  
-  // Build a date stamp for the filename  e.g. "2024-11-03"
   const dateStamp = format(new Date(), "yyyy-MM-dd");
   const filename = `stellar-micropay-transactions-${dateStamp}.csv`;
- 
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
- 
-  const link = document.createElement("a");
-  link.setAttribute("href", url);
-  link.setAttribute("download", filename);
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
- 
-  // Clean up
-  document.body.removeChild(link);
-  // Small delay so the browser has time to start the download before revocation
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  triggerDownload(csv, filename, "text/csv;charset=utf-8;");
+}
+
+/**
+ * Convert PaymentRecords to pretty-printed JSON and trigger a browser download.
+ */
+export function exportToJSON(payments: PaymentRecord[]): void {
+  const dateStamp = format(new Date(), "yyyy-MM-dd");
+  const filename = `stellar-micropay-transactions-${dateStamp}.json`;
+  const json = JSON.stringify(payments, null, 2);
+  triggerDownload(json, filename, "application/json;charset=utf-8;");
 }
