@@ -375,17 +375,50 @@ export async function waitForAccountFunding(
 }
 
 /**
+ * Fetch all asset balances for a Stellar account.
+ *
+ * @param publicKey - The Stellar public key (G...) of the account to query.
+ * @returns A promise resolving to an array of {@link WalletBalance} objects.
+ * @throws {Error} With message `ACCOUNT_NOT_FOUND` if the account has never been funded.
+ */
+export async function getBalances(publicKey: string): Promise<WalletBalance[]> {
+  try {
+    const account = await server.loadAccount(publicKey);
+    return account.balances.map((b) => {
+      if (b.asset_type === "native") {
+        return {
+          asset: "native",
+          balance: b.balance,
+          assetCode: "XLM",
+        };
+      }
+      const typed = b as Horizon.HorizonApi.BalanceLineAsset;
+      return {
+        asset: `${typed.asset_code}:${typed.asset_issuer}`,
+        balance: typed.balance,
+        assetCode: typed.asset_code,
+      };
+    });
+  } catch (err: unknown) {
+    const horizonErr = err as { response?: { status?: number } };
+    if (horizonErr?.response?.status === 404) {
+      throw new Error(ACCOUNT_NOT_FOUND_ERROR);
+    }
+    throw err;
+  }
+}
+
+/**
  * Fetch only the native XLM balance for an account.
  *
  * @param publicKey - The Stellar public key (G...) of the account to query.
  * @returns A promise resolving to the XLM balance string, e.g. `"100.0000000"`.
  *          Returns `"0"` if no native balance entry is found.
  * @throws {Error} If the underlying {@link getBalances} call fails.
-*/
-
+ */
 export async function getXLMBalance(publicKey: string): Promise<string> {
   const balances = await getBalances(publicKey);
-  const xlm = balances.find((b) => b.assetCode === "XLM");
+  const xlm = balances.find((b: WalletBalance) => b.assetCode === "XLM");
   return xlm ? xlm.balance : "0";
 }
 
@@ -462,7 +495,7 @@ export async function getUSDCBalance(publicKey: string): Promise<string | null> 
   try {
     const balances = await getBalances(publicKey);
     const usdc = balances.find(
-      (b) => b.asset === `USDC:${USDC_ISSUER}`
+      (b: WalletBalance) => b.asset === `USDC:${USDC_ISSUER}`
     );
     return usdc ? usdc.balance : null;
   } catch {
@@ -513,6 +546,8 @@ export async function buildChangeTrustTransaction({
 
 /**
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
+ */
+export async function buildPaymentTransaction({
   fromPublicKey,
   toPublicKey,
   amount,
@@ -758,14 +793,14 @@ export async function getPaymentHistory(
         category: TransactionCategory.Payment,
       };
     } else if (op.type === "account_merge") {
-      const merge = op as Horizon.HorizonApi.AccountMergeOperationResponse;
+      const merge = op as any; // Cast to any to access Horizon properties that might be missing in type definitions
 
       record = {
         id: merge.id,
         type: "merge",
         amount: "0", // Account merge doesn't have an amount
         asset: "XLM",
-        from: merge.account, // The account being merged
+        from: merge.account || merge.source_account, // Handle potential variations in property names
         to: merge.into, // The destination account
         createdAt: merge.created_at,
         transactionHash: merge.transaction_hash,
