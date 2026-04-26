@@ -16,6 +16,7 @@ import {
   buildSorobanTipTransaction,
   CONTRACT_ID,
   explorerUrl,
+  fetchNetworkFeeStats,
   isValidStellarAddress,
   server,
   submitTransaction,
@@ -144,7 +145,7 @@ export default function SendPaymentForm({
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const [networkFee, setNetworkFee] = useState<string | null>(null);
+  const [networkFeeXlm, setNetworkFeeXlm] = useState(0.00001);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -193,6 +194,33 @@ export default function SendPaymentForm({
   };
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadFee = async () => {
+      try {
+        const feeStats = await fetchNetworkFeeStats();
+        if (!cancelled) {
+          setNetworkFeeXlm(feeStats.baseFeeXlm || 0.00001);
+        }
+      } catch {
+        if (!cancelled) {
+          setNetworkFeeXlm(0.00001);
+        }
+      }
+    };
+
+    void loadFee();
+    const intervalId = window.setInterval(() => {
+      void loadFee();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!prefill) return;
 
     if (prefill.destination) setDestination(prefill.destination);
@@ -219,6 +247,8 @@ export default function SendPaymentForm({
   const maxSend = selectedAsset === "XLM" ? Math.max(0, xlmBal - 1) : usdcBal;
 
   const amountNum = parseFloat(amount);
+  const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
+  const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
   const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
   
   // Check if destination is a username (@username format)
@@ -1142,12 +1172,22 @@ export default function SendPaymentForm({
                   : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
               </p>
             )}
-            {networkFee && amount && isValidAmt && (
-              <div className="mt-2 space-y-1 text-xs text-slate-400">
-                <p>Network fee: ~{networkFee} XLM</p>
-                <p className="text-slate-300">
-                  Total deducted: {(amountNum + parseFloat(networkFee)).toFixed(5)} XLM
+            {selectedAsset === "XLM" && (
+              <div className="mt-2 rounded-lg border border-stellar-500/20 bg-stellar-500/5 px-3 py-2 text-xs text-slate-300">
+                <p>
+                  Network fee:{" "}
+                  <span className="font-medium text-stellar-300">
+                    ~{networkFeeXlm.toFixed(7)} XLM
+                  </span>
                 </p>
+                {estimatedTotalDeducted !== null && (
+                  <p className="mt-1">
+                    Total deducted:{" "}
+                    <span className="font-medium text-white">
+                      ~{estimatedTotalDeducted.toFixed(7)} XLM
+                    </span>
+                  </p>
+                )}
               </div>
             )}
           </div>

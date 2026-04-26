@@ -71,6 +71,7 @@ interface PaymentStats {
 }
 
 export default function Dashboard({ publicKey, onConnect, stellarURI }: DashboardProps) {
+  const AUTO_REFRESH_SECONDS = 30;
   const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
   const [reserveInfo, setReserveInfo] = useState<AccountReserveInfo | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
@@ -78,7 +79,8 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [countdown, setCountdown] = useState(30);
+  const [refreshCountdown, setRefreshCountdown] = useState(AUTO_REFRESH_SECONDS);
+  const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
   const { visible: toastVisible, message: toastMessage, showToast } = useToast();
   const [showQRModal, setShowQRModal] = useState(false);
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
@@ -178,6 +180,17 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
       setBalanceLoading(false);
     }
   }, [publicKey]);
+
+  const refreshBalance = useCallback(async () => {
+    if (!publicKey) return;
+    setIsRefreshingBalance(true);
+    setRefreshCountdown(AUTO_REFRESH_SECONDS);
+    try {
+      await fetchBalance();
+    } finally {
+      setIsRefreshingBalance(false);
+    }
+  }, [publicKey, fetchBalance]);
 
   const fetchPaymentStats = useCallback(async () => {
     if (!publicKey) return;
@@ -322,17 +335,19 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
 
   useEffect(() => {
     if (!publicKey) return;
-    const interval = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          fetchBalance();
-          return 30;
+
+    const intervalId = window.setInterval(() => {
+      setRefreshCountdown((current) => {
+        if (current <= 1) {
+          void refreshBalance();
+          return AUTO_REFRESH_SECONDS;
         }
-        return c - 1;
+        return current - 1;
       });
     }, 1000);
-    return () => clearInterval(interval);
-  }, [publicKey, fetchBalance]);
+
+    return () => window.clearInterval(intervalId);
+  }, [publicKey, refreshBalance]);
 
   useEffect(() => {
     setFriendbotSuccessMessage(null);
@@ -736,17 +751,16 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
                   </div>
                 )}
                 <button
-                  onClick={handleManualRefresh}
+                  onClick={() => void refreshBalance()}
                   className="mt-1 text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
                   disabled={balanceLoading}
                 >
-                  {balanceLoading ? (
-                    <SpinnerIcon className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <RefreshIcon className="w-3 h-3" />
-                  )}
-                  {balanceLoading ? `Refreshing...` : `Refresh (${countdown}s)`}
+                  <RefreshIcon className={`w-3 h-3 ${isRefreshingBalance ? "animate-spin" : ""}`} />
+                  {isRefreshingBalance ? "Refreshing..." : "Refresh"}
                 </button>
+                <p className="mt-1 text-[11px] text-slate-500 sm:text-right">
+                  Refreshing in {refreshCountdown}s
+                </p>
               </div>
             ) : accountNotFound && isTestnet ? (
               <div className="sm:text-right">

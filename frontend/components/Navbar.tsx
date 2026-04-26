@@ -31,6 +31,7 @@ export default function Navbar({
   onDisconnect,
 }: NavbarProps) {
   const router = useRouter();
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const config = getNetworkConfig();
   const isMainnet = config.network === "mainnet";
   const networkLabel = config.network === "custom" ? "Custom" : (isMainnet ? "Mainnet" : "Testnet");
@@ -81,6 +82,16 @@ export default function Navbar({
     const interval = setInterval(() => void load(), 60_000);
     return () => { cancelled = true; clearInterval(interval); };
   }, []);
+
+  useEffect(() => {
+    if (!showDisconnectConfirm) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setShowDisconnectConfirm(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [showDisconnectConfirm]);
 
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-white/80 dark:bg-cosmos-900/80 backdrop-blur-xl transition-colors duration-300">
@@ -198,29 +209,31 @@ export default function Navbar({
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span>{shortenAddress(publicKey)}</span>
               </div>
-              {showDisconnectConfirm ? (
-                <div className="flex items-center gap-1.5 text-xs">
-                  <span className="text-slate-400">Disconnect?</span>
+              <button
+                onClick={() => setShowDisconnectConfirm(true)}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors px-2 py-1"
+              >
+                Disconnect
+              </button>
+              {showDisconnectConfirm && (
+                <div className="flex items-center gap-1 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2 py-1">
+                  <span className="text-[11px] text-amber-300">Disconnect wallet?</span>
                   <button
-                    onClick={handleConfirmDisconnect}
-                    className="text-emerald-400 hover:text-emerald-300 transition-colors"
+                    onClick={() => {
+                      setShowDisconnectConfirm(false);
+                      onDisconnect();
+                    }}
+                    className="rounded px-1.5 py-0.5 text-[11px] text-red-300 hover:bg-red-500/20"
                   >
                     Confirm
                   </button>
                   <button
-                    onClick={handleCancelDisconnect}
-                    className="text-slate-500 hover:text-slate-300 transition-colors"
+                    onClick={() => setShowDisconnectConfirm(false)}
+                    className="rounded px-1.5 py-0.5 text-[11px] text-slate-200 hover:bg-white/10"
                   >
                     Cancel
                   </button>
                 </div>
-              ) : (
-                <button
-                  onClick={handleDisconnectClick}
-                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors px-2 py-1"
-                >
-                  Disconnect
-                </button>
               )}
             </div>
           ) : (

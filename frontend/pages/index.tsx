@@ -157,10 +157,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
             </div>
 
             <div className="space-y-4">
-              <details className="card cursor-default">
+              <details className="card cursor-default group">
                 <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
                   <span>What is Stellar?</span>
-                  <span className="text-stellar-400 text-xl">+</span>
+                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
                 <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
                   <p>
@@ -176,10 +176,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
                 </div>
               </details>
 
-              <details className="card cursor-default">
+              <details className="card cursor-default group">
                 <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
                   <span>What is XLM?</span>
-                  <span className="text-stellar-400 text-xl">+</span>
+                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
                 <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
                   <p>
@@ -195,10 +195,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
                 </div>
               </details>
 
-              <details className="card cursor-default">
+              <details className="card cursor-default group">
                 <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
                   <span>How fast is it?</span>
-                  <span className="text-stellar-400 text-xl">+</span>
+                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
                 <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
                   <p>
@@ -214,10 +214,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
                 </div>
               </details>
 
-              <details className="card cursor-default">
+              <details className="card cursor-default group">
                 <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
                   <span>How much does it cost?</span>
-                  <span className="text-stellar-400 text-xl">+</span>
+                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
                 <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
                   <p>
@@ -233,10 +233,10 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
                 </div>
               </details>
 
-              <details className="card cursor-default">
+              <details className="card cursor-default group">
                 <summary className="cursor-pointer list-none flex items-center justify-between gap-4 text-left text-white font-semibold">
                   <span>Is it safe?</span>
-                  <span className="text-stellar-400 text-xl">+</span>
+                  <span className="text-stellar-400 text-xl transition-transform duration-200 group-open:rotate-45">+</span>
                 </summary>
                 <div className="mt-4 text-sm leading-relaxed text-slate-400 space-y-3">
                   <p>
