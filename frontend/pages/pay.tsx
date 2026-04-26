@@ -9,6 +9,10 @@ import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
 import { formatStroopsToXLM } from "@/utils/format";
+import {
+  canRedeemPaymentLink,
+  markPaymentLinkRedeemed,
+} from "@/lib/paymentLinks";
 
 interface PayPageProps {
   publicKey: string | null;
@@ -47,6 +51,18 @@ export default function PayPage({ publicKey, onConnect }: PayPageProps) {
         // Validation: Check for Required Fields
         if (!parsedData.destination || !parsedData.amount) {
           setError("The payment link data is incomplete or malformed.");
+          return;
+        }
+
+        // Reuse guard (#157): block links that have already been redeemed
+        // on this device. Expiry is also re-checked centrally here.
+        const redeemable = canRedeemPaymentLink(parsedData);
+        if (!redeemable.ok) {
+          setError(
+            redeemable.reason === "redeemed"
+              ? "This payment link has already been redeemed."
+              : "This payment link has expired."
+          );
           return;
         }
 
@@ -126,11 +142,16 @@ export default function PayPage({ publicKey, onConnect }: PayPageProps) {
         </div>
       ) : (
         <div className="animate-slide-up">
-          <SendPaymentForm 
+          <SendPaymentForm
             publicKey={publicKey}
             xlmBalance={xlmBalance}
             prefill={prefill}
-            onSuccess={() => {
+            onSuccess={(txHash) => {
+              if (prefill && txHash) {
+                // Mark the link as redeemed so the issuer's "My links" view
+                // updates and any future visit to this URL is blocked (#157).
+                markPaymentLinkRedeemed(prefill, txHash);
+              }
               // Redirect to transactions after success
               setTimeout(() => router.push('/transactions'), 3000);
             }}

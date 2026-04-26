@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import clsx from 'clsx';
 import { QRCodeSVG } from 'qrcode.react'; // Ensure this is installed
+import { rememberPaymentLink } from '@/lib/paymentLinks';
 
 export default function PaymentLinkGenerator() {
   const [destination, setDestination] = useState('');
@@ -29,6 +30,9 @@ export default function PaymentLinkGenerator() {
 
     const base64Data = btoa(JSON.stringify(paymentData));
     const url = `${window.location.origin}/pay?data=${base64Data}`;
+    // Track the link locally so the issuer can see pending/redeemed/expired
+    // status and the pay page can block reuse after redemption (#157).
+    rememberPaymentLink(paymentData, url);
     setGeneratedLink(url);
     setCopied(false);
   };
