@@ -45,3 +45,6 @@ build/
 # Playwright
 playwright-report/
 test-results/
+
+# ─── Exclude ask-out-website ─────────────────────────────────────────────────
+ask-out-website/

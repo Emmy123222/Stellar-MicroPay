@@ -12,6 +12,8 @@ import {
   CONTRACT_ID,
   explorerUrl,
   isValidStellarAddress,
+  isStellarName,
+  resolveStellarName,
   submitTransaction,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
@@ -76,7 +78,7 @@ interface BarcodeDetectorLike {
 }
 
 interface BarcodeDetectorConstructor {
-  new (options?: { formats?: string[] }): BarcodeDetectorLike;
+  new(options?: { formats?: string[] }): BarcodeDetectorLike;
 }
 
 const RECENT_RECIPIENTS_KEY = "stellar-micropay:recent-recipients";
@@ -101,6 +103,9 @@ export default function SendPaymentForm({
 }: SendPaymentFormProps) {
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [destination, setDestination] = useState("");
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
+  const [isResolvingName, setIsResolvingName] = useState(false);
+  const [nameResolutionError, setNameResolutionError] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
   const [selectedMemoTemplate, setSelectedMemoTemplate] = useState<string | null>(null);
@@ -113,12 +118,31 @@ export default function SendPaymentForm({
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
 
+  // Favourites and CSV import state
+  const [favourites, setFavourites] = useState<FavouriteEntry[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        return JSON.parse(window.localStorage.getItem(FAVOURITES_STORAGE_KEY) || "[]");
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+  const [isFavouritesModalOpen, setIsFavouritesModalOpen] = useState(false);
+  const [csvPreview, setCsvPreview] = useState<ImportPreviewRow[]>([]);
+  const [csvMeta, setCsvMeta] = useState<{ total: number; valid: number; invalid: number; duplicate: number } | null>(null);
+  const [parsedCsvRows, setParsedCsvRows] = useState<Array<{ name: string; address: string }>>([]);
+  const [pendingCsvFileName, setPendingCsvFileName] = useState<string | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const lastInvalidScanRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [recentRecipients, setRecentRecipients] = useState<string[]>(() => {
     try {
@@ -168,6 +192,48 @@ export default function SendPaymentForm({
     }
   }, [prefill]);
 
+  // Handle name resolution when destination changes
+  useEffect(() => {
+    const handleNameResolution = async () => {
+      if (!destination.trim()) {
+        setResolvedAddress(null);
+        setNameResolutionError(null);
+        return;
+      }
+
+      // If it's already a valid Stellar address, no need to resolve
+      if (isValidStellarAddress(destination)) {
+        setResolvedAddress(null);
+        setNameResolutionError(null);
+        return;
+      }
+
+      // Check if it looks like a Stellar name
+      if (isStellarName(destination)) {
+        setIsResolvingName(true);
+        setNameResolutionError(null);
+
+        try {
+          const resolved = await resolveStellarName(destination);
+          setResolvedAddress(resolved);
+          setNameResolutionError(null);
+        } catch (error) {
+          setResolvedAddress(null);
+          setNameResolutionError(error instanceof Error ? error.message : 'Name resolution failed');
+        } finally {
+          setIsResolvingName(false);
+        }
+      } else {
+        setResolvedAddress(null);
+        setNameResolutionError(null);
+      }
+    };
+
+    // Debounce the resolution to avoid too many API calls
+    const timeoutId = setTimeout(handleNameResolution, 500);
+    return () => clearTimeout(timeoutId);
+  }, [destination]);
+
   const xlmBal = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
   // XLM has a 1 XLM reserve; USDC has no such constraint
@@ -175,12 +241,13 @@ export default function SendPaymentForm({
   const maxSend = selectedAsset === "XLM" ? Math.max(0, xlmBal - 1) : usdcBal;
 
   const amountNum = parseFloat(amount);
-  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
+  // Valid destination is either a valid Stellar address OR a resolved name
+  const isValidDest = destination.length > 0 && (isValidStellarAddress(destination) || (resolvedAddress && isValidStellarAddress(resolvedAddress)));
   const MIN_STROOP = 0.0000001;
   const isValidAmt =
     !isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
   const canSubmit =
-    isValidDest && isValidAmt && status === "idle" && destination !== publicKey;
+    isValidDest && isValidAmt && status === "idle" && destination !== publicKey && !isResolvingName;
 
   const saveFavourites = (items: FavouriteEntry[]) => {
     setFavourites(items);
@@ -327,15 +394,17 @@ export default function SendPaymentForm({
     try {
       // Step 1: Build transaction
       setStatus("building");
+      // Use resolved address if available, otherwise use the destination directly
+      const targetAddress = resolvedAddress || destination;
       const tx = isTipOnChain
         ? await buildSorobanTipTransaction({
           fromPublicKey: publicKey,
-          toPublicKey: destination,
+          toPublicKey: targetAddress,
           amount: amountNum.toFixed(7),
         })
         : await buildPaymentTransaction({
           fromPublicKey: publicKey,
-          toPublicKey: destination,
+          toPublicKey: targetAddress,
           amount: amountNum.toFixed(7),
           memo: memo.trim() || undefined,
         });
@@ -586,21 +655,56 @@ export default function SendPaymentForm({
         {/* Destination */}
         {!hideDestinationField && (
           <div>
-            <label className="label">{`Recipient Address`}</label>
-            <input
-              type="text"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value.trim())}
-              placeholder="G... (Stellar public key)"
-              className={clsx(
-                "input-field",
-                destination.length > 0 && !isValidDest && "border-red-500/50"
+            <div className="flex items-center justify-between mb-2">
+              <label className="label mb-0">{`Recipient Address or Name`}</label>
+              <button
+                type="button"
+                onClick={openFavouritesModal}
+                className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors"
+                disabled={status !== "idle"}
+              >
+                Favourites
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                value={destination}
+                onChange={(e) => setDestination(e.target.value.trim())}
+                placeholder="G... or alice.xlm or alice*stellar.org"
+                className={clsx(
+                  "input-field",
+                  destination.length > 0 && !isValidDest && !isResolvingName && "border-red-500/50"
+                )}
+                disabled={destinationReadOnly || status !== "idle"}
+                readOnly={destinationReadOnly}
+              />
+              {isResolvingName && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="w-4 h-4 border-2 border-stellar-400/30 border-t-stellar-400 rounded-full animate-spin"></div>
+                </div>
               )}
-              disabled={destinationReadOnly || status !== "idle"}
-              readOnly={destinationReadOnly}
-            />
-            {destination.length > 0 && !isValidDest && (
-              <p className="mt-1 text-xs text-red-400">{`Invalid Stellar address`}</p>
+            </div>
+
+            {/* Name resolution status */}
+            {isResolvingName && (
+              <p className="mt-1 text-xs text-stellar-400 animate-pulse">Resolving name...</p>
+            )}
+
+            {/* Resolved address display */}
+            {resolvedAddress && !isResolvingName && (
+              <div className="mt-2 p-2 rounded-lg bg-stellar-500/10 border border-stellar-500/20">
+                <p className="text-xs text-stellar-300 mb-1">Resolved to:</p>
+                <p className="text-xs font-mono text-slate-300">{resolvedAddress}</p>
+              </div>
+            )}
+
+            {/* Error messages */}
+            {nameResolutionError && !isResolvingName && (
+              <p className="mt-1 text-xs text-red-400">{nameResolutionError}</p>
+            )}
+            {destination.length > 0 && !isValidDest && !isResolvingName && !nameResolutionError && (
+              <p className="mt-1 text-xs text-red-400">Invalid Stellar address or name format</p>
             )}
             {destination === publicKey && (
               <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
@@ -657,111 +761,111 @@ export default function SendPaymentForm({
         {/* Amount */}
         {!hideAmountField && (
           <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="label mb-0">{`Amount (${selectedAsset})`}</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="label mb-0">{`Amount (${selectedAsset})`}</label>
 
-            {/* Issue #8 — info icon + pure CSS tooltip next to Max button */}
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={setMaxAmount}
-                className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors"
-                disabled={status !== "idle"}
-              >
-                {`Max: ${formatXLM(Math.max(0, balance - 1))}`}
-              </button>
-
-              <div className="relative group">
+              {/* Issue #8 — info icon + pure CSS tooltip next to Max button */}
+              <div className="flex items-center gap-1.5">
                 <button
-                  type="button"
-                  aria-label="Stellar requires a 1 XLM minimum balance in your account"
-                  className="w-4 h-4 flex items-center justify-center rounded-full border border-stellar-500/40 text-stellar-400 hover:border-stellar-500 hover:text-stellar-300 transition-colors focus:outline-none focus:ring-1 focus:ring-stellar-400"
+                  onClick={setMaxAmount}
+                  className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors"
+                  disabled={status !== "idle"}
                 >
-                  <InfoIcon className="w-2.5 h-2.5" />
+                  {`Max: ${formatXLM(Math.max(0, balance - 1))}`}
                 </button>
 
-                {/* Tooltip — pure CSS, no library */}
-                <div
-                  role="tooltip"
-                  className={clsx(
-                    "pointer-events-none absolute bottom-full right-0 mb-2 w-56 z-50",
-                    "rounded-lg border border-stellar-500/20 bg-cosmos-800 px-3 py-2 shadow-lg",
-                    "text-xs text-slate-300 leading-relaxed",
-                    "opacity-0 scale-95 transition-all duration-150",
-                    "group-hover:opacity-100 group-hover:scale-100",
-                    "group-focus-within:opacity-100 group-focus-within:scale-100"
-                  )}
-                >
-                  {`Stellar requires a 1 XLM minimum balance in your account. The Max amount excludes this reserve.`}
-                  <span className="absolute -bottom-1.5 right-3 w-3 h-3 rotate-45 border-r border-b border-stellar-500/20 bg-cosmos-800" />
+                <div className="relative group">
+                  <button
+                    type="button"
+                    aria-label="Stellar requires a 1 XLM minimum balance in your account"
+                    className="w-4 h-4 flex items-center justify-center rounded-full border border-stellar-500/40 text-stellar-400 hover:border-stellar-500 hover:text-stellar-300 transition-colors focus:outline-none focus:ring-1 focus:ring-stellar-400"
+                  >
+                    <InfoIcon className="w-2.5 h-2.5" />
+                  </button>
+
+                  {/* Tooltip — pure CSS, no library */}
+                  <div
+                    role="tooltip"
+                    className={clsx(
+                      "pointer-events-none absolute bottom-full right-0 mb-2 w-56 z-50",
+                      "rounded-lg border border-stellar-500/20 bg-cosmos-800 px-3 py-2 shadow-lg",
+                      "text-xs text-slate-300 leading-relaxed",
+                      "opacity-0 scale-95 transition-all duration-150",
+                      "group-hover:opacity-100 group-hover:scale-100",
+                      "group-focus-within:opacity-100 group-focus-within:scale-100"
+                    )}
+                  >
+                    {`Stellar requires a 1 XLM minimum balance in your account. The Max amount excludes this reserve.`}
+                    <span className="absolute -bottom-1.5 right-3 w-3 h-3 rotate-45 border-r border-b border-stellar-500/20 bg-cosmos-800" />
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.0000000"
-            min="0.0000001"
-            step="0.0000001"
-            className={clsx(
-              "input-field",
-              amount && !isValidAmt && "border-red-500/50"
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.0000000"
+              min="0.0000001"
+              step="0.0000001"
+              className={clsx(
+                "input-field",
+                amount && !isValidAmt && "border-red-500/50"
+              )}
+              disabled={status !== "idle"}
+            />
+            {amount && !isValidAmt && (
+              <p className="mt-1 text-xs text-red-400">
+                {amountNum > maxSend
+                  ? selectedAsset === "XLM"
+                    ? `Insufficient balance (1 XLM reserve required)`
+                    : `Insufficient USDC balance`
+                  : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
+              </p>
             )}
-            disabled={status !== "idle"}
-          />
-          {amount && !isValidAmt && (
-            <p className="mt-1 text-xs text-red-400">
-              {amountNum > maxSend
-                ? selectedAsset === "XLM"
-                  ? `Insufficient balance (1 XLM reserve required)`
-                  : `Insufficient USDC balance`
-                : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
-            </p>
-          )}
           </div>
         )}
 
         {/* Memo (optional) */}
         {!hideMemoField && (
           <div>
-          <label className="label">{`Memo (optional)`}</label>
-          <input
-            type="text"
-            value={memo}
-            onChange={(e) => handleMemoChange(e.target.value)}
-            placeholder="Payment note..."
-            maxLength={28}
-            className="input-field"
-            disabled={status !== "idle"}
-          />
+            <label className="label">{`Memo (optional)`}</label>
+            <input
+              type="text"
+              value={memo}
+              onChange={(e) => handleMemoChange(e.target.value)}
+              placeholder="Payment note..."
+              maxLength={28}
+              className="input-field"
+              disabled={status !== "idle"}
+            />
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            {memoTemplates.map((template) => {
-              const isActive = selectedMemoTemplate === template;
-              return (
-                <button
-                  key={template}
-                  type="button"
-                  onClick={() => handleMemoTemplateClick(template)}
-                  disabled={status !== "idle"}
-                  className={clsx(
-                    "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
-                      : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
-                    status !== "idle" && "opacity-50 cursor-not-allowed"
-                  )}
-                >
-                  {template}
-                </button>
-              );
-            })}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {memoTemplates.map((template) => {
+                const isActive = selectedMemoTemplate === template;
+                return (
+                  <button
+                    key={template}
+                    type="button"
+                    onClick={() => handleMemoTemplateClick(template)}
+                    disabled={status !== "idle"}
+                    className={clsx(
+                      "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
+                        : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
+                      status !== "idle" && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    {template}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-3 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
           </div>
-
-          <p className="mt-3 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
-        </div>
 
         {/* Record as Tip On-Chain (Soroban) */}
         {CONTRACT_ID && (
@@ -837,6 +941,18 @@ export default function SendPaymentForm({
         isTipOnChain={isTipOnChain}
         onCancel={closeConfirmation}
         onConfirm={confirmAndSend}
+      />
+
+      <FavouritesModal
+        isOpen={isFavouritesModalOpen}
+        favourites={favourites}
+        onClose={closeFavouritesModal}
+        onSelectFavourite={handleSelectFavourite}
+        onFileSelect={handleFileSelection}
+        previewRows={csvPreview}
+        meta={csvMeta}
+        importMessage={importMessage}
+        onConfirmImport={handleConfirmImport}
       />
 
       {isScannerOpen && (
