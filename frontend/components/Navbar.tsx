@@ -18,8 +18,12 @@ interface NavbarProps {
 const navLinks = [
   { href: "/", label: "Home" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/trade", label: "Trade" },
   { href: "/transactions", label: "Transactions" },
+<<<<<<< HEAD
   { href: "/network", label: "Network" },
+=======
+>>>>>>> ccd17266252c90fdc295d5a1537f1aacaae16dd4
   { href: "/settings", label: "Settings" },
 ];
 

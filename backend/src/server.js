@@ -17,7 +17,12 @@ const authRoutes = require("./routes/auth");
 const paymentRoutes = require("./routes/payments");
 const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
+<<<<<<< HEAD
 const webhookRoutes = require("./routes/webhooks");
+=======
+const turretsRoutes = require("./routes/turrets");
+const { startTurretsServer } = require("./turretsServer");
+>>>>>>> ccd17266252c90fdc295d5a1537f1aacaae16dd4
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -74,6 +79,7 @@ app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/health", healthRoutes);
+app.use("/api/turrets", turretsRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
@@ -107,6 +113,8 @@ if (require.main === module) {
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);
   });
+
+  startTurretsServer();
 }
 
 module.exports = app;
