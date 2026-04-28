@@ -17,12 +17,9 @@ const authRoutes = require("./routes/auth");
 const paymentRoutes = require("./routes/payments");
 const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
-<<<<<<< HEAD
 const webhookRoutes = require("./routes/webhooks");
-=======
 const turretsRoutes = require("./routes/turrets");
 const { startTurretsServer } = require("./turretsServer");
->>>>>>> ccd17266252c90fdc295d5a1537f1aacaae16dd4
 
 const app = express();
 const PORT = process.env.PORT || 4000;
