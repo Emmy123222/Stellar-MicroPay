@@ -259,12 +259,30 @@ export function disconnectWallet(): void {
   // Freighter doesn't have a disconnect API, so we just clear local state
   // The actual disconnect is handled by the app's state management
 }
-/**
- * Disconnect the wallet. Since Freighter doesn't provide a disconnect API,
- * this clears the local connection state. The actual disconnect happens
- * when the app's state is updated.
- */
-export function disconnectWallet(): void {
-  // Freighter doesn't have a disconnect API, so we just clear local state
-  // The actual disconnect is handled by the app's state management
+
+// ─── Ledger Stubs ─────────────────────────────────────────────────────────────
+// WebHID / Ledger integration is not yet implemented.
+// These stubs keep the WalletConnect component type-safe.
+
+export async function isLedgerSupported(): Promise<boolean> {
+  return typeof navigator !== "undefined" && "hid" in navigator;
+}
+
+export async function getLedgerPublicKey(): Promise<{
+  publicKey: string | null;
+  error: string | null;
+}> {
+  return {
+    publicKey: null,
+    error: "Ledger integration is not yet implemented.",
+  };
+}
+
+export async function signTransactionWithLedger(
+  _transactionXDR: string
+): Promise<{ signedXDR: string | null; error: string | null }> {
+  return {
+    signedXDR: null,
+    error: "Ledger integration is not yet implemented.",
+  };
 }

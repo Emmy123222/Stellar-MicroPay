@@ -145,6 +145,7 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed">{f.desc}</p>
             </div>
+          ))}
         </div>
 
         <section className="mb-24">

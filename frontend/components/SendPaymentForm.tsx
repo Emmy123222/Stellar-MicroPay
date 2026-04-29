@@ -19,7 +19,6 @@ import {
   isValidStellarAddress,
   server,
   submitTransaction,
-  fetchNetworkFeeStats,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLM, shortenAddress } from "@/utils/format";
@@ -138,6 +137,18 @@ export default function SendPaymentForm({
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [networkFeeXlm, setNetworkFeeXlm] = useState(0.00001);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!txHash) return;
+    try {
+      await navigator.clipboard.writeText(txHash);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard not available
+    }
+  };
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -352,9 +363,9 @@ export default function SendPaymentForm({
     const fetchFee = async () => {
       try {
         const stats = await fetchNetworkFeeStats();
-        setNetworkFee(stats.baseFeeXlm.toFixed(5));
+        setNetworkFeeXlm(stats.baseFeeXlm || 0.00001);
       } catch {
-        setNetworkFee(null);
+        setNetworkFeeXlm(0.00001);
       }
     };
     fetchFee();
@@ -601,309 +612,6 @@ export default function SendPaymentForm({
     }
   };
 
-  return (
-    <>
-      <div className="card animate-fade-in">
-        <h2 className="mb-6 flex items-center gap-2 font-display text-lg font-semibold text-white">
-          <SendIcon className="h-5 w-5 text-stellar-400" />
-          {title}
-        </h2>
-
-        <div className="space-y-5">
-          <div className="flex gap-2 flex-wrap">
-            {(["XLM", "USDC"] as AssetType[]).map((asset) => (
-              <button
-                key={asset}
-                type="button"
-                onClick={() => {
-                  setSelectedAsset(asset);
-                  setAmount("");
-                  if (asset === "CUSTOM") {
-                    setShowCustomAssetForm(true);
-                  } else {
-                    setShowCustomAssetForm(false);
-                  }
-                }}
-                disabled={asset === "USDC" && !usdcBalance}
-                className={clsx(
-                  "rounded-full border px-4 py-1.5 text-sm font-medium transition-all",
-                  selectedAsset === asset
-                    ? "border-stellar-500/30 bg-stellar-500/15 text-stellar-300"
-                    : "border-white/10 text-slate-400 hover:border-white/20",
-                  asset === "USDC" && !usdcBalance && "cursor-not-allowed opacity-40"
-                )}
-              >
-                {asset}
-                {asset === "USDC" && !usdcBalance && (
-                  <span className="ml-1 text-xs">No balance</span>
-                )}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedAsset("CUSTOM");
-                setShowCustomAssetForm(true);
-                setAmount("");
-              }}
-              className={clsx(
-                "rounded-full border px-4 py-1.5 text-sm font-medium transition-all",
-                selectedAsset === "CUSTOM"
-                  ? "border-stellar-500/30 bg-stellar-500/15 text-stellar-300"
-                  : "border-white/10 text-slate-400 hover:border-white/20"
-              )}
-            >
-              + Custom
-            </button>
-          </div>
-
-          {/* Custom Asset Form */}
-          {showCustomAssetForm && (
-            <div className="p-4 rounded-lg border border-purple-500/20 bg-purple-500/5 space-y-3">
-              <p className="text-sm font-medium text-purple-300">Custom Stellar Asset</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-400">Asset Code</label>
-                  <input
-                    type="text"
-                    value={customAsset.code}
-                    onChange={(e) => setCustomAsset({ ...customAsset, code: e.target.value.toUpperCase() })}
-                    placeholder="e.g. COIN"
-                    className="input-field text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400">Issuer Address</label>
-                  <input
-                    type="text"
-                    value={customAsset.issuer}
-                    onChange={(e) => setCustomAsset({ ...customAsset, issuer: e.target.value.trim() })}
-                    placeholder="G..."
-                    className="input-field text-sm font-mono"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {selectedAsset === "CUSTOM" && (!customAsset.code || !customAsset.issuer) && (
-            <p className="text-xs text-amber-400">Enter both asset code and issuer address for custom assets</p>
-          )}
-        </div>
-      </div>
-
-      {/* QR Scanner */}
-      <div className="mt-4">
-        {!hideDestinationField && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowScanner(!showScanner)}
-              className="text-xs text-stellar-400 hover:text-stellar-300 flex items-center gap-1"
-            >
-              <CameraIcon className="w-4 h-4" />
-              {showScanner ? "Close scanner" : "Scan QR code"}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {showScanner && (
-        <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
-          <div className="relative aspect-square max-w-sm mx-auto bg-black rounded-lg overflow-hidden">
-            <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-48 h-48 border-2 border-stellar-400 rounded-lg" />
-            </div>
-          </div>
-          <p className="text-xs text-slate-400 text-center mt-2">
-            Point your camera at a QR code
-          </p>
-          {scannerError && (
-            <p className="mt-2 text-xs text-red-400 text-center">{scannerError}</p>
-          )}
-        </div>
-      )}
-
-      {scannerError && (
-        <p className="mt-2 text-xs text-red-400">{scannerError}</p>
-      )}
-
-      {showScanner || showFavourites || showCsvImport ? (
-        <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            onClick={() => {
-              setShowScanner(false);
-              setShowFavourites(false);
-              setShowCsvImport(false);
-            }}
-            className="text-xs text-slate-400 hover:text-white"
-          >
-            Cancel
-          </button>
-        </div>
-      ) : null}
-    </div>
-
-    {/* Payment Confirmation Modal */}
-    <PaymentStatusModal
-      isOpen={isStatusModalOpen}
-      onClose={() => {
-        setIsStatusModalOpen(false);
-        if (status === "success") {
-          resetTracker();
-          if (onSuccess) onSuccess(txHash ?? undefined);
-        }
-      }}
-      status={status}
-      stepTimings={stepTimings}
-      txHash={txHash}
-      error={error}
-      failedStep={failedStep}
-      isTipOnChain={isTipOnChain}
-    />
-  </>
-);
-
-  function stopScanner() {
-    if (frameRequestRef.current !== null) {
-      cancelAnimationFrame(frameRequestRef.current);
-      frameRequestRef.current = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-  }
-
-  const extractStellarAddress = (rawValue: string): string | null => {
-    const trimmed = rawValue.trim();
-    if (!trimmed) return null;
-    if (isValidStellarAddress(trimmed)) return trimmed;
-
-    try {
-      const url = new URL(trimmed);
-      const fromParams =
-        url.searchParams.get("destination") ||
-        url.searchParams.get("addr") ||
-        url.searchParams.get("account");
-      if (fromParams && isValidStellarAddress(fromParams)) {
-        return fromParams;
-      }
-
-      const fromPath = decodeURIComponent(url.pathname.replace(/\//g, ""));
-      if (isValidStellarAddress(fromPath)) {
-        return fromPath;
-      }
-    } catch {
-      // Not a URL, continue with regex extraction.
-    }
-
-    const match = trimmed.match(/G[A-Z0-9]{55}/);
-    if (match && isValidStellarAddress(match[0])) {
-      return match[0];
-    }
-
-    return null;
-  };
-
-  const closeScanner = () => {
-    stopScanner();
-    setIsScannerOpen(false);
-  };
-
-  const openScanner = async () => {
-    if (!isScannerSupported || status !== "idle") return;
-
-    setScannerError(null);
-    lastInvalidScanRef.current = null;
-    setIsScannerOpen(true);
-
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-      });
-
-      const detectorCtor = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor })
-        .BarcodeDetector;
-      if (!detectorCtor) {
-        stopScanner();
-        setIsScannerOpen(false);
-        return;
-      }
-
-      streamRef.current = mediaStream;
-      detectorRef.current = new detectorCtor({ formats: ["qr_code"] });
-
-      const video = videoRef.current;
-      if (!video) return;
-
-      video.srcObject = mediaStream;
-      await video.play();
-
-      const detectFrame = async () => {
-        if (!videoRef.current || !detectorRef.current) return;
-
-        if (!isDetectingRef.current && videoRef.current.readyState >= 2) {
-          isDetectingRef.current = true;
-
-          try {
-            const results = await detectorRef.current.detect(videoRef.current);
-            if (results.length > 0) {
-              const rawValue = results[0].rawValue?.trim() || "";
-              if (rawValue) {
-                const address = extractStellarAddress(rawValue);
-                if (address) {
-                  setDestination(address);
-                  setScannerError(null);
-                  closeScanner();
-                  isDetectingRef.current = false;
-                  return;
-                }
-
-                if (lastInvalidScanRef.current !== rawValue) {
-                  setScannerError("Invalid QR code: no valid Stellar address found.");
-                  lastInvalidScanRef.current = rawValue;
-                }
-              }
-            }
-          } catch {
-            setScannerError("Unable to scan QR code from camera stream.");
-          } finally {
-            isDetectingRef.current = false;
-          }
-        }
-
-        frameRequestRef.current = requestAnimationFrame(detectFrame);
-      };
-
-      frameRequestRef.current = requestAnimationFrame(detectFrame);
-    } catch (err: unknown) {
-      closeScanner();
-      if (err instanceof DOMException && err.name === "NotAllowedError") {
-        setScannerError("Camera permission denied. Please allow camera access to scan a QR code.");
-        return;
-      }
-
-      setScannerError("Unable to access camera for QR scanning.");
-    }
-  };
-
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    if (!txHash) return;
-    navigator.clipboard.writeText(txHash).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
 
   if (status === "success" && txHash) {
     const truncatedHash = `${txHash.slice(0, 12)}…${txHash.slice(-6)}`;
@@ -958,7 +666,8 @@ export default function SendPaymentForm({
   }
 
   return (
-    <div className="card animate-fade-in">
+    <>
+      <div className="card animate-fade-in">
       <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
         <SendIcon className="w-5 h-5 text-stellar-400" />
         {title}
@@ -1051,44 +760,6 @@ export default function SendPaymentForm({
             )}
           </div>
         )}
-
-        {favourites.length > 0 && (
-          <div className="rounded-xl border border-white/10 bg-slate-950/70 p-3">
-            <p className="label mb-2">Favourite recipients</p>
-            <div className="flex flex-wrap gap-2">
-              {favourites.slice(0, 6).map((item) => (
-                <button
-                  key={asset}
-                  type="button"
-                  onClick={() => {
-                    setSelectedAsset(asset);
-                    setAmount("");
-                  }}
-                  disabled={asset === "USDC" && !usdcBalance}
-                  className={clsx(
-                    "rounded-full border px-4 py-1.5 text-sm font-medium transition-all",
-                    selectedAsset === asset
-                      ? "border-stellar-500/30 bg-stellar-500/15 text-stellar-300"
-                      : "border-white/10 text-slate-400 hover:border-white/20",
-                    asset === "USDC" && !usdcBalance && "cursor-not-allowed opacity-40"
-                  )}
-                >
-                  {asset}
-                  {asset === "USDC" && !usdcBalance && (
-                    <span className="ml-1 text-xs">(no trustline)</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Pre-fill notice */}
-          {prefill && (
-            <div className="flex items-center gap-2 rounded-lg border border-stellar-500/20 bg-stellar-500/10 px-3 py-2 text-xs text-stellar-400">
-              <InfoIcon className="h-3.5 w-3.5 flex-shrink-0" />
-              Pre-filled from transaction history
-            </div>
-          )}
 
           {/* Destination */}
           {!hideDestinationField && (
@@ -1279,17 +950,6 @@ export default function SendPaymentForm({
                     : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
                 </p>
               )}
-              disabled={status !== "idle"}
-            />
-            {amount && !isValidAmt && (
-              <p className="mt-1 text-xs text-red-400">
-                {amountNum > maxSend
-                  ? selectedAsset === "XLM"
-                    ? `Insufficient balance (1 XLM reserve required)`
-                    : `Insufficient USDC balance`
-                  : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
-              </p>
-            )}
             {selectedAsset === "XLM" && (
               <div className="mt-2 rounded-lg border border-stellar-500/20 bg-stellar-500/5 px-3 py-2 text-xs text-slate-300">
                 <p>
@@ -1309,46 +969,6 @@ export default function SendPaymentForm({
               </div>
             )}
           </div>
-
-          <div>
-            <label className="label">{`Memo (optional)`}</label>
-            <input
-              type="text"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value.slice(0, 28))}
-              placeholder="Payment note..."
-              maxLength={28}
-              className="input-field"
-              disabled={status !== "idle"}
-            />
-            <p
-              className={clsx(
-                "mt-1 text-xs",
-                memo.length >= 28
-                  ? "text-red-400"
-                  : memo.length >= 25
-                  ? "text-red-400"
-                  : memo.length >= 20
-                  ? "text-amber-400"
-                  : "text-slate-500"
-              )}
-              title="Stellar memos are limited to 28 bytes"
-            >
-              {memo.length >= 28
-                ? "Max reached (28 chars)"
-                : `${memo.length}/28 characters`}
-            </p>
-          </div>
-            disabled={status !== "idle"}
-          />
-          {amount && !isValidAmt && (
-            <p className="mt-1 text-xs text-red-400">
-              {amountNum > maxSend
-                ? selectedAsset === "XLM"
-                  ? `Insufficient balance (1 XLM reserve required)`
-                  : `Insufficient USDC balance`
-                : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
-            </p>
           )}
 
         {/* Memo (optional) */}
@@ -1414,47 +1034,7 @@ export default function SendPaymentForm({
               : `${memo.length}/28 characters`}
           </p>
         </div>
-
-        {/* Record as Tip On-Chain (Soroban) */}
-        {/* {CONTRACT_ID && (
-          <div className="flex items-start gap-3 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/10 transition-colors hover:bg-stellar-500/8">
-            <div className="flex items-center h-5">
-              <input
-                type="text"
-                value={memo}
-                onChange={(e) => handleMemoChange(e.target.value)}
-                placeholder="Payment note..."
-                maxLength={28}
-                className="input-field"
-                disabled={status !== "idle"}
-              />
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                {memoTemplates.map((template) => {
-                  const isActive = selectedMemoTemplate === template;
-                  return (
-                    <button
-                      key={template}
-                      type="button"
-                      onClick={() => handleMemoTemplateClick(template)}
-                      disabled={status !== "idle"}
-                      className={clsx(
-                        "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
-                        isActive
-                          ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
-                          : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
-                        status !== "idle" && "opacity-50 cursor-not-allowed"
-                      )}
-                    >
-                      {template}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <p className="mt-3 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
-            </div>
-          )}
+        )}
 
           {/* Submit button */}
           <button
@@ -1539,7 +1119,7 @@ export default function SendPaymentForm({
               className="aspect-square w-full rounded-xl border border-slate-700 bg-slate-950 object-cover"
             />
             <p className="mt-2 text-xs text-slate-400">
-              Point your camera at a Stellar address QR code.
+              Describe your payment in natural language and I&apos;ll help you fill out the form.
             </p>
             {scannerError && (
               <p className="mt-2 text-xs text-red-400">{scannerError}</p>

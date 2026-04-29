@@ -151,7 +151,7 @@ export function registerProtocolHandler(): void {
   
   try {
     // Register for web+stellar: protocol
-    navigator.registerProtocolHandler('web+stellar', `${window.location.origin}?uri=%s`, 'Stellar MicroPay');
+    navigator.registerProtocolHandler('web+stellar', `${window.location.origin}?uri=%s`);
     console.log('Successfully registered web+stellar: protocol handler');
   } catch (error) {
     console.warn('Failed to register protocol handler:', error);
