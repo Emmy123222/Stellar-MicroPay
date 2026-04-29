@@ -64,7 +64,9 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
           sendMax: amount,
           destAsset: buyAsset,
           destAmount: price || amount, // For market orders, this is the amount we want to receive
+          path: [],
         });
+
       } else {
         // Limit order
         if (side === "sell") {

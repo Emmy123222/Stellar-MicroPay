@@ -14,7 +14,7 @@ import { shortenAddress } from "@/lib/stellar";
 
 interface SettingsPageProps {
   publicKey: string | null;
-  onConnect: (pk: string) => void;
+  onConnect: () => void;
   onDisconnect: () => void;
 }
 

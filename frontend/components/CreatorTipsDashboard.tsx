@@ -3,7 +3,7 @@
  * Dashboard component for creators to view tips received.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatXLM, shortenAddress, formatUSD } from "@/utils/format";
 
@@ -46,9 +46,10 @@ export default function CreatorTipsDashboard({
 
   useEffect(() => {
     fetchTips();
-  }, [publicKey, page]);
+  }, [fetchTips, page]);
 
-  const fetchTips = async () => {
+
+  const fetchTips = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -79,7 +80,8 @@ export default function CreatorTipsDashboard({
     } finally {
       setLoading(false);
     }
-  };
+  }, [publicKey, page]);
+
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);

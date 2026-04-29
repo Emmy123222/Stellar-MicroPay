@@ -68,10 +68,10 @@ export default function TransactionList({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
-  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
   const router = useRouter();
 
   const updatePayments = useCallback(
@@ -239,20 +239,19 @@ export default function TransactionList({
           </div>
           
           <div className="space-y-2">
-        {payments.map((tx, index) => (
+        {visiblePayments.map((tx, index) => (
           <div
             key={tx.id}
             tabIndex={focusedIndex === index ? 0 : -1}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setFocusedIndex((prev) => Math.min(prev + 1, payments.length - 1));
+                setFocusedIndex((prev) => Math.min(prev + 1, visiblePayments.length - 1));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setFocusedIndex((prev) => Math.max(prev - 1, 0));
               } else if (e.key === 'Enter' && focusedIndex === index) {
                 e.preventDefault();
-                // Trigger copy action on Enter (similar to clicking the address pill)
                 const address = tx.type === "sent" ? tx.to : tx.from;
                 copyToClipboard(address);
                 setCopiedId(tx.id);
@@ -262,26 +261,26 @@ export default function TransactionList({
             onBlur={() => setFocusedIndex(-1)}
             onFocus={() => setFocusedIndex(index)}
             className={clsx(
-              "flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group",
+              "flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group relative",
               focusedIndex === index && "outline-none ring-2 ring-stellar-500 ring-offset-2"
             )}
+            aria-label={`${tx.type === "sent" ? "Sent" : "Received"} ${tx.amount} XLM ${tx.type === "sent" ? "to" : "from"} ${tx.type === "sent" ? tx.to : tx.from}`}
           >
             {/* Direction icon */}
-              {/* Direction icon */}
-              <div
-                className={clsx(
-                  "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
-                  tx.type === "sent"
-                    ? "bg-red-500/10 border border-red-500/20"
-                    : "bg-emerald-500/10 border border-emerald-500/20"
-                )}
-              >
-                {tx.type === "sent" ? (
-                  <ArrowUpIcon className="w-4 h-4 text-red-400" />
-                ) : (
-                  <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
-                )}
-              </div>
+            <div
+              className={clsx(
+                "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+                tx.type === "sent"
+                  ? "bg-red-500/10 border border-red-500/20"
+                  : "bg-emerald-500/10 border border-emerald-500/20"
+              )}
+            >
+              {tx.type === "sent" ? (
+                <ArrowUpIcon className="w-4 h-4 text-red-400" />
+              ) : (
+                <ArrowDownIcon className="w-4 h-4 text-emerald-400" />
+              )}
+            </div>
 
             {/* Details */}
             <div className="flex-1 min-w-0">
@@ -296,6 +295,7 @@ export default function TransactionList({
                       tx.id
                     )
                   }
+                  aria-label={`Copy ${tx.type === "sent" ? "recipient" : "sender"} address`}
                   className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
                 >
                   {copiedId === tx.id
@@ -335,24 +335,25 @@ export default function TransactionList({
                   }
                   className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-400 hover:text-stellar-300 font-medium whitespace-nowrap"
                   title="Pre-fill send form with this transaction"
+                  aria-label="Send again to this recipient"
                 >
                   Send again
                 </button>
               )}
-
+              
               <a
                 href={explorerUrl(tx.transactionHash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
                 title="View on Stellar Expert"
+                aria-label="View transaction on Stellar Expert"
               >
                 <ExternalLinkIcon className="w-3.5 h-3.5" />
               </a>
             </div>
           </div>
         ))}
-      </div>
 
         {/* Load more */}
         {hasMore && payments.length > 0 && (

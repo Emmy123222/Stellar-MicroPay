@@ -120,6 +120,7 @@ export default function AIPaymentAssistant({
           Describe your payment in natural language and I&apos;ll help you fill out the form.
         </p>
 
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="payment-input" className="sr-only">
@@ -234,6 +235,7 @@ export default function AIPaymentAssistant({
             <li>• &quot;Pay 25 XLM to Alice for the consultation&quot;</li>
             <li>• &quot;Transfer 100 XLM to my colleague&quot;</li>
           </ul>
+
         </div>
       </div>
     </div>

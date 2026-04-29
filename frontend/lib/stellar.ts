@@ -1106,15 +1106,6 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
   }
 }
 
-/**
- * Fetch the last N payment transactions for sparkline chart rendering.
- * Returns records in chronological order (oldest first) so the chart
- * reads left-to-right over time.
- *
- * @param publicKey - Stellar public key (G...) of the account.
- * @param limit - Number of recent payments to fetch. Defaults to `10`.
- * @returns Array of {@link PaymentRecord} sorted oldest → newest.
- */
 export async function getRecentPaymentsForSparkline(
   publicKey: string,
   limit = 10
@@ -1123,6 +1114,19 @@ export async function getRecentPaymentsForSparkline(
   // getPaymentHistory returns newest-first; reverse for chronological order
   return records.slice().reverse();
 }
+
+
+/**
+ * Fetch recent payments for dashboard statistics grouping.
+ */
+export async function getRecentPaymentsForStats(
+  publicKey: string,
+  limit = 200
+): Promise<PaymentRecord[]> {
+  const { records } = await getPaymentHistory(publicKey, limit);
+  return records;
+}
+
 
 /**
  * Start a server-sent events (SSE) stream of payment operations for an account.
@@ -1262,6 +1266,20 @@ export interface NetworkFeeStats {
   baseFeeXlm: number;
 }
 
+export interface NetworkStats {
+  latestLedgerSequence: number;
+  lastLedgerCloseTime: string;
+  avgTransactionCount: number;
+  currentBaseFee: number;
+  p50Fee: number;
+  p95Fee: number;
+  p99Fee: number;
+}
+
+/**
+ * Fetches the current network fee statistics from Horizon and classifies
+
+
 /**
  * Fetches the current network fee statistics from Horizon and classifies
  * the fee level for the network status indicator.
@@ -1299,35 +1317,48 @@ export async function fetchNetworkFeeStats(): Promise<NetworkFeeStats> {
   return { feeLevel, baseFeeXlm };
 }
 
+// ── DEX Trading Helpers ───────────────────────────────────────────────────
+
 /**
- * Fetch detailed network statistics including ledger info and fee percentiles.
+ * Represents the orderbook for an asset pair.
  */
-export async function fetchNetworkStats(): Promise<NetworkStats> {
-  const [feeStats, latestLedger] = await Promise.all([
-    server.feeStats(),
-    server.ledgers().limit(1).order("desc").call(),
-  ]);
-
-  const ledger = latestLedger.records[0];
-  if (!ledger) {
-    throw new Error("Could not fetch latest ledger info.");
-  }
-
-  return {
-    latestLedgerSequence: ledger.sequence,
-    lastLedgerCloseTime: ledger.closed_at,
-    avgTransactionCount: parseInt(feeStats.ledger_capacity_usage, 10) || 0, // Simplified fallback
-    currentBaseFee: parseInt(feeStats.fee_charged.min, 10),
-    p50Fee: parseInt(feeStats.fee_charged.p50, 10),
-    p95Fee: parseInt(feeStats.fee_charged.p95, 10),
-    p99Fee: parseInt(feeStats.fee_charged.p99, 10),
-  };
+export interface Orderbook {
+  bids: Array<{ price: string; amount: string }>;
+  asks: Array<{ price: string; amount: string }>;
+  base: Asset;
+  counter: Asset;
 }
 
-// ─── DEX Trading ──────────────────────────────────────────────────────────
+/**
+ * Represents a single trade aggregation (OHLC) point.
+ */
+export interface TradeAggregation {
+  timestamp: number;
+  trade_count: number;
+  base_volume: string;
+  counter_volume: string;
+  avg: string;
+  high: string;
+  low: string;
+  open: string;
+  close: string;
+  price: string; // Map to close for display
+}
 
 /**
- * Fetch the orderbook for a given pair of assets.
+ * Represents an open offer on the DEX.
+ */
+export interface OpenOffer {
+  id: string;
+  seller: string;
+  selling: Asset;
+  buying: Asset;
+  amount: string;
+  price: string;
+}
+
+/**
+ * Fetch the current orderbook for an asset pair.
  */
 export async function fetchOrderbook(
   selling: Asset,
@@ -1338,48 +1369,56 @@ export async function fetchOrderbook(
   return {
     bids: result.bids.map((b) => ({ price: b.price, amount: b.amount })),
     asks: result.asks.map((a) => ({ price: a.price, amount: a.amount })),
+    base: selling,
+    counter: buying,
   };
 }
 
 /**
- * Fetch trade aggregations for an asset pair.
+ * Fetch trade aggregations for charting.
  */
 export async function fetchTradeAggregations(
   base: Asset,
   counter: Asset,
-  resolution: string,
+  resolution: "1hour" | "1day" | "1week",
   startTime: Date,
   endTime: Date,
   limit = 100
 ): Promise<TradeAggregation[]> {
-  const result = await server
-    .tradeAggregation(
-      base,
-      counter,
-      startTime.getTime(),
-      endTime.getTime(),
-      parseInt(resolution, 10) || 3600000, // default to 1 hour
-      0 // offset
-    )
+  const resMap: Record<string, number> = {
+    "1hour": 3600000,
+    "1day": 86400000,
+    "1week": 604800000,
+  };
+
+  const records = await server
+    .tradeAggregation(base, counter, startTime.getTime(), endTime.getTime(), resMap[resolution], 0)
     .limit(limit)
+    .order("desc")
     .call();
 
-  return result.records.map((r) => ({
-    timestamp: r.timestamp,
+  return records.records.map((r: any) => ({
+    timestamp: parseInt(r.timestamp),
     trade_count: r.trade_count,
     base_volume: r.base_volume,
     counter_volume: r.counter_volume,
-    price: r.avg,
+    avg: r.avg,
+    high: r.high,
+    low: r.low,
+    open: r.open,
+    close: r.close,
+    price: r.close,
   }));
 }
 
 /**
- * Fetch all open offers for a given Stellar account.
+ * Fetch all open offers for a given account.
  */
 export async function fetchOpenOffers(publicKey: string): Promise<OpenOffer[]> {
   const result = await server.offers().forAccount(publicKey).call();
-  return result.records.map((r) => ({
+  return result.records.map((r: any) => ({
     id: r.id,
+    seller: r.seller,
     selling: r.selling,
     buying: r.buying,
     amount: r.amount,
@@ -1397,12 +1436,12 @@ export async function buildCancelOfferTransaction({
   buying,
 }: {
   fromPublicKey: string;
-  offerId: string | number;
-  selling: any;
-  buying: any;
+  offerId: string;
+  selling: Asset;
+  buying: Asset;
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
-  const builder = new TransactionBuilder(sourceAccount, {
+  return new TransactionBuilder(sourceAccount, {
     fee: "100",
     networkPassphrase: NETWORK_PASSPHRASE,
   })
@@ -1415,13 +1454,12 @@ export async function buildCancelOfferTransaction({
         offerId: offerId,
       })
     )
-    .setTimeout(60);
-
-  return builder.build();
+    .setTimeout(60)
+    .build();
 }
 
 /**
- * Build a transaction to place a sell offer on the DEX.
+ * Build a transaction to create a sell offer on the DEX.
  */
 export async function buildSellOfferTransaction({
   fromPublicKey,
@@ -1437,7 +1475,7 @@ export async function buildSellOfferTransaction({
   price: string;
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
-  const builder = new TransactionBuilder(sourceAccount, {
+  return new TransactionBuilder(sourceAccount, {
     fee: "100",
     networkPassphrase: NETWORK_PASSPHRASE,
   })
@@ -1449,13 +1487,12 @@ export async function buildSellOfferTransaction({
         price,
       })
     )
-    .setTimeout(60);
-
-  return builder.build();
+    .setTimeout(60)
+    .build();
 }
 
 /**
- * Build a transaction to place a buy offer on the DEX.
+ * Build a transaction to create a buy offer on the DEX.
  */
 export async function buildBuyOfferTransaction({
   fromPublicKey,
@@ -1471,7 +1508,7 @@ export async function buildBuyOfferTransaction({
   price: string;
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
-  const builder = new TransactionBuilder(sourceAccount, {
+  return new TransactionBuilder(sourceAccount, {
     fee: "100",
     networkPassphrase: NETWORK_PASSPHRASE,
   })
@@ -1483,13 +1520,12 @@ export async function buildBuyOfferTransaction({
         price,
       })
     )
-    .setTimeout(60);
-
-  return builder.build();
+    .setTimeout(60)
+    .build();
 }
 
 /**
- * Build a path payment transaction (market order).
+ * Build a transaction for a path payment.
  */
 export async function buildPathPaymentTransaction({
   fromPublicKey,
@@ -1498,6 +1534,7 @@ export async function buildPathPaymentTransaction({
   sendMax,
   destAsset,
   destAmount,
+  path,
 }: {
   fromPublicKey: string;
   toPublicKey: string;
@@ -1505,9 +1542,10 @@ export async function buildPathPaymentTransaction({
   sendMax: string;
   destAsset: Asset;
   destAmount: string;
+  path: Asset[];
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
-  const builder = new TransactionBuilder(sourceAccount, {
+  return new TransactionBuilder(sourceAccount, {
     fee: "100",
     networkPassphrase: NETWORK_PASSPHRASE,
   })
@@ -1518,10 +1556,35 @@ export async function buildPathPaymentTransaction({
         destination: toPublicKey,
         destAsset,
         destAmount,
-        path: [], // Horizon will find the best path if empty, but here we usually use direct paths or specify
+        path,
       })
     )
-    .setTimeout(60);
-
-  return builder.build();
+    .setTimeout(60)
+    .build();
 }
+
+
+/**
+ * Fetches general network statistics from Horizon.
+ */
+export async function fetchNetworkStats(): Promise<NetworkStats> {
+  const server = getServer();
+  const ledgers = await server.ledgers().order("desc").limit(10).call();
+  const latestLedger = ledgers.records[0];
+  const feeStats = await server.feeStats();
+
+  const totalTransactions = ledgers.records.reduce((acc, l) => acc + l.successful_transaction_count, 0);
+  const avgTransactionCount = Math.round(totalTransactions / ledgers.records.length);
+
+  return {
+    latestLedgerSequence: latestLedger.sequence,
+    lastLedgerCloseTime: latestLedger.closed_at,
+    avgTransactionCount,
+    currentBaseFee: parseInt(feeStats.fee_charged.min),
+    p50Fee: parseInt(feeStats.fee_charged.p50),
+    p95Fee: parseInt(feeStats.fee_charged.p95),
+    p99Fee: parseInt(feeStats.fee_charged.p99),
+  };
+}
+
+

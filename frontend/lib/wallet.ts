@@ -260,29 +260,24 @@ export function disconnectWallet(): void {
   // The actual disconnect is handled by the app's state management
 }
 
-// ─── Ledger Stubs ─────────────────────────────────────────────────────────────
-// WebHID / Ledger integration is not yet implemented.
-// These stubs keep the WalletConnect component type-safe.
+/**
+ * Placeholder for Ledger support (not implemented in this version).
+ */
+export const isLedgerSupported = async () => false;
 
-export async function isLedgerSupported(): Promise<boolean> {
-  return typeof navigator !== "undefined" && "hid" in navigator;
+/**
+ * Placeholder for Ledger signing.
+ */
+export async function signTransactionWithLedger(xdr: string): Promise<{ signedXDR: string | null; error: string | null }> {
+  return { signedXDR: null, error: "Ledger support not implemented." };
 }
 
-export async function getLedgerPublicKey(): Promise<{
-  publicKey: string | null;
-  error: string | null;
-}> {
-  return {
-    publicKey: null,
-    error: "Ledger integration is not yet implemented.",
-  };
+/**
+ * Placeholder for fetching Ledger public key.
+ */
+export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; error: string | null }> {
+  return { publicKey: null, error: "Ledger support not implemented." };
 }
 
-export async function signTransactionWithLedger(
-  _transactionXDR: string
-): Promise<{ signedXDR: string | null; error: string | null }> {
-  return {
-    signedXDR: null,
-    error: "Ledger integration is not yet implemented.",
-  };
-}
+
+
