@@ -71,6 +71,7 @@ export default function TransactionList({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
   const router = useRouter();
 
   const updatePayments = useCallback(
@@ -266,10 +267,6 @@ export default function TransactionList({
             )}
           >
             {/* Direction icon */}
-            <div
-              key={tx.id}
-              className="flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group"
-            >
               {/* Direction icon */}
               <div
                 className={clsx(
@@ -286,37 +283,37 @@ export default function TransactionList({
                 )}
               </div>
 
-              {/* Details */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-200 capitalize">
-                    {tx.type === "sent" ? "Sent to" : "Received from"}
-                  </span>
-                  <button
-                    onClick={() =>
-                      handleCopy(
-                        tx.type === "sent" ? tx.to : tx.from,
-                        tx.id
-                      )
-                    }
-                    className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
-                  >
-                    {copiedId === tx.id
-                      ? "Copied!"
-                      : shortenAddress(tx.type === "sent" ? tx.to : tx.from, 5)}
-                  </button>
-                </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-xs text-slate-500">
-                    {timeAgo(tx.createdAt)}
-                  </span>
-                  {tx.memo && (
-                    <span className="text-xs text-slate-600 truncate max-w-32">
-                      · &ldquo;{tx.memo}&rdquo;
-                    </span>
-                  )}
-                </div>
+            {/* Details */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-200 capitalize">
+                  {tx.type === "sent" ? "Sent to" : "Received from"}
+                </span>
+                <button
+                  onClick={() =>
+                    handleCopy(
+                      tx.type === "sent" ? tx.to : tx.from,
+                      tx.id
+                    )
+                  }
+                  className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
+                >
+                  {copiedId === tx.id
+                    ? "Copied!"
+                    : shortenAddress(tx.type === "sent" ? tx.to : tx.from, 5)}
+                </button>
               </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-xs text-slate-500">
+                  {timeAgo(tx.createdAt)}
+                </span>
+                {tx.memo && (
+                  <span className="text-xs text-slate-600 truncate max-w-32">
+                    · &ldquo;{tx.memo}&rdquo;
+                  </span>
+                )}
+              </div>
+            </div>
 
             {/* Amount + link */}
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -330,20 +327,19 @@ export default function TransactionList({
                 {formatXLM(tx.amount)}
               </span>
 
-
-                  {/* Send Again — only for sent transactions */}
-               {tx.type === "sent" && (
-               <button
-               onClick={() =>
-              router.push(`/dashboard?to=${encodeURIComponent(tx.to)}&amount=${encodeURIComponent(tx.amount)}`)
+              {/* Send Again — only for sent transactions */}
+              {tx.type === "sent" && (
+                <button
+                  onClick={() =>
+                    router.push(`/dashboard?to=${encodeURIComponent(tx.to)}&amount=${encodeURIComponent(tx.amount)}`)
                   }
-              className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-400 hover:text-stellar-300 font-medium whitespace-nowrap"
-             title="Pre-fill send form with this transaction"
-                 >
-               Send again
-               </button>
-               )}
-              
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-stellar-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+                  title="Pre-fill send form with this transaction"
+                >
+                  Send again
+                </button>
+              )}
+
               <a
                 href={explorerUrl(tx.transactionHash)}
                 target="_blank"
@@ -354,8 +350,9 @@ export default function TransactionList({
                 <ExternalLinkIcon className="w-3.5 h-3.5" />
               </a>
             </div>
-          ))
-        )}
+          </div>
+        ))}
+      </div>
 
         {/* Load more */}
         {hasMore && payments.length > 0 && (
@@ -377,7 +374,6 @@ export default function TransactionList({
           </div>
         )}
       </div>
-    </div>
   );
 }
 

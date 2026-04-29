@@ -15,23 +15,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import PaymentLinkGenerator from "../components/PaymentLinkGenerator";
-import WalletConnect from "../components/WalletConnect";
-import SendPaymentForm from "../components/SendPaymentForm";
-import TransactionList from "../components/TransactionList";
-import MultiSigFlow from "../components/MultiSigFlow";
-import Toast from "../components/Toast";
-import QRCodeModal from "../components/QRCodeModal";
-import { useRouter } from "next/router";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import BatchPaymentForm from "@/components/BatchPaymentForm";
 import TransactionList from "@/components/TransactionList";
-import OnboardingTour from "@/components/OnboardingTour";
-import PaymentRequestGenerator from "./PaymentRequestGenerator";
+import MultiSigFlow from "@/components/MultiSigFlow";
 import Toast from "@/components/Toast";
 import QRCodeModal from "@/components/QRCodeModal";
+import OnboardingTour from "@/components/OnboardingTour";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 import CreatorTipsDashboard from "@/components/CreatorTipsDashboard";
@@ -45,14 +37,23 @@ import {
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
   getRecentPaymentsForStats,
+  getRecentPaymentsForSparkline,
   PaymentRecord,
-} from "../lib/stellar";
-import { formatUSD, copyToClipboard } from "../utils/format";
-import { useToast } from "../lib/useToast";
 } from "@/lib/stellar";
+import { getJwtToken } from "@/lib/wallet";
 import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts";
 
 
 interface DashboardProps {
@@ -91,6 +92,15 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
 
   const router = useRouter();
   const [activePaymentTab, setActivePaymentTab] = useState<"single" | "batch">("single");
+  const [sparklineData, setSparklineData] = useState<any[]>([]);
+  const [sparklineLoading, setSparklineLoading] = useState(false);
+  const [spendingData, setSpendingData] = useState<any[]>([]);
+  const [spendingLoading, setSpendingLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<any | null>(null);
+  const [notificationEnabled, setNotificationEnabled] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
+  const [showBubble, setShowBubble] = useState(false);
+  const [bubbleMessage, setBubbleMessage] = useState("");
 
   // Build prefill object from query parameters.
   // Supports legacy ?prefillDestination= (contacts page) and
@@ -245,6 +255,19 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
     }
   }, [publicKey]);
 
+  const fetchSparklineData = useCallback(async () => {
+    if (!publicKey) return;
+    setSparklineLoading(true);
+    try {
+      const data = await getRecentPaymentsForSparkline(publicKey, 10);
+      setSparklineData(data);
+    } catch (err) {
+      console.error("Failed to fetch sparkline data:", err);
+    } finally {
+      setSparklineLoading(false);
+    }
+  }, [publicKey]);
+
   const fetchSpendingHistory = useCallback(async () => {
     if (!publicKey) return;
 
@@ -254,7 +277,7 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
       
       // Group by calendar month (last 6 months)
       const now = new Date();
-      const months = [];
+      const months: any[] = [];
       for (let i = 5; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         months.push({
@@ -401,7 +424,7 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   };
 
   const handleManualRefresh = () => {
-    setCountdown(30);
+    setRefreshCountdown(30);
     fetchBalance();
   };
 
@@ -463,6 +486,17 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
     // Step 3 — Subscribe via PushManager.
     // userVisibleOnly: true is required by Chrome/Edge.
     // applicationServerKey is the VAPID public key from the environment.
+    const urlBase64ToUint8Array = (base64String: string) => {
+      const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+      const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    };
+
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (!vapidPublicKey) {
       // No VAPID key configured — fall back to permission-only mode (no
@@ -902,19 +936,16 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
         xlmPrice={xlmPrice}
       />
 
-      <div className="grid lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1">
-      {/* External payment banner */}
-      {stellarURI && stellarURI.success && stellarURI.isExternal && showExternalBanner && (
-        <ExternalPaymentBanner
-          message={stellarURI.data?.msg}
-          originDomain={stellarURI.data?.originDomain}
-          onDismiss={() => setShowExternalBanner(false)}
-        />
-      )}
-
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
+          {stellarURI && stellarURI.success && stellarURI.isExternal && showExternalBanner && (
+            <ExternalPaymentBanner
+              message={stellarURI.data?.msg}
+              originDomain={stellarURI.data?.originDomain}
+              onDismiss={() => setShowExternalBanner(false)}
+            />
+          )}
+
           <div className="card mb-6 bg-cosmos-950/80 border-white/10">
             <div className="flex gap-2 p-2 rounded-3xl bg-white/5">
               <button
@@ -962,14 +993,13 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
 
         <div className="lg:col-span-1">
           <PaymentRequestGenerator />
-        </div>
-
-        <div className="lg:col-span-1">
-          <MultiSigFlow
-            publicKey={publicKey}
-            xlmBalance={xlmBalance || "0"}
-            onSuccess={handlePaymentSuccess}
-          />
+          <div className="mt-6">
+            <MultiSigFlow
+              publicKey={publicKey}
+              xlmBalance={xlmBalance || "0"}
+              onSuccess={handlePaymentSuccess}
+            />
+          </div>
         </div>
 
         <div className="lg:col-span-1">
@@ -1116,7 +1146,7 @@ function MonthlySpendingChart({
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            onClick={(state) =>
+            onClick={(state: any) =>
               state &&
               state.activePayload &&
               onBarClick(state.activePayload[0].payload)

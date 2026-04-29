@@ -7,12 +7,13 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { shortenAddress, getNetworkConfig, fetchNetworkFeeStats, type FeeLevel } from "@/lib/stellar";
+import { connectWallet } from "@/lib/wallet";
 import clsx from "clsx";
 import { useTheme } from "@/pages/_app";
 
 interface NavbarProps {
   publicKey: string | null;
-  onConnect: () => void;
+  onConnect: (pk: string) => void;
   onDisconnect: () => void;
 }
 
@@ -41,10 +42,18 @@ export default function Navbar({
       ? "border-emerald-400/35 bg-emerald-400/10 text-emerald-300"
       : "border-amber-400/35 bg-amber-400/10 text-amber-300");
 
+  const handleConnectClick = async () => {
+    const { publicKey: pk, error } = await connectWallet();
+    if (pk) {
+      onConnect(pk);
+    } else if (error) {
+      console.error(error);
+    }
+  };
+
   // Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
   const { theme, toggleTheme } = useTheme();
 
-  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [disconnectTimeout, setDisconnectTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const handleDisconnectClick = () => {
@@ -238,7 +247,7 @@ export default function Navbar({
             </div>
           ) : (
             <button
-              onClick={onConnect}
+              onClick={handleConnectClick}
               className="btn-primary text-sm py-2 px-4"
             >
               Connect Wallet
