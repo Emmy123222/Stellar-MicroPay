@@ -130,6 +130,18 @@ export default function SendPaymentForm({
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [networkFeeXlm, setNetworkFeeXlm] = useState(0.00001);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!txHash) return;
+    try {
+      await navigator.clipboard.writeText(txHash);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard not available
+    }
+  };
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -531,7 +543,8 @@ export default function SendPaymentForm({
   }
 
   return (
-    <div className="card animate-fade-in">
+    <>
+      <div className="card animate-fade-in">
       <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
         <SendIcon className="w-5 h-5 text-stellar-400" />
         {title}

@@ -248,6 +248,43 @@ export interface PaymentHistoryResponse {
   nextCursor?: string | (() => any);
 }
 
+// DEX Types
+export interface OrderbookEntry {
+  price: string;
+  amount: string;
+}
+
+export interface Orderbook {
+  bids: OrderbookEntry[];
+  asks: OrderbookEntry[];
+}
+
+export interface TradeAggregation {
+  timestamp: string | number;
+  trade_count: string | number;
+  base_volume: string;
+  counter_volume: string;
+  price: string;
+}
+
+export interface OpenOffer {
+  id: string | number;
+  selling: any;
+  buying: any;
+  amount: string;
+  price: string;
+}
+
+export interface NetworkStats {
+  latestLedgerSequence: number;
+  lastLedgerCloseTime: string;
+  avgTransactionCount: number;
+  currentBaseFee: number;
+  p50Fee: number;
+  p95Fee: number;
+  p99Fee: number;
+}
+
 export interface FetchAllPaymentsProgress {
   fetchedRecords: number;
   fetchedPages: number;
@@ -1106,6 +1143,17 @@ export async function getRecentPaymentsForStats(
  * @param onError - Optional error handler for stream errors.
  * @returns Function to close the underlying EventSource and stop streaming.
  */
+/**
+ * Wrapper for fetching recent payments specifically for analytics/stats.
+ */
+export async function getRecentPaymentsForStats(
+  publicKey: string,
+  limit = 100
+): Promise<PaymentRecord[]> {
+  const { records } = await getPaymentHistory(publicKey, limit);
+  return records;
+}
+
 export function streamPayments(
   publicKey: string,
   onPayment: PaymentStreamHandler,

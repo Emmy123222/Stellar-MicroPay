@@ -192,7 +192,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <div className="min-h-screen bg-white dark:bg-cosmos-900 bg-grid transition-colors duration-300">
         <Navbar
           publicKey={publicKey}
-          onConnect={() => {}}
+          onConnect={handleConnect}
           onDisconnect={handleDisconnect}
         />
         <main>
