@@ -159,3 +159,28 @@ The contract includes comprehensive tests covering:
 ## License
 
 This project is open source and available under the MIT License.
+
+## Contributing Guide
+
+
+How to Contribute 
+
+• Fork the repository. 
+
+• Clone your fork to your local machine. 
+
+• Create a new branch for your task. 
+
+git checkout -b feature/your-task-name 
+
+• Make your changes. 
+
+• Commit clearly. 
+
+git commit -m "Add: short description" 
+
+• Push your branch. 
+
+git push origin feature/your-task-name 
+
+• Open a Pull Request.
