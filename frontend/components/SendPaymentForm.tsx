@@ -14,7 +14,6 @@ import PaymentStatusModal, {
 import {
   buildPaymentTransaction,
   buildSorobanTipTransaction,
-  CONTRACT_ID,
   explorerUrl,
   fetchNetworkFeeStats,
   isValidStellarAddress,
@@ -23,7 +22,7 @@ import {
   fetchNetworkFeeStats,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import { formatXLM, parseAddressBookCSV } from "@/utils/format";
+import { formatXLM, shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 
@@ -70,13 +69,6 @@ interface CustomAsset {
 type FavouriteEntry = {
   name: string;
   address: string;
-};
-
-type ImportPreviewRow = {
-  name: string;
-  address: string;
-  status: "valid" | "invalid" | "duplicate";
-  reason: string;
 };
 
 const ESTIMATED_NETWORK_FEE = "0.00001 XLM";
@@ -154,18 +146,146 @@ export default function SendPaymentForm({
   const isDetectingRef = useRef(false);
   const lastInvalidScanRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    const checkSupport = async () => {
+      if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+        setIsScannerSupported(true);
+      }
+    };
+    checkSupport();
+  }, []);
+
+  const openScanner = async () => {
+    setIsScannerOpen(true);
+    setScannerError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      startDetection();
+    } catch (err) {
+      setScannerError("Camera access denied or not available.");
+      setIsScannerOpen(false);
+    }
+  };
+
+  const closeScanner = () => {
+    setIsScannerOpen(false);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (frameRequestRef.current) {
+      cancelAnimationFrame(frameRequestRef.current);
+    }
+    isDetectingRef.current = false;
+  };
+
+  const startDetection = () => {
+    if (!("BarcodeDetector" in window)) return;
+
+    // @ts-ignore
+    const detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+    detectorRef.current = detector;
+    isDetectingRef.current = true;
+
+    const detect = async () => {
+      if (!isDetectingRef.current || !videoRef.current) return;
+
+      try {
+        const barcodes = await detector.detect(videoRef.current);
+        if (barcodes.length > 0 && barcodes[0].rawValue) {
+          const result = barcodes[0].rawValue;
+          if (isValidStellarAddress(result)) {
+            setDestination(result);
+            closeScanner();
+            return;
+          }
+        }
+      } catch (e) {
+        // detection error
+      }
+
+      frameRequestRef.current = requestAnimationFrame(detect);
+    };
+
+    detect();
+  };
+
   const [recentRecipients, setRecentRecipients] = useState<string[]>(() => {
     try {
-      return JSON.parse(sessionStorage.getItem(RECENT_RECIPIENTS_KEY) ?? "[]");
+      if (typeof window !== "undefined") {
+        return JSON.parse(sessionStorage.getItem(RECENT_RECIPIENTS_KEY) ?? "[]");
+      }
+      return [];
     } catch {
       return [];
     }
   });
 
+  const [favourites, setFavourites] = useState<FavouriteEntry[]>(() => {
+    try {
+      if (typeof window !== "undefined") {
+        return JSON.parse(localStorage.getItem(FAVOURITES_STORAGE_KEY) ?? "[]");
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [isFavouritesDropdownOpen, setIsFavouritesDropdownOpen] = useState(false);
+  const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const saveFavourites = (items: FavouriteEntry[]) => {
+    setFavourites(items);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(FAVOURITES_STORAGE_KEY, JSON.stringify(items));
+    }
+  };
+
+  const toggleFavourite = () => {
+    if (!isValidDest) return;
+    const existing = favourites.find((f) => f.address === destination);
+    if (existing) {
+      saveFavourites(favourites.filter((f) => f.address !== destination));
+    } else {
+      const name = prompt("Enter a name for this favourite:", destination.slice(0, 8));
+      if (name) {
+        saveFavourites([...favourites, { name, address: destination }]);
+      }
+    }
+  };
+
+  const renameFavourite = (address: string, newName: string) => {
+    saveFavourites(favourites.map((f) => (f.address === address ? { ...f, name: newName } : f)));
+  };
+
+  const deleteFavourite = (address: string) => {
+    saveFavourites(favourites.filter((f) => f.address !== address));
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsFavouritesDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const saveRecipient = (address: string) => {
     const updated = [address, ...recentRecipients.filter((a) => a !== address)].slice(0, MAX_RECENT);
     setRecentRecipients(updated);
-    sessionStorage.setItem(RECENT_RECIPIENTS_KEY, JSON.stringify(updated));
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(RECENT_RECIPIENTS_KEY, JSON.stringify(updated));
+    }
   };
 
   const clearRecipients = () => {
@@ -320,149 +440,11 @@ export default function SendPaymentForm({
 
   const resetTracker = () => {
     setStatus("idle");
-  const saveFavourites = (items: FavouriteEntry[]) => {
-    setFavourites(items);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(FAVOURITES_STORAGE_KEY, JSON.stringify(items));
-    }
-  };
-
-  const normalizedAddress = (value: string) => value.trim().toUpperCase();
-
-  const buildImportPreview = (items: Array<{ name: string; address: string }>) => {
-    const existing = new Set(favourites.map((item) => normalizedAddress(item.address)));
-    const seen = new Set<string>();
-    const previewRows: ImportPreviewRow[] = [];
-    let valid = 0;
-    let invalid = 0;
-    let duplicate = 0;
-
-    items.forEach((item, index) => {
-      const address = item.address.trim();
-      const name = item.name.trim() || "(no name)";
-      const normalized = normalizedAddress(address);
-      const isValid = address.length > 0 && isValidStellarAddress(address);
-      const isDuplicate = isValid && (existing.has(normalized) || seen.has(normalized));
-      let status: ImportPreviewRow["status"];
-      let reason = "";
-
-      if (!address || !isValid) {
-        status = "invalid";
-        reason = "Invalid Stellar address";
-        invalid += 1;
-      } else if (isDuplicate) {
-        status = "duplicate";
-        reason = "Already in favourites";
-        duplicate += 1;
-      } else {
-        status = "valid";
-        reason = "Ready to import";
-        valid += 1;
-        seen.add(normalized);
-      }
-
-      if (previewRows.length < 5) {
-        previewRows.push({ name, address, status, reason });
-      }
-    });
-
-    setCsvPreview(previewRows);
-    setCsvMeta({ total: items.length, valid, invalid, duplicate });
-  };
-
-  const handleFileSelection = async (file: File) => {
-    try {
-      const text = await file.text();
-      const parsed = parseAddressBookCSV(text);
-      const rows = parsed.filter((row) => row.name || row.address);
-      setParsedCsvRows(rows);
-      buildImportPreview(rows);
-      setPendingCsvFileName(file.name);
-      setImportMessage(null);
-    } catch {
-      setParsedCsvRows([]);
-      setCsvPreview([]);
-      setCsvMeta(null);
-      setImportMessage("Unable to parse CSV file. Please select a valid comma-separated file.");
-      setPendingCsvFileName(null);
-    }
-  };
-
-  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    await handleFileSelection(file);
-    event.target.value = "";
-  };
-
-  const handleConfirmImport = () => {
-    if (!csvMeta || parsedCsvRows.length === 0) return;
-
-    const existing = new Set(favourites.map((item) => normalizedAddress(item.address)));
-    const newEntries: FavouriteEntry[] = [];
-    const seen = new Set<string>();
-
-    parsedCsvRows.forEach((row) => {
-      const address = row.address.trim();
-      const name = row.name.trim() || row.address.trim();
-      const normalized = normalizedAddress(address);
-
-      if (!address || !isValidStellarAddress(address)) {
-        return;
-      }
-      if (existing.has(normalized) || seen.has(normalized)) {
-        return;
-      }
-
-      seen.add(normalized);
-      newEntries.push({ name, address });
-    });
-
-    const importedCount = newEntries.length;
-    const skippedCount = csvMeta.total - importedCount;
-
-    if (importedCount > 0) {
-      saveFavourites([...favourites, ...newEntries]);
-    }
-
-    setImportMessage(`${importedCount} imported, ${skippedCount} skipped`);
-    setCsvPreview([]);
-    setParsedCsvRows([]);
-    setCsvMeta(null);
-    setPendingCsvFileName(null);
-    const fileInput = fileInputRef.current;
-    if (fileInput) {
-      fileInput.value = "";
-    }
   };
 
   const handleSelectFavourite = (address: string) => {
     setDestination(address);
-    setIsFavouritesModalOpen(false);
-  };
-
-  const openFavouritesModal = () => {
-    setImportMessage(null);
-    setCsvPreview([]);
-    setCsvMeta(null);
-    setPendingCsvFileName(null);
-    setIsFavouritesModalOpen(true);
-  };
-
-  const closeFavouritesModal = () => {
-    setIsFavouritesModalOpen(false);
-    setCsvPreview([]);
-    setCsvMeta(null);
-    setPendingCsvFileName(null);
-    setImportMessage(null);
-  };
-
-  const executeSend = async () => {
-    if (!canSubmit) return;
-    setError(null);
-    setTxHash(null);
-    setFailedStep(null);
-    setStepTimings(createInitialStepTimings());
+    setIsFavouritesDropdownOpen(false);
   };
 
   const startTracker = () => {
@@ -544,11 +526,6 @@ export default function SendPaymentForm({
             memo: memo.trim() || undefined,
           });
       markStepCompleted("building");
-          fromPublicKey: publicKey,
-          toPublicKey: destination,
-          amount: amountNum.toFixed(7),
-          memo: memo.trim() || undefined,
-        });
 
       activeStep = "signing";
       markStepStarted("signing");
@@ -607,12 +584,29 @@ export default function SendPaymentForm({
     setAmount(maxSend.toFixed(7));
   };
 
+  const waitForTransactionConfirmation = async (hash: string) => {
+    let confirmed = false;
+    let attempts = 0;
+    while (!confirmed && attempts < 10) {
+      try {
+        await server.transactions().transaction(hash).call();
+        confirmed = true;
+      } catch (e) {
+        attempts++;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    if (!confirmed) {
+      throw new Error("Transaction confirmation timed out. It may still succeed.");
+    }
+  };
+
   return (
     <>
       <div className="card animate-fade-in">
         <h2 className="mb-6 flex items-center gap-2 font-display text-lg font-semibold text-white">
           <SendIcon className="h-5 w-5 text-stellar-400" />
-          {`Send Payment`}
+          {title}
         </h2>
 
         <div className="space-y-5">
@@ -1064,102 +1058,226 @@ export default function SendPaymentForm({
             <div className="flex flex-wrap gap-2">
               {favourites.slice(0, 6).map((item) => (
                 <button
-                  key={item.address}
+                  key={asset}
                   type="button"
-                  onClick={() => setDestination(item.address)}
-                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 hover:bg-white/10 transition-colors"
+                  onClick={() => {
+                    setSelectedAsset(asset);
+                    setAmount("");
+                  }}
+                  disabled={asset === "USDC" && !usdcBalance}
+                  className={clsx(
+                    "rounded-full border px-4 py-1.5 text-sm font-medium transition-all",
+                    selectedAsset === asset
+                      ? "border-stellar-500/30 bg-stellar-500/15 text-stellar-300"
+                      : "border-white/10 text-slate-400 hover:border-white/20",
+                    asset === "USDC" && !usdcBalance && "cursor-not-allowed opacity-40"
+                  )}
                 >
-                  {item.name} • {item.address.slice(0, 6)}...
+                  {asset}
+                  {asset === "USDC" && !usdcBalance && (
+                    <span className="ml-1 text-xs">(no trustline)</span>
+                  )}
                 </button>
               ))}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Recent recipients */}
-        {recentRecipients.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="label mb-0">Recent recipients</span>
-              <button
-                type="button"
-                onClick={clearRecipients}
-                className="text-xs text-slate-500 hover:text-red-400 transition-colors"
-              >
-                Clear
-              </button>
+          {/* Pre-fill notice */}
+          {prefill && (
+            <div className="flex items-center gap-2 rounded-lg border border-stellar-500/20 bg-stellar-500/10 px-3 py-2 text-xs text-stellar-400">
+              <InfoIcon className="h-3.5 w-3.5 flex-shrink-0" />
+              Pre-filled from transaction history
             </div>
-            <div className="flex flex-wrap gap-2">
-              {recentRecipients.map((addr) => (
+          )}
+
+          {/* Destination */}
+          {!hideDestinationField && (
+            <div className="relative" ref={dropdownRef}>
+              <label className="label">{`Recipient Address`}</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value.trim())}
+                  onFocus={() => setIsFavouritesDropdownOpen(true)}
+                  placeholder="G... (Stellar public key)"
+                  className={clsx(
+                    "input-field pr-20",
+                    destination.length > 0 && !isValidDest && "border-red-500/50"
+                  )}
+                  disabled={destinationReadOnly || status !== "idle"}
+                  readOnly={destinationReadOnly}
+                />
+                <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                  {isValidDest && (
+                    <button
+                      type="button"
+                      onClick={toggleFavourite}
+                      className={clsx(
+                        "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                        favourites.some((f) => f.address === destination)
+                          ? "text-amber-400 hover:bg-amber-400/10"
+                          : "text-slate-400 hover:bg-white/10"
+                      )}
+                      title={
+                        favourites.some((f) => f.address === destination)
+                          ? "Remove from favourites"
+                          : "Add to favourites"
+                      }
+                    >
+                      <StarIcon
+                        className="h-5 w-5"
+                        filled={favourites.some((f) => f.address === destination)}
+                      />
+                    </button>
+                  )}
+                  {isScannerSupported && status === "idle" && (
+                    <button
+                      type="button"
+                      onClick={openScanner}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+                      title="Scan QR Code"
+                    >
+                      <QrCodeIcon className="h-5 w-5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Favourites Dropdown */}
+              {isFavouritesDropdownOpen && favourites.length > 0 && (
+                <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                  <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    Favourite Recipients
+                  </div>
+                  {favourites.map((item) => (
+                    <button
+                      key={item.address}
+                      type="button"
+                      onClick={() => handleSelectFavourite(item.address)}
+                      className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/5"
+                    >
+                      <span className="text-sm font-medium text-slate-200">{item.name}</span>
+                      <span className="text-xs text-slate-500">{shortenAddress(item.address, 8)}</span>
+                    </button>
+                  ))}
+                  <div className="mt-1 border-t border-white/5 p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsFavouritesDropdownOpen(false);
+                        setIsManageModalOpen(true);
+                      }}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-stellar-400 transition-colors hover:bg-stellar-400/10"
+                    >
+                      <PencilIcon className="h-3.5 w-3.5" />
+                      Manage Favourites
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {destination.length > 0 && !isValidDest && (
+                <p className="mt-1 text-xs text-red-400">{`Invalid Stellar address`}</p>
+              )}
+              {destination === publicKey && (
+                <p className="mt-1 text-xs text-amber-400">{`You cannot send to yourself`}</p>
+              )}
+            </div>
+          )}
+
+          {/* Recent recipients */}
+          {recentRecipients.length > 0 && !isFavouritesDropdownOpen && (
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="label mb-0">Recent recipients</span>
                 <button
-                  key={addr}
                   type="button"
-                  onClick={() => setDestination(addr)}
-                  className="px-3 py-1.5 rounded-full border border-stellar-500/20 bg-stellar-500/5 text-stellar-300 text-xs font-mono hover:border-stellar-500/50 hover:bg-stellar-500/10 transition-all"
+                  onClick={clearRecipients}
+                  className="text-xs text-slate-500 transition-colors hover:text-red-400"
                 >
-                  {addr.slice(0, 4)}…{addr.slice(-4)}
+                  Clear
                 </button>
-              ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {recentRecipients.map((addr) => (
+                  <button
+                    key={addr}
+                    type="button"
+                    onClick={() => setDestination(addr)}
+                    className="rounded-full border border-stellar-500/20 bg-stellar-500/5 px-3 py-1.5 text-xs font-mono text-stellar-300 transition-all hover:border-stellar-500/50 hover:bg-stellar-500/10"
+                  >
+                    {shortenAddress(addr)}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Amount */}
-        {!hideAmountField && (
-          <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="label mb-0">{`Amount (${selectedAsset})`}</label>
+          {/* Amount */}
+          {!hideAmountField && (
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="label mb-0">{`Amount (${selectedAsset})`}</label>
 
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{`Amount (${selectedAsset})`}</label>
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={setMaxAmount}
-                  className="text-xs text-stellar-400 transition-colors hover:text-stellar-300"
-                  disabled={status !== "idle"}
-                >
-                  {`Max: ${formatXLM(Math.max(0, balance - 1))}`}
-                </button>
-
-                <div className="group relative">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    aria-label="Stellar requires a 1 XLM minimum balance in your account"
-                    className="flex h-4 w-4 items-center justify-center rounded-full border border-stellar-500/40 text-stellar-400 transition-colors hover:border-stellar-500 hover:text-stellar-300 focus:outline-none focus:ring-1 focus:ring-stellar-400"
+                    onClick={setMaxAmount}
+                    className="text-xs text-stellar-400 transition-colors hover:text-stellar-300"
+                    disabled={status !== "idle"}
                   >
-                    <InfoIcon className="h-2.5 w-2.5" />
+                    {`Max: ${formatXLM(maxSend)}`}
                   </button>
 
-                  <div
-                    role="tooltip"
-                    className={clsx(
-                      "pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-56",
-                      "rounded-lg border border-stellar-500/20 bg-cosmos-800 px-3 py-2 shadow-lg",
-                      "text-xs leading-relaxed text-slate-300",
-                      "scale-95 opacity-0 transition-all duration-150",
-                      "group-hover:scale-100 group-hover:opacity-100",
-                      "group-focus-within:scale-100 group-focus-within:opacity-100"
-                    )}
-                  >
-                    {`Stellar requires a 1 XLM minimum balance in your account. The Max amount excludes this reserve.`}
-                    <span className="absolute -bottom-1.5 right-3 h-3 w-3 rotate-45 border-b border-r border-stellar-500/20 bg-cosmos-800" />
+                  <div className="group relative">
+                    <button
+                      type="button"
+                      aria-label="Stellar requires a 1 XLM minimum balance in your account"
+                      className="flex h-4 w-4 items-center justify-center rounded-full border border-stellar-500/40 text-stellar-400 transition-colors hover:border-stellar-500 hover:text-stellar-300 focus:outline-none focus:ring-1 focus:ring-stellar-400"
+                    >
+                      <InfoIcon className="h-2.5 w-2.5" />
+                    </button>
+
+                    <div
+                      role="tooltip"
+                      className={clsx(
+                        "pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-56",
+                        "rounded-lg border border-stellar-500/20 bg-slate-900 px-3 py-2 shadow-lg",
+                        "text-xs leading-relaxed text-slate-300",
+                        "scale-95 opacity-0 transition-all duration-150",
+                        "group-hover:scale-100 group-hover:opacity-100",
+                        "group-focus-within:scale-100 group-focus-within:opacity-100"
+                      )}
+                    >
+                      {`Stellar requires a 1 XLM minimum balance in your account. The Max amount excludes this reserve.`}
+                      <span className="absolute -bottom-1.5 right-3 h-3 w-3 rotate-45 border-b border-r border-stellar-500/20 bg-slate-900" />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.0000000"
-              min="0.0000001"
-              step="0.0000001"
-              className={clsx(
-                "input-field",
-                amount && !isValidAmt && "border-red-500/50"
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.0000000"
+                min="0.0000001"
+                step="0.0000001"
+                className={clsx(
+                  "input-field",
+                  amount && !isValidAmt && "border-red-500/50"
+                )}
+                disabled={status !== "idle"}
+              />
+              {amount && !isValidAmt && (
+                <p className="mt-1 text-xs text-red-400">
+                  {amountNum > maxSend
+                    ? selectedAsset === "XLM"
+                      ? `Insufficient balance (1 XLM reserve required)`
+                      : `Insufficient USDC balance`
+                    : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
+                </p>
               )}
               disabled={status !== "idle"}
             />
@@ -1232,8 +1350,6 @@ export default function SendPaymentForm({
                 : `Minimum amount is 0.0000001 ${selectedAsset} (1 stroop)`}
             </p>
           )}
-          </div>
-        )}
 
         {/* Memo (optional) */}
         {!hideMemoField && (
@@ -1304,25 +1420,43 @@ export default function SendPaymentForm({
           <div className="flex items-start gap-3 p-3 rounded-xl bg-stellar-500/5 border border-stellar-500/10 transition-colors hover:bg-stellar-500/8">
             <div className="flex items-center h-5">
               <input
-                id="tip-on-chain"
-                type="checkbox"
-                checked={isTipOnChain}
-                onChange={(e) => setIsTipOnChain(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-stellar-500 focus:ring-stellar-500/20"
+                type="text"
+                value={memo}
+                onChange={(e) => handleMemoChange(e.target.value)}
+                placeholder="Payment note..."
+                maxLength={28}
+                className="input-field"
                 disabled={status !== "idle"}
               />
-            </div>
-            <div className="flex flex-col">
-              <label htmlFor="tip-on-chain" className="text-sm font-medium text-slate-200 cursor-pointer">
-                {`Record as tip on-chain`}
-              </label>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {`This payment will be permanently recorded as a tip on the Soroban smart contract.`}
-              </p>
-            </div>
-          </div>
-        )} */}
 
+              <div className="mt-3 flex flex-wrap gap-2">
+                {memoTemplates.map((template) => {
+                  const isActive = selectedMemoTemplate === template;
+                  return (
+                    <button
+                      key={template}
+                      type="button"
+                      onClick={() => handleMemoTemplateClick(template)}
+                      disabled={status !== "idle"}
+                      className={clsx(
+                        "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
+                          : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
+                        status !== "idle" && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {template}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="mt-3 text-xs text-slate-500">{`${memo.length}/28 characters`}</p>
+            </div>
+          )}
+
+          {/* Submit button */}
           <button
             onClick={openConfirmation}
             disabled={!canSubmit || status !== "idle"}
@@ -1335,7 +1469,7 @@ export default function SendPaymentForm({
             {status === "idle" && (
               <>
                 <SendIcon className="h-4 w-4" />
-                {`Send ${amount ? formatXLM(amountNum) : ""} ${selectedAsset}`.trim()}
+                {submitLabel || `Send ${amount ? formatXLM(amountNum) : ""} ${selectedAsset}`.trim()}
               </>
             )}
             {status === "success" && "Payment complete"}
@@ -1346,75 +1480,9 @@ export default function SendPaymentForm({
             <p className="animate-pulse text-center text-xs text-slate-400">
               {`Please confirm the transaction in your Freighter wallet...`}
             </p>
-        {/* Submit button */}
-        <button
-          onClick={openConfirmation}
-          disabled={!canSubmit || status !== "idle"}
-          className="btn-primary w-full flex items-center justify-center gap-2"
-        >
-          {status === "building" && <><Spinner /> {`Building transaction...`}</>}
-          {status === "signing" && <><Spinner /> {`Sign in Freighter...`}</>}
-          {status === "submitting" && <><Spinner /> {`Submitting...`}</>}
-          {status === "idle" && (
-            <>
-              <SendIcon className="w-4 h-4" />
-              {submitLabel || `Send ${amount ? formatXLM(amountNum) : ""} ${selectedAsset}`.trim()}
-            </>
           )}
         </div>
-
-        <SendConfirmationModal
-          isOpen={isConfirmOpen}
-          destination={destination}
-          amount={amountNum}
-          memo={memo}
-          estimatedFee={ESTIMATED_NETWORK_FEE}
-          isTipOnChain={isTipOnChain}
-          onCancel={closeConfirmation}
-          onConfirm={confirmAndSend}
-        />
       </div>
-
-      <PaymentStatusModal
-        isOpen={isStatusModalOpen}
-        status={status}
-        txHash={txHash}
-        error={error}
-        failedStep={failedStep}
-        stepTimings={stepTimings}
-        explorerHref={txHash ? explorerUrl(txHash) : null}
-        onClose={closeStatusModal}
-      />
-    </>
-  );
-}
-
-async function waitForTransactionConfirmation(hash: string) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      await server.transactions().transaction(hash).call();
-      return;
-    } catch (err: unknown) {
-      const horizonErr = err as { response?: { status?: number } };
-
-      if (horizonErr?.response?.status === 404) {
-        await sleep(1500);
-        continue;
-      }
-
-      throw new Error("Unable to confirm the transaction on the Stellar network.");
-    }
-  }
-
-  throw new Error(
-    "Confirmation is taking longer than expected. Please check Stellar Expert for the final result."
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".csv,text/csv"
-        className="hidden"
-        onChange={handleFileInputChange}
-      />
 
       <SendConfirmationModal
         isOpen={isConfirmOpen}
@@ -1427,15 +1495,38 @@ async function waitForTransactionConfirmation(hash: string) {
         onConfirm={confirmAndSend}
       />
 
+      <PaymentStatusModal
+        isOpen={isStatusModalOpen}
+        status={status}
+        txHash={txHash}
+        error={error}
+        failedStep={failedStep}
+        stepTimings={stepTimings}
+        explorerHref={txHash ? explorerUrl(txHash) : null}
+        onClose={closeStatusModal}
+      />
+
+      <FavouritesModal
+        isOpen={isManageModalOpen}
+        favourites={favourites}
+        onClose={() => setIsManageModalOpen(false)}
+        onRename={renameFavourite}
+        onDelete={deleteFavourite}
+        onSelectFavourite={(addr) => {
+          setDestination(addr);
+          setIsManageModalOpen(false);
+        }}
+      />
+
       {isScannerOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 p-4 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-white">Scan destination QR</h3>
               <button
                 type="button"
                 onClick={closeScanner}
-                className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                className="text-xs text-slate-400 transition-colors hover:text-slate-200"
               >
                 Close
               </button>
@@ -1445,7 +1536,7 @@ async function waitForTransactionConfirmation(hash: string) {
               autoPlay
               playsInline
               muted
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 aspect-square object-cover"
+              className="aspect-square w-full rounded-xl border border-slate-700 bg-slate-950 object-cover"
             />
             <p className="mt-2 text-xs text-slate-400">
               Point your camera at a Stellar address QR code.
@@ -1456,12 +1547,8 @@ async function waitForTransactionConfirmation(hash: string) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 interface SendConfirmationModalProps {
@@ -1577,12 +1664,8 @@ interface FavouritesModalProps {
   favourites: FavouriteEntry[];
   onClose: () => void;
   onSelectFavourite: (address: string) => void;
-  onOpenFilePicker: () => void;
-  pendingFileName: string | null;
-  previewRows: ImportPreviewRow[];
-  meta: { valid: number; invalid: number; duplicate: number; total: number } | null;
-  importMessage: string | null;
-  onConfirmImport: () => void;
+  onRename: (address: string, newName: string) => void;
+  onDelete: (address: string) => void;
 }
 
 function FavouritesModal({
@@ -1590,12 +1673,8 @@ function FavouritesModal({
   favourites,
   onClose,
   onSelectFavourite,
-  onOpenFilePicker,
-  pendingFileName,
-  previewRows,
-  meta,
-  importMessage,
-  onConfirmImport,
+  onRename,
+  onDelete,
 }: FavouritesModalProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -1621,15 +1700,10 @@ function FavouritesModal({
         aria-labelledby="favourites-modal-title"
         className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
       >
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5">
-          <div>
-            <h3 id="favourites-modal-title" className="font-display text-lg font-semibold text-white">
-              Manage favourites
-            </h3>
-            <p className="mt-1 text-sm text-slate-400">
-              Import a CSV file with columns <strong>name</strong> and <strong>address</strong>.
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <h3 id="favourites-modal-title" className="font-display text-lg font-semibold text-white">
+            Manage Favourites
+          </h3>
           <button
             type="button"
             onClick={onClose}
@@ -1639,108 +1713,62 @@ function FavouritesModal({
           </button>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-slate-300">Current favourites</p>
-                  <p className="text-xs text-slate-500">
-                    {favourites.length} saved recipient{favourites.length === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={onOpenFilePicker}
-                  className="btn-secondary text-sm px-3 py-2"
+        <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+          <p className="text-sm text-slate-300 mb-4">
+            {favourites.length} saved recipient{favourites.length === 1 ? "" : "s"}
+          </p>
+
+          {favourites.length === 0 ? (
+            <p className="text-sm text-slate-400">No favourites yet. Add some from the payment form.</p>
+          ) : (
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+              {favourites.map((item) => (
+                <div
+                  key={item.address}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-4 py-4"
                 >
-                  Import from CSV
-                </button>
-              </div>
-
-              {favourites.length === 0 ? (
-                <p className="mt-4 text-sm text-slate-400">No favourites yet. Import a CSV or add recipients manually.</p>
-              ) : (
-                <div className="mt-4 space-y-2">
-                  {favourites.slice(0, 8).map((item) => (
-                    <div
-                      key={item.address}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-3"
-                    >
-                      <div>
-                        <p className="text-sm text-slate-100">{item.name}</p>
-                        <p className="text-xs text-slate-500 break-all">{item.address}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onSelectFavourite(item.address)}
-                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 hover:bg-white/10 transition-colors"
-                      >
-                        Use
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {pendingFileName && (
-              <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
-                <p className="text-sm text-slate-300">Selected file</p>
-                <p className="mt-1 text-sm text-slate-100">{pendingFileName}</p>
-                {meta && (
-                  <p className="mt-2 text-sm text-slate-400">
-                    {`${meta.valid} valid, ${meta.invalid + meta.duplicate} skipped`}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-            <p className="text-sm text-slate-300 mb-3">Preview (first 5 rows)</p>
-            {previewRows.length === 0 ? (
-              <p className="text-sm text-slate-400">No import preview available.</p>
-            ) : (
-              <div className="space-y-3">
-                {previewRows.map((row, index) => (
-                  <div key={`${row.address}-${index}`} className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm text-slate-100">{row.name}</p>
-                        <p className="text-xs text-slate-500 break-all">{row.address}</p>
-                      </div>
-                      <span
-                        className={clsx(
-                          "rounded-full px-2 py-1 text-[11px] font-semibold",
-                          row.status === "valid" && "bg-emerald-500/15 text-emerald-300",
-                          row.status === "invalid" && "bg-red-500/10 text-red-300",
-                          row.status === "duplicate" && "bg-amber-500/10 text-amber-300"
-                        )}
-                      >
-                        {row.reason}
-                      </span>
-                    </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-100 truncate">{item.name}</p>
+                    <p className="text-xs text-slate-500 font-mono truncate">{item.address}</p>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {importMessage && (
-              <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/70 p-3 text-sm text-slate-200">
-                {importMessage}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={onConfirmImport}
-              disabled={!meta || meta.valid === 0}
-              className="mt-4 w-full btn-primary text-sm disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {`Confirm import`}
-            </button>
-          </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onSelectFavourite(item.address)}
+                      className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10 transition-colors"
+                    >
+                      Use
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newName = prompt("Enter new name:", item.name);
+                        if (newName && newName !== item.name) {
+                          onRename(item.address, newName);
+                        }
+                      }}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                      title="Rename"
+                    >
+                      <PencilIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Remove ${item.name} from favourites?`)) {
+                          onDelete(item.address);
+                        }
+                      }}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                      title="Delete"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1827,6 +1855,48 @@ function CopyIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
+    </svg>
+  );
+}
+
+function StarIcon({ className, filled }: { className?: string; filled?: boolean }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+    </svg>
+  );
+}
+
+function PencilIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
     </svg>
   );
 }

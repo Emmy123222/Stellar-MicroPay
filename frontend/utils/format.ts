@@ -7,6 +7,14 @@ import { PaymentRecord } from "@/lib/stellar";
 import { formatDistanceToNow, format } from "date-fns";
 
 /**
+ * Shorten a Stellar address for display (e.g. GABC...XYZ1)
+ */
+export function shortenAddress(address: string, chars = 4): string {
+  if (!address || address.length < chars * 2 + 2) return address;
+  return `${address.slice(0, chars)}...${address.slice(-chars)}`;
+}
+
+/**
  * Format XLM amount with up to 7 decimal places, trimming trailing zeros.
  */
 export function formatXLM(amount: string | number): string {
