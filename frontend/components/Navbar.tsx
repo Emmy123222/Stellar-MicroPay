@@ -44,7 +44,6 @@ export default function Navbar({
   // Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
   const { theme, toggleTheme } = useTheme();
 
-  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [disconnectTimeout, setDisconnectTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const handleDisconnectClick = () => {
@@ -211,6 +210,7 @@ export default function Navbar({
               </div>
               <button
                 onClick={() => setShowDisconnectConfirm(true)}
+                aria-label="Show disconnect confirmation"
                 className="text-xs text-slate-500 hover:text-slate-300 transition-colors px-2 py-1"
               >
                 Disconnect

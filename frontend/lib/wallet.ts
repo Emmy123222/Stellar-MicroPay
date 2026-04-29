@@ -259,12 +259,25 @@ export function disconnectWallet(): void {
   // Freighter doesn't have a disconnect API, so we just clear local state
   // The actual disconnect is handled by the app's state management
 }
+
 /**
- * Disconnect the wallet. Since Freighter doesn't provide a disconnect API,
- * this clears the local connection state. The actual disconnect happens
- * when the app's state is updated.
+ * Placeholder for Ledger support (not implemented in this version).
  */
-export function disconnectWallet(): void {
-  // Freighter doesn't have a disconnect API, so we just clear local state
-  // The actual disconnect is handled by the app's state management
+export const isLedgerSupported = async () => false;
+
+/**
+ * Placeholder for Ledger signing.
+ */
+export async function signTransactionWithLedger(xdr: string): Promise<{ signedXDR: string | null; error: string | null }> {
+  return { signedXDR: null, error: "Ledger support not implemented." };
 }
+
+/**
+ * Placeholder for fetching Ledger public key.
+ */
+export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; error: string | null }> {
+  return { publicKey: null, error: "Ledger support not implemented." };
+}
+
+
+

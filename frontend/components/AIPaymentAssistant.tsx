@@ -117,8 +117,9 @@ export default function AIPaymentAssistant({
         </div>
 
         <p className="text-sm text-slate-400 mb-4">
-          Describe your payment in natural language and I'll help you fill out the form.
+          Describe your payment in natural language and I&apos;ll help you fill out the form.
         </p>
+
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -230,10 +231,11 @@ export default function AIPaymentAssistant({
         <div className="mt-4 p-3 rounded-lg bg-stellar-500/5 border border-stellar-500/10">
           <p className="text-xs text-stellar-300 font-medium mb-1">Examples:</p>
           <ul className="text-xs text-slate-400 space-y-1">
-            <li>• "Send 50 XLM to GABC123... for design work"</li>
-            <li>• "Pay 25 XLM to Alice for the consultation"</li>
-            <li>• "Transfer 100 XLM to my colleague"</li>
+            <li>• &quot;Send 50 XLM to GABC123... for design work&quot;</li>
+            <li>• &quot;Pay 25 XLM to Alice for the consultation&quot;</li>
+            <li>• &quot;Transfer 100 XLM to my colleague&quot;</li>
           </ul>
+
         </div>
       </div>
     </div>

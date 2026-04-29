@@ -198,7 +198,7 @@ export default function Trade({ publicKey }: TradePageProps) {
                   <div>
                     <h3 className="text-sm font-medium text-slate-400 mb-2">Sell Orders</h3>
                     <div className="space-y-1">
-                      {orderbook.asks.slice(0, 5).map((ask, index) => (
+                      {orderbook.asks.slice(0, 5).map((ask: { price: string; amount: string }, index: number) => (
                         <div key={index} className="flex justify-between text-sm">
                           <span className="text-red-400">{ask.price}</span>
                           <span className="text-slate-300">{ask.amount}</span>
@@ -223,7 +223,7 @@ export default function Trade({ publicKey }: TradePageProps) {
                   <div>
                     <h3 className="text-sm font-medium text-slate-400 mb-2">Buy Orders</h3>
                     <div className="space-y-1">
-                      {orderbook.bids.slice(0, 5).map((bid, index) => (
+                      {orderbook.bids.slice(0, 5).map((bid: { price: string; amount: string }, index: number) => (
                         <div key={index} className="flex justify-between text-sm">
                           <span className="text-emerald-400">{bid.price}</span>
                           <span className="text-slate-300">{bid.amount}</span>

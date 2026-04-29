@@ -3,6 +3,7 @@
  * Full transaction history page with UX cursor fixes.
  */
 
+import Head from "next/head";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import TransactionList, {
@@ -193,6 +194,11 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
   return (
     // Added cursor-default and select-none to the main page wrapper
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
+      <Head>
+        <title>Transaction History | Stellar-MicroPay</title>
+        <meta name="description" content="View your full Stellar transaction history, export data as CSV or JSON, and print payment receipts. Secure and transparent." />
+        <link rel="canonical" href="https://stellar-micropay.vercel.app/transactions" />
+      </Head>
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>

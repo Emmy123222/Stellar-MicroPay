@@ -15,26 +15,36 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import PaymentLinkGenerator from "../components/PaymentLinkGenerator";
-import WalletConnect from "../components/WalletConnect";
-import SendPaymentForm from "../components/SendPaymentForm";
-import TransactionList from "../components/TransactionList";
-import MultiSigFlow from "../components/MultiSigFlow";
-import Toast from "../components/Toast";
-import QRCodeModal from "../components/QRCodeModal";
-import { useRouter } from "next/router";
-import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
-import WalletConnect from "@/components/WalletConnect";
-import SendPaymentForm from "@/components/SendPaymentForm";
-import BatchPaymentForm from "@/components/BatchPaymentForm";
-import TransactionList from "@/components/TransactionList";
-import OnboardingTour from "@/components/OnboardingTour";
-import PaymentRequestGenerator from "./PaymentRequestGenerator";
+import dynamic from "next/dynamic";
+import Head from "next/head";
+
+// Dynamic imports for large components to improve initial load (Lighthouse Performance)
+const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), { ssr: false });
+const WalletConnect = dynamic(() => import("../components/WalletConnect"), { ssr: false });
+const SendPaymentForm = dynamic(() => import("../components/SendPaymentForm"), { ssr: false });
+const TransactionList = dynamic(() => import("../components/TransactionList"), { ssr: false });
+const MultiSigFlow = dynamic(() => import("../components/MultiSigFlow"), { ssr: false });
+const OnboardingTour = dynamic(() => import("../components/OnboardingTour"), { ssr: false });
+const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"), { ssr: false });
+const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
+const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
+const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), { ssr: false });
+
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
+
+
 import Toast from "@/components/Toast";
-import QRCodeModal from "@/components/QRCodeModal";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
-import CreatorTipsDashboard from "@/components/CreatorTipsDashboard";
+
 import {
   getXLMBalance,
   getAccountReserveInfo,
@@ -45,14 +55,13 @@ import {
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
   getRecentPaymentsForStats,
+  getRecentPaymentsForSparkline,
   PaymentRecord,
-} from "../lib/stellar";
-import { formatUSD, copyToClipboard } from "../utils/format";
-import { useToast } from "../lib/useToast";
 } from "@/lib/stellar";
 import { formatUSD, copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
+import { getJwtToken } from "@/lib/auth"; // Assuming auth helper exists or similar logic
 
 
 interface DashboardProps {
@@ -125,6 +134,20 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
 
   // Creator username for tips dashboard
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
+
+  // Stats and charts state
+  const [spendingData, setSpendingData] = useState<any[]>([]);
+  const [spendingLoading, setSpendingLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<any | null>(null);
+  const [sparklineData, setSparklineData] = useState<any[]>([]);
+  const [sparklineLoading, setSparklineLoading] = useState(false);
+
+  // Notification state
+  const [notificationEnabled, setNotificationEnabled] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [showBubble, setShowBubble] = useState(false);
+  const [bubbleMessage, setBubbleMessage] = useState("");
+
 
   // Fetch username for connected wallet
   const fetchUsername = useCallback(async () => {
@@ -254,8 +277,9 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
       
       // Group by calendar month (last 6 months)
       const now = new Date();
-      const months = [];
+      const months: any[] = [];
       for (let i = 5; i >= 0; i--) {
+
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         months.push({
           month: d.toLocaleString("default", { month: "short" }),
@@ -267,12 +291,13 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
         });
       }
 
-      payments.forEach((p) => {
+      payments.forEach((p: any) => {
         const pDate = new Date(p.createdAt);
         const m = months.find(
-          (m) =>
+          (m: any) =>
             m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
         );
+
         if (m) {
           const amount = parseFloat(p.amount);
           if (p.type === "sent") {
@@ -290,6 +315,20 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
       setSpendingLoading(false);
     }
   }, [publicKey]);
+
+  const fetchSparklineData = useCallback(async () => {
+    if (!publicKey) return;
+    setSparklineLoading(true);
+    try {
+      const history = await getRecentPaymentsForSparkline(publicKey, 10);
+      setSparklineData(history.map(h => parseFloat(h.amount)));
+    } catch (err) {
+      console.error("Failed to fetch sparkline data:", err);
+    } finally {
+      setSparklineLoading(false);
+    }
+  }, [publicKey]);
+
 
   useEffect(() => {
     fetchSpendingHistory();
@@ -401,9 +440,10 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
   };
 
   const handleManualRefresh = () => {
-    setCountdown(30);
+    setRefreshCountdown(30);
     fetchBalance();
   };
+
 
   // Onboarding tour logic
   useEffect(() => {
@@ -632,6 +672,11 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
+      <Head>
+        <title>Dashboard | Stellar-MicroPay</title>
+        <meta name="description" content="Manage your Stellar account, view balances, and send micropayments instantly. Real-time transaction history and wallet summary." />
+        <link rel="canonical" href="https://stellar-micropay.vercel.app/dashboard" />
+      </Head>
       <div className="mb-8">
         <h1 className="font-display text-3xl font-bold text-white mb-1">Dashboard</h1>
         <p className="text-slate-400 text-sm">Send and receive XLM globally</p>
@@ -902,8 +947,6 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
         xlmPrice={xlmPrice}
       />
 
-      <div className="grid lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1">
       {/* External payment banner */}
       {stellarURI && stellarURI.success && stellarURI.isExternal && showExternalBanner && (
         <ExternalPaymentBanner
@@ -962,14 +1005,13 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
 
         <div className="lg:col-span-1">
           <PaymentRequestGenerator />
-        </div>
-
-        <div className="lg:col-span-1">
-          <MultiSigFlow
-            publicKey={publicKey}
-            xlmBalance={xlmBalance || "0"}
-            onSuccess={handlePaymentSuccess}
-          />
+          <div className="mt-6">
+            <MultiSigFlow
+              publicKey={publicKey}
+              xlmBalance={xlmBalance || "0"}
+              onSuccess={handlePaymentSuccess}
+            />
+          </div>
         </div>
 
         <div className="lg:col-span-1">
@@ -992,7 +1034,14 @@ export default function Dashboard({ publicKey, onConnect, stellarURI }: Dashboar
       </div>
 
       <BubbleNotification message={bubbleMessage} visible={showBubble} />
-      <Toast message={toastMessage} visible={toastVisible} />
+      {toastVisible && (
+        <Toast
+          message={toastMessage}
+          type="info"
+          onClose={() => {}}
+        />
+      )}
+
       <QRCodeModal
         isOpen={showQRModal}
         onClose={() => setShowQRModal(false)}
@@ -1116,11 +1165,12 @@ function MonthlySpendingChart({
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
-            onClick={(state) =>
+            onClick={(state: any) =>
               state &&
               state.activePayload &&
               onBarClick(state.activePayload[0].payload)
             }
+
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
             <XAxis
@@ -1133,7 +1183,7 @@ function MonthlySpendingChart({
               axisLine={false}
               tickLine={false}
               tick={{ fill: "#94a3b8", fontSize: 12 }}
-              tickFormatter={(value) => `${value}`}
+              tickFormatter={(value: any) => `${value}`}
             />
             <Tooltip
               cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
@@ -1397,3 +1447,16 @@ function TestIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
