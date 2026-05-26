@@ -12,6 +12,13 @@ const { sanitizePublicKey, sanitizeUsername } = require("../middleware/sanitizat
 const accountController = require("../controllers/accountController");
 
 /**
+ * GET /api/accounts/resolve/:username
+ * Resolve a username to a Stellar public key.
+ * Must be registered before /:publicKey or Express matches it as a key.
+ */
+router.get("/resolve/:username", strictLimiter, sanitizeUsername, accountController.resolveUsername);
+
+/**
  * GET /api/accounts/:publicKey
  * Fetch account info and balances from Horizon.
  */
@@ -28,11 +35,5 @@ router.get("/:publicKey/balance", strictLimiter, sanitizePublicKey, accountContr
  * Register a new username with a public key.
  */
 router.post("/register", strictLimiter, accountController.registerUsername);
-
-/**
- * GET /api/accounts/resolve/:username
- * Resolve a username to a Stellar public key.
- */
-router.get("/resolve/:username", strictLimiter, sanitizeUsername, accountController.resolveUsername);
 
 module.exports = router;

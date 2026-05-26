@@ -697,7 +697,7 @@ export async function buildAccountMergeTransaction({
  * ```
 */
 export async function submitTransaction(signedXDR: string) {
-  const transaction = new Transaction(signedXDR, NETWORK_PASSPHRASE);
+  const transaction = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE) as Transaction;
   try {
     const result = await server.submitTransaction(transaction);
     return result;

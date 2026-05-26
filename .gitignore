@@ -46,3 +46,6 @@ build/
 playwright-report/
 test-results/
 test_snapshots
+
+# ─── Local scripts (never push) ───────────────────────────────────────────────
+scripts/create_issues.py
