@@ -25,6 +25,7 @@ import {
   submitTransaction,
   truncateMemoText,
 } from "@/lib/stellar";
+import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import clsx from "clsx";
@@ -738,6 +739,20 @@ export default function SendPaymentForm({
         >
           {status === "idle" ? `Send ${amount || ""} ${selectedAsset}` : "Processing..."}
         </button>
+
+        {/* High-value warning — suggest multi-sig for large payments */}
+        {hasAmount && amountNum >= MULTISIG_THRESHOLD_XLM && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-300">
+            <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <span>
+              High-value payment detected (≥ {MULTISIG_THRESHOLD_XLM} XLM). Consider using the{" "}
+              <strong className="text-amber-200">Multi-Signature</strong> panel below to require
+              multiple approvals before funds are released.
+            </span>
+          </div>
+        )}
       </div>
     </div>
 
