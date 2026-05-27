@@ -1014,6 +1014,26 @@ export function isValidStellarAddress(address: string): boolean {
 }
 
 /**
+ * Validate whether a string is a well-formed Stellar Federation address.
+ *
+ * Federation addresses use the SEP-0002 `name*domain` format, for example
+ * `alice*stellarmicropay.io`.
+ */
+export function isValidFederationAddress(address: string): boolean {
+  const value = address.trim();
+  const parts = value.split("*");
+  if (parts.length !== 2) return false;
+
+  const [name, domain] = parts;
+  if (!/^[A-Za-z0-9._-]{1,32}$/.test(name)) return false;
+  if (domain.length > 253) return false;
+
+  return /^([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(
+    domain
+  );
+}
+
+/**
  * Generate a Stellar Expert explorer URL for a given transaction hash.
  *
  * @param hash - The transaction hash to link to.
@@ -1334,19 +1354,58 @@ export function streamPayments(
 export async function resolveFederationAddress(
   federationAddress: string
 ): Promise<string> {
-  // Basic validation: federation addresses should contain exactly one @
-  if (!federationAddress.includes("*")) {
+  const normalizedAddress = federationAddress.trim().toLowerCase();
+  if (!isValidFederationAddress(normalizedAddress)) {
     throw new Error(
       'Invalid federation address format. Expected "user*domain.com"'
     );
   }
 
-  try {
-    const record = await Federation.Server.resolve(federationAddress);
+  const resolveViaSdk = async () => {
+    const record = await Federation.Server.resolve(normalizedAddress);
     return record.account_id;
+  };
+
+  if (typeof fetch !== "function") {
+    return resolveViaSdk();
+  }
+
+  const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+  const federationUrl = `${apiBase}/federation?q=${encodeURIComponent(
+    normalizedAddress
+  )}&type=name`;
+
+  try {
+    const response = await fetch(federationUrl);
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(
+        payload?.error || `Federation lookup failed with status ${response.status}`
+      );
+    }
+
+    if (!isValidStellarAddress(payload?.account_id || "")) {
+      throw new Error("Federation lookup did not return a valid account ID");
+    }
+
+    return payload.account_id;
   } catch (error) {
+    if (error instanceof TypeError) {
+      try {
+        return await resolveViaSdk();
+      } catch (sdkError) {
+        throw new Error(
+          `Federation lookup failed for "${normalizedAddress}": ${
+            sdkError instanceof Error ? sdkError.message : "Unknown error"
+          }`
+        );
+      }
+    }
+
     throw new Error(
-      `Federation lookup failed for "${federationAddress}": ${error instanceof Error ? error.message : "Unknown error"
+      `Federation lookup failed for "${normalizedAddress}": ${
+        error instanceof Error ? error.message : "Unknown error"
       }`
     );
   }
@@ -1685,4 +1744,3 @@ export async function fetchNetworkStats(): Promise<NetworkStats> {
     p99Fee: parseInt(feeStats.fee_charged.p99),
   };
 }
-

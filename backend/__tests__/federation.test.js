@@ -38,15 +38,27 @@ describe("Federation API", () => {
         .expect(200)
         .expect("Content-Type", /application\/toml/);
 
-      expect(response.text).toContain("[FEDERATION_SERVER]");
-      expect(response.text).toContain("ACTIVE = true");
-      expect(response.text).toContain("SERVER =");
+      expect(response.text).toContain("FEDERATION_SERVER=");
+      expect(response.text).toContain("/federation");
+      expect(response.text).not.toContain("[FEDERATION_SERVER]");
     });
   });
 
   describe("GET /federation", () => {
     describe("type=name", () => {
       it("should resolve a local stellar address", async () => {
+        const stellarAddress = `${testUsername}*stellarmicropay.io`;
+
+        const response = await request(app)
+          .get("/federation")
+          .query({ q: stellarAddress, type: "name" })
+          .expect(200);
+
+        expect(response.body).toHaveProperty("stellar_address", stellarAddress);
+        expect(response.body).toHaveProperty("account_id", testPublicKey);
+      });
+
+      it("should resolve configured legacy local domains", async () => {
         const stellarAddress = `${testUsername}*stellarmicropay.com`;
 
         const response = await request(app)
@@ -59,7 +71,7 @@ describe("Federation API", () => {
       });
 
       it("should return 404 for non-existent username", async () => {
-        const stellarAddress = "nonexistent*stellarmicropay.com";
+        const stellarAddress = "nonexistent*stellarmicropay.io";
 
         const response = await request(app)
           .get("/federation")
@@ -88,7 +100,8 @@ describe("Federation API", () => {
           .query({ q: testPublicKey, type: "id" })
           .expect(200);
 
-        expect(response.body).toHaveProperty("stellar_address", `${testUsername}*stellarmicropay.com`);
+        expect(response.body).toHaveProperty("stellar_address", `${testUsername}*stellarmicropay.io`);
+        expect(response.body).toHaveProperty("account_id", testPublicKey);
       });
 
       it("should return 404 for non-existent account ID", async () => {

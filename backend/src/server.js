@@ -28,6 +28,38 @@ const logger = require("./utils/logger");
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+function stripProtocol(value) {
+  return String(value || "")
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "")
+    .trim();
+}
+
+function getFederationDomain(req) {
+  return stripProtocol(
+    process.env.FEDERATION_DOMAIN ||
+      process.env.DOMAIN ||
+      process.env.HOME_DOMAIN ||
+      req.get("host") ||
+      "stellarmicropay.io"
+  );
+}
+
+function getFederationServerUrl(req) {
+  if (process.env.FEDERATION_SERVER_URL) {
+    return process.env.FEDERATION_SERVER_URL;
+  }
+
+  const domain = getFederationDomain(req);
+  const protocol =
+    process.env.FEDERATION_SERVER_PROTOCOL ||
+    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
+
+  return `${protocol}://${domain}/federation`;
+}
+
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
 app.use(helmet());
@@ -65,10 +97,20 @@ app.use(
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-app.use("/api/auth",     authRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/health",       healthRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/health", healthRoutes);
+
+// Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
+// discover the SEP-0002 federation endpoint for `name*domain` addresses.
+app.get("/.well-known/stellar.toml", (req, res) => {
+  const serverUrl = getFederationServerUrl(req);
+  const tomlContent = `# Stellar MicroPay federation discovery
+FEDERATION_SERVER="${serverUrl}"
+`;
+
+  res.setHeader("Content-Type", "application/toml; charset=utf-8");
+  res.send(tomlContent);
+});
 
 // Global rate limiting — 100 requests per 15 minutes per IP.
 // standardHeaders: true  → emits RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset (RFC 6585 draft-7).
@@ -122,18 +164,6 @@ app.use((err, req, res, next) => {
   const message = err.message || "Internal Server Error";
 
   res.status(status).json({ error: message });
-});
-
-// ─── Static Files ─────────────────────────────────────────────────────────────
-
-app.get("/.well-known/stellar.toml", (req, res) => {
-  const domain = process.env.DOMAIN || "stellarmicropay.com";
-  const tomlContent = `[FEDERATION_SERVER]
-ACTIVE = true
-SERVER = "https://${domain}/federation"
-`;
-  res.setHeader("Content-Type", "application/toml");
-  res.send(tomlContent);
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────

@@ -28,6 +28,45 @@ Check that the API server is running.
 
 ---
 
+## Stellar Federation
+
+### `GET /.well-known/stellar.toml`
+
+Expose the SEP-0001 discovery document used by Stellar wallets to find this app's federation server.
+
+**Response (TOML)**
+```toml
+FEDERATION_SERVER="https://stellarmicropay.io/federation"
+```
+
+---
+
+### `GET /federation`
+
+Resolve Stellar Federation addresses such as `alice*stellarmicropay.io` per SEP-0002.
+
+**Query parameters**
+| Name | Type | Description |
+|------|------|-------------|
+| q | string | Federation query. For `type=name`, use `username*domain`; for `type=id`, use a Stellar public key |
+| type | string | `name` or `id` |
+
+**Response**
+```json
+{
+  "stellar_address": "alice*stellarmicropay.io",
+  "account_id": "GABC...XYZ"
+}
+```
+
+**Errors**
+| Status | Meaning |
+|--------|---------|
+| 400 | Missing parameters, invalid type, or invalid address format |
+| 404 | Username or account ID not found |
+
+---
+
 ## Accounts
 
 ### `GET /api/accounts/:publicKey`
@@ -81,16 +120,16 @@ Fetch only the native XLM balance.
 
 ### `GET /api/accounts/resolve/:username`
 
-> ⚠️ **Not yet implemented** — see ROADMAP.md v1.2
-
 Resolve a username (e.g. `alice`) to a Stellar public key.
 
-**Response (501)**
+**Response**
 ```json
 {
-  "success": false,
-  "error": "Username resolution is not yet implemented.",
-  "docs": "See ROADMAP.md for v1.2 — Username Payments"
+  "success": true,
+  "data": {
+    "username": "alice",
+    "publicKey": "GABC...XYZ"
+  }
 }
 ```
 

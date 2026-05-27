@@ -1033,6 +1033,25 @@ const options = {
           },
         },
       },
+      "/.well-known/stellar.toml": {
+        get: {
+          tags: ["Federation"],
+          summary: "SEP-0001 Stellar TOML discovery document",
+          responses: {
+            200: {
+              description: "TOML document containing the federation server URL",
+              content: {
+                "application/toml": {
+                  schema: {
+                    type: "string",
+                    example: 'FEDERATION_SERVER="https://stellarmicropay.io/federation"',
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       "/federation": {
         get: {
           tags: ["Federation"],
@@ -1043,18 +1062,33 @@ const options = {
               in: "query",
               required: true,
               schema: { type: "string" },
-              description: "Query string (username or Stellar address)",
+              description: "Federation query. Use user*domain for type=name or a public key for type=id.",
             },
             {
               name: "type",
               in: "query",
               required: true,
-              schema: { type: "string", enum: ["name", "id", "tx_id"] },
+              schema: { type: "string", enum: ["name", "id"] },
               description: "Query type",
             },
           ],
           responses: {
-            200: { description: "Federation record" },
+            200: {
+              description: "Federation record",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      stellar_address: { type: "string", example: "alice*stellarmicropay.io" },
+                      account_id: { type: "string", example: "GABC...XYZ" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Missing or invalid federation query" },
+            404: { description: "Federation record not found" },
           },
         },
       },

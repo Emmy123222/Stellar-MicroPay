@@ -17,7 +17,9 @@ import {
   buildSorobanTipTransaction,
   explorerUrl,
   fetchNetworkFeeStats,
+  isValidFederationAddress,
   isValidStellarAddress,
+  resolveFederationAddress,
   server,
   STELLAR_BASE_FEE_XLM,
   STELLAR_MEMO_TEXT_MAX_BYTES,
@@ -117,8 +119,9 @@ export default function SendPaymentForm({
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
-  const [isResolvingUsername, setIsResolvingUsername] = useState(false);
-  const [usernameResolutionError, setUsernameResolutionError] = useState<string | null>(null);
+  const [isResolvingDestination, setIsResolvingDestination] = useState(false);
+  const [destinationResolutionError, setDestinationResolutionError] = useState<string | null>(null);
+  const [resolvedPaymentDestination, setResolvedPaymentDestination] = useState<string | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
   const [showCustomAssetForm, setShowCustomAssetForm] = useState(false);
   const [selectedMemoTemplate, setSelectedMemoTemplate] = useState<string | null>(null);
@@ -200,6 +203,8 @@ export default function SendPaymentForm({
           const result = barcodes[0].rawValue;
           if (isValidStellarAddress(result)) {
             setDestination(result);
+            setDestinationResolutionError(null);
+            setResolvedPaymentDestination(null);
             closeScanner();
             return;
           }
@@ -324,6 +329,8 @@ export default function SendPaymentForm({
     if (prefill.destination) setDestination(prefill.destination);
     if (prefill.amount) setAmount(prefill.amount);
     if (prefill.memo) setMemo(truncateMemoText(prefill.memo));
+    setDestinationResolutionError(null);
+    setResolvedPaymentDestination(null);
   }, [prefill]);
 
   const xlmBal = parseFloat(xlmBalance);
@@ -337,9 +344,14 @@ export default function SendPaymentForm({
   const amountNum = parseFloat(amount);
   const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
   const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
-  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
-  
-  const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
+  const trimmedDestination = destination.trim();
+  const isValidDest = trimmedDestination.length > 0 && isValidStellarAddress(trimmedDestination);
+  const isFederationDestination =
+    trimmedDestination.length > 0 && isValidFederationAddress(trimmedDestination);
+  const isUsernameDestination =
+    /^@?[a-zA-Z0-9]{3,20}$/.test(trimmedDestination) &&
+    !isValidDest &&
+    !isFederationDestination;
   
   const MIN_STROOP = 0.0000001;
   const isValidAmt =
@@ -348,37 +360,66 @@ export default function SendPaymentForm({
     amountNum <= maxSend &&
     !/[eE]/.test(amount);
   
-  const canSubmit = (isValidDest || (isUsernameDestination && !isResolvingUsername && !usernameResolutionError)) && 
-    isValidAmt && status === "idle" && destination !== publicKey;
+  const canSubmit =
+    (isValidDest || isFederationDestination || isUsernameDestination) &&
+    !isResolvingDestination &&
+    !destinationResolutionError &&
+    isValidAmt &&
+    status === "idle" &&
+    trimmedDestination !== publicKey;
 
-  const resolveUsername = async (username: string) => {
+  const resolveUsername = async (username: string): Promise<string> => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
     if (!/^[a-zA-Z0-9]{3,20}$/.test(cleanUsername)) {
-      setUsernameResolutionError("Invalid username format");
-      return;
+      throw new Error("Invalid username format");
     }
-    setIsResolvingUsername(true);
-    setUsernameResolutionError(null);
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(payload?.error || "Username not found");
+    }
+
+    if (payload?.success && isValidStellarAddress(payload?.data?.publicKey || "")) {
+      return payload.data.publicKey;
+    }
+
+    throw new Error("Username resolution did not return a valid public key");
+  };
+
+  const resolveDestinationForPayment = async (): Promise<string> => {
+    setDestinationResolutionError(null);
+
+    if (isValidDest) {
+      return trimmedDestination;
+    }
+
+    setIsResolvingDestination(true);
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
-      if (!response.ok) throw new Error("Username not found");
-      const payload = await response.json();
-      if (payload?.success && payload?.data?.publicKey) {
-        setDestination(payload.data.publicKey);
-        setUsernameResolutionError(null);
-      } else {
-        throw new Error("Failed to resolve username");
+      if (isFederationDestination) {
+        return await resolveFederationAddress(trimmedDestination);
       }
+
+      if (isUsernameDestination) {
+        return await resolveUsername(trimmedDestination);
+      }
+
+      throw new Error("Enter a valid Stellar public key, federation address, or username.");
     } catch (err) {
-      setUsernameResolutionError(err instanceof Error ? err.message : "Failed to resolve username");
+      const message = err instanceof Error ? err.message : "Failed to resolve destination";
+      setDestinationResolutionError(message);
+      throw err;
     } finally {
-      setIsResolvingUsername(false);
+      setIsResolvingDestination(false);
     }
   };
 
   const handleSelectFavourite = (address: string) => {
     setDestination(address);
+    setDestinationResolutionError(null);
+    setResolvedPaymentDestination(null);
     setIsFavouritesDropdownOpen(false);
   };
 
@@ -387,6 +428,7 @@ export default function SendPaymentForm({
     setError(null);
     setTxHash(null);
     setFailedStep(null);
+    setResolvedPaymentDestination(null);
     setStepTimings(createInitialStepTimings());
   };
 
@@ -421,6 +463,7 @@ export default function SendPaymentForm({
       setDestination("");
       setAmount("");
       setMemo("");
+      setResolvedPaymentDestination(null);
     }
     setStatus("idle");
   };
@@ -432,7 +475,7 @@ export default function SendPaymentForm({
     try {
       const tx = await buildReceiptMintTransaction({
         fromPublicKey: publicKey,
-        toPublicKey: destination,
+        toPublicKey: resolvedPaymentDestination || trimmedDestination,
         amount: amountNum.toFixed(7),
         memo: memo.trim() || undefined,
       });
@@ -454,17 +497,24 @@ export default function SendPaymentForm({
     try {
       markStepStarted("building");
       setStatus("building");
+      const paymentDestination = await resolveDestinationForPayment();
+      if (paymentDestination === publicKey) {
+        throw new Error("Destination cannot be your own wallet.");
+      }
+      setResolvedPaymentDestination(paymentDestination);
+
       const tx = isTipOnChain
         ? await buildSorobanTipTransaction({
           fromPublicKey: publicKey,
-          toPublicKey: destination,
+          toPublicKey: paymentDestination,
           amount: amountNum.toFixed(7),
         })
         : await buildPaymentTransaction({
             fromPublicKey: publicKey,
-            toPublicKey: destination,
+            toPublicKey: paymentDestination,
             amount: amountNum.toFixed(7),
             memo: memo.trim() || undefined,
+            asset: selectedAsset === "USDC" ? "USDC" : "XLM",
           });
       markStepCompleted("building");
 
@@ -489,7 +539,7 @@ export default function SendPaymentForm({
       markStepCompleted("confirming");
 
       setStatus("success");
-      saveRecipient(destination);
+      saveRecipient(trimmedDestination);
       onSuccess?.(result.hash);
     } catch (err: any) {
       const message = err?.message || "An unexpected error occurred";
@@ -670,11 +720,26 @@ export default function SendPaymentForm({
             <input
               type="text"
               value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="G... or @username"
-              className={clsx("input-field font-mono text-sm", destination && !isValidDest && !isUsernameDestination && "border-red-500/50")}
+              onChange={(e) => {
+                setDestination(e.target.value);
+                setDestinationResolutionError(null);
+                setResolvedPaymentDestination(null);
+              }}
+              placeholder="G..., alice*domain.com, or @username"
+              className={clsx(
+                "input-field font-mono text-sm",
+                destination &&
+                  !isValidDest &&
+                  !isFederationDestination &&
+                  !isUsernameDestination &&
+                  "border-red-500/50"
+              )}
               disabled={status !== "idle" || destinationReadOnly}
             />
+
+            {destinationResolutionError && (
+              <p className="mt-2 text-xs text-red-400">{destinationResolutionError}</p>
+            )}
 
             {isFavouritesDropdownOpen && favourites.length > 0 && (
               <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
@@ -745,6 +810,7 @@ export default function SendPaymentForm({
         isOpen={isConfirmOpen}
         destination={destination}
         amount={amountNum}
+        asset={selectedAsset}
         memo={memo}
         estimatedFee={ESTIMATED_NETWORK_FEE}
         isTipOnChain={isTipOnChain}
@@ -851,6 +917,7 @@ interface SendConfirmationModalProps {
   isOpen: boolean;
   destination: string;
   amount: number;
+  asset: AssetType;
   memo: string;
   estimatedFee: string;
   isTipOnChain: boolean;
@@ -858,7 +925,7 @@ interface SendConfirmationModalProps {
   onConfirm: () => void;
 }
 
-function SendConfirmationModal({ isOpen, destination, amount, memo, estimatedFee, onCancel, onConfirm }: SendConfirmationModalProps) {
+function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estimatedFee, onCancel, onConfirm }: SendConfirmationModalProps) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -872,7 +939,7 @@ function SendConfirmationModal({ isOpen, destination, amount, memo, estimatedFee
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-slate-500 uppercase font-bold">Amount</p>
-              <p className="text-lg font-bold text-white">{amount} XLM</p>
+              <p className="text-lg font-bold text-white">{amount} {asset}</p>
             </div>
             <div>
               <p className="text-xs text-slate-500 uppercase font-bold">Fee</p>

@@ -22,9 +22,15 @@ async function resolveFederation(req, res, next) {
       });
     }
 
+    if (typeof q !== "string" || typeof type !== "string") {
+      return res.status(400).json({
+        error: "Invalid required parameters: q and type must be strings",
+      });
+    }
+
     if (type === "name") {
       // Resolve stellar address to account ID
-      const result = await resolveStellarAddress(q);
+      const result = await resolveStellarAddress(q, req);
       return res.json(result);
     } else if (type === "id") {
       // Resolve account ID to stellar address
@@ -50,7 +56,7 @@ async function resolveFederation(req, res, next) {
  * @param {string} stellarAddress - The stellar address to resolve
  * @returns {Object} Federation response
  */
-async function resolveStellarAddress(stellarAddress) {
+async function resolveStellarAddress(stellarAddress, req) {
   // Parse the stellar address
   const parts = stellarAddress.split("*");
   if (parts.length !== 2) {
@@ -59,20 +65,27 @@ async function resolveStellarAddress(stellarAddress) {
     throw error;
   }
 
-  const [username, domain] = parts;
+  const [usernameRaw, domainRaw] = parts;
+  const username = usernameRaw.trim().toLowerCase();
+  const domain = domainRaw.trim().toLowerCase();
+
+  if (!username || !domain) {
+    const error = new Error("Invalid stellar address format");
+    error.status = 400;
+    throw error;
+  }
 
   // Check if it's our domain
-  const ourDomain = process.env.DOMAIN || "stellarmicropay.com";
-  if (domain === ourDomain) {
+  if (isLocalFederationDomain(domain, req)) {
     // Local resolution
     const result = usernameService.resolveUsername(username);
     return {
-      stellar_address: stellarAddress,
+      stellar_address: `${username}*${domain}`,
       account_id: result.publicKey,
     };
   } else {
     // Forward federation to external server
-    return await forwardFederation(stellarAddress, "name");
+    return await forwardFederation(`${username}*${domain}`, "name");
   }
 }
 
@@ -87,9 +100,10 @@ async function resolveAccountId(accountId) {
   const match = allUsernames.find(user => user.publicKey === accountId);
 
   if (match) {
-    const domain = process.env.DOMAIN || "stellarmicropay.com";
+    const domain = getPrimaryFederationDomain();
     return {
       stellar_address: `${match.username}*${domain}`,
+      account_id: accountId,
     };
   }
 
@@ -139,13 +153,25 @@ async function forwardFederation(query, type) {
  * @returns {string|null} The federation server URL or null
  */
 function parseFederationServer(tomlContent) {
-  // Simple TOML parsing for FEDERATION_SERVER
+  // Simple TOML parsing for the standard SEP-0001 top-level
+  // FEDERATION_SERVER value, with support for the older table shape that this
+  // project previously emitted.
   const lines = tomlContent.split("\n");
   let inFederationServer = false;
   let server = null;
 
   for (const line of lines) {
     const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const topLevelMatch = trimmed.match(/^FEDERATION_SERVER\s*=\s*"([^"]+)"/);
+    if (topLevelMatch) {
+      return topLevelMatch[1];
+    }
+
     if (trimmed === "[FEDERATION_SERVER]") {
       inFederationServer = true;
     } else if (inFederationServer && trimmed.startsWith("SERVER")) {
@@ -163,4 +189,53 @@ function parseFederationServer(tomlContent) {
   return server;
 }
 
-module.exports = { resolveFederation };
+function stripProtocol(value) {
+  return String(value || "")
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function getPrimaryFederationDomain() {
+  return stripProtocol(
+    process.env.FEDERATION_DOMAIN ||
+      process.env.DOMAIN ||
+      process.env.HOME_DOMAIN ||
+      "stellarmicropay.io"
+  );
+}
+
+function getLocalFederationDomains(req) {
+  const domains = new Set([
+    getPrimaryFederationDomain(),
+    "stellarmicropay.io",
+    "stellarmicropay.com",
+  ]);
+
+  if (req) {
+    const requestHost = stripProtocol(req.get("host"));
+    if (requestHost) {
+      domains.add(requestHost);
+    }
+  }
+
+  for (const raw of (process.env.FEDERATION_DOMAINS || "").split(",")) {
+    const domain = stripProtocol(raw);
+    if (domain) {
+      domains.add(domain);
+    }
+  }
+
+  return domains;
+}
+
+function isLocalFederationDomain(domain, req) {
+  return getLocalFederationDomains(req).has(stripProtocol(domain));
+}
+
+module.exports = {
+  resolveFederation,
+  parseFederationServer,
+  isLocalFederationDomain,
+};
