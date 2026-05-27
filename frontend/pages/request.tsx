@@ -3,11 +3,7 @@ import { useState, useEffect } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import { getXLMBalance } from "@/lib/stellar";
-
-interface RequestPageProps {
-  publicKey: string | null;
-  onConnect: (pk: string) => void;
-}
+import { useWallet } from "@/lib/useWallet";
 
 interface PrefillData {
   destination: string;
@@ -16,7 +12,8 @@ interface PrefillData {
   validUntil?: number;
 }
 
-export default function RequestPage({ publicKey, onConnect }: RequestPageProps) {
+export default function RequestPage() {
+  const { publicKey } = useWallet();
   const router = useRouter();
   const { r } = router.query;
   
@@ -84,7 +81,7 @@ export default function RequestPage({ publicKey, onConnect }: RequestPageProps) 
 
       {!publicKey ? (
         <div className="card border-stellar-500/20 bg-cosmos-900/50">
-          <WalletConnect onConnect={onConnect} />
+          <WalletConnect />
         </div>
       ) : (
         <div className="animate-slide-up">

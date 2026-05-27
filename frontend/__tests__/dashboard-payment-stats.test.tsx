@@ -3,12 +3,26 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom";
 import Dashboard from "@/pages/dashboard";
 
-jest.mock("next/router", () => ({ useRouter: () => ({ push: jest.fn() }) }));
+jest.mock("next/router", () => ({
+  useRouter: () => ({ push: jest.fn(), query: {} }),
+}));
+
+const mockUseWallet = jest.fn();
+jest.mock("@/lib/useWallet", () => ({
+  useWallet: () => mockUseWallet(),
+}));
 
 jest.mock("@/components/WalletConnect", () => () => <div>Wallet Connect</div>);
 jest.mock("@/components/TransactionList", () => () => <div>Transactions</div>);
 jest.mock("@/components/Toast", () => () => null);
 jest.mock("@/components/QRCodeModal", () => () => null);
+jest.mock("@/components/BatchPaymentForm", () => () => <div>Batch Payment</div>);
+jest.mock("@/components/MultiSigFlow", () => () => <div>Multi Sig</div>);
+jest.mock("@/components/CreatorTipsDashboard", () => () => <div>Creator Tips</div>);
+jest.mock("@/components/OnboardingTour", () => () => null);
+jest.mock("@/components/AIPaymentAssistant", () => () => null);
+jest.mock("@/components/ExternalPaymentBanner", () => () => null);
+jest.mock("@/pages/PaymentRequestGenerator", () => () => <div>Payment Request</div>);
 jest.mock("@/components/SendPaymentForm", () => ({
   __esModule: true,
   default: ({ onSuccess }: { onSuccess?: () => void }) => (
@@ -18,12 +32,17 @@ jest.mock("@/components/SendPaymentForm", () => ({
 
 jest.mock("@/lib/stellar", () => ({
   getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
+  getAccountReserveInfo: jest.fn().mockResolvedValue(null),
   getUSDCBalance: jest.fn().mockResolvedValue(null),
+  getRecentPaymentsForStats: jest.fn().mockResolvedValue([]),
+  getRecentPaymentsForSparkline: jest.fn().mockResolvedValue([]),
+  getPaymentHistory: jest.fn().mockResolvedValue({ records: [], hasMore: false }),
   fundWithFriendbot: jest.fn(),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
   streamPayments: jest.fn(() => jest.fn()),
-  getRecentPaymentsForSparkline: jest.fn().mockResolvedValue([]),
-  getPaymentHistory: jest.fn().mockResolvedValue({ records: [], hasMore: false }),
+  isValidStellarAddress: jest.fn().mockReturnValue(true),
+  shortenAddress: jest.fn((pk: string) => pk.slice(0, 6)),
+  explorerUrl: jest.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
 }));
 
 const PUBLIC_KEY = "GABC1234567890ABCDEF";
@@ -37,15 +56,13 @@ function jsonResponse(data: unknown, ok = true) {
 
 describe("Dashboard payment stats widget", () => {
   beforeEach(() => {
-    jest.resetAllMocks();
     process.env.NEXT_PUBLIC_API_URL = "http://localhost:4000";
-
-    const stellar = require("@/lib/stellar");
-    stellar.getXLMBalance.mockResolvedValue("500.0000000");
-    stellar.getUSDCBalance.mockResolvedValue(null);
-    stellar.streamPayments.mockImplementation(() => jest.fn());
-    stellar.getRecentPaymentsForSparkline.mockResolvedValue([]);
-    stellar.getPaymentHistory.mockResolvedValue({ records: [], hasMore: false });
+    mockUseWallet.mockReturnValue({
+      publicKey: PUBLIC_KEY,
+      connectWallet: jest.fn(),
+      disconnectWallet: jest.fn(),
+      isWalletReady: true,
+    });
   });
 
   afterEach(() => {
@@ -69,29 +86,31 @@ describe("Dashboard payment stats widget", () => {
         return statsPromise;
       }
 
+      if (url.includes("/api/accounts/resolve/")) {
+        return jsonResponse({ success: true, data: {} });
+      }
+
       throw new Error(`Unexpected fetch url: ${url}`);
     }) as jest.Mock;
 
-    render(<Dashboard publicKey={PUBLIC_KEY} onConnect={jest.fn()} />);
+    render(<Dashboard />);
 
     expect(screen.getByText("Loading payment stats")).toBeInTheDocument();
 
-    resolveStats(
-      {
-        ok: true,
-        json: async () => ({
-          success: true,
-          data: {
-            publicKey: PUBLIC_KEY,
-            totalSentXLM: "142.5000000",
-            totalReceivedXLM: "67.0000000",
-            sentCount: 4,
-            receivedCount: 3,
-            totalTransactions: 7,
-          },
-        }),
-      } as Response
-    );
+    resolveStats({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          publicKey: PUBLIC_KEY,
+          totalSentXLM: "142.5000000",
+          totalReceivedXLM: "67.0000000",
+          sentCount: 4,
+          receivedCount: 3,
+          totalTransactions: 7,
+        },
+      }),
+    } as Response);
 
     await waitFor(() => {
       expect(screen.getByText("142.50 XLM sent")).toBeInTheDocument();
@@ -133,10 +152,14 @@ describe("Dashboard payment stats widget", () => {
         });
       }
 
+      if (url.includes("/api/accounts/resolve/")) {
+        return jsonResponse({ success: true, data: {} });
+      }
+
       throw new Error(`Unexpected fetch url: ${url}`);
     }) as jest.Mock;
 
-    render(<Dashboard publicKey={PUBLIC_KEY} onConnect={jest.fn()} />);
+    render(<Dashboard />);
 
     await waitFor(() => {
       expect(screen.getByText("Could not load your payment stats.")).toBeInTheDocument();
@@ -163,7 +186,6 @@ describe("Dashboard payment stats widget", () => {
 
       if (url.includes("/api/payments/")) {
         statsCalls += 1;
-
         return jsonResponse({
           success: true,
           data: {
@@ -177,10 +199,14 @@ describe("Dashboard payment stats widget", () => {
         });
       }
 
+      if (url.includes("/api/accounts/resolve/")) {
+        return jsonResponse({ success: true, data: {} });
+      }
+
       throw new Error(`Unexpected fetch url: ${url}`);
     }) as jest.Mock;
 
-    render(<Dashboard publicKey={PUBLIC_KEY} onConnect={jest.fn()} />);
+    render(<Dashboard />);
 
     await waitFor(() => {
       expect(screen.getByText("12.50 XLM sent")).toBeInTheDocument();

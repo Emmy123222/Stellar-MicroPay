@@ -6,6 +6,32 @@
 import { PaymentRecord } from "@/lib/stellar";
 import { formatDistanceToNow, format } from "date-fns";
 
+interface AssetFormatRule {
+  minimumFractionDigits: number;
+  maximumFractionDigits: number;
+}
+
+const DEFAULT_ASSET_CODE = "XLM";
+const DEFAULT_ASSET_RULE: AssetFormatRule = {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 7,
+};
+const ASSET_FORMAT_RULES: Record<string, AssetFormatRule> = {
+  XLM: DEFAULT_ASSET_RULE,
+  USDC: {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  },
+};
+
+function normalizeAssetCode(assetCode?: string): string {
+  return assetCode?.trim().toUpperCase() || DEFAULT_ASSET_CODE;
+}
+
+function getAssetFormatRule(assetCode?: string): AssetFormatRule {
+  return ASSET_FORMAT_RULES[normalizeAssetCode(assetCode)] ?? DEFAULT_ASSET_RULE;
+}
+
 /**
  * Shorten a Stellar address for display (e.g. GABC...XYZ1)
  */
@@ -18,9 +44,29 @@ export function shortenAddress(address: string, chars = 4): string {
  * Format XLM amount with up to 7 decimal places, trimming trailing zeros.
  */
 export function formatXLM(amount: string | number): string {
+  return formatAsset(amount, "XLM");
+}
+
+/**
+ * Format a Stellar asset amount with asset-specific precision rules.
+ */
+export function formatAsset(
+  amount: string | number,
+  assetCode = DEFAULT_ASSET_CODE
+): string {
+  const normalizedAssetCode = normalizeAssetCode(assetCode);
+  const rule = getAssetFormatRule(normalizedAssetCode);
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  if (isNaN(num)) return "0 XLM";
-  return `${num.toLocaleString("en-US", { maximumFractionDigits: 7 })} XLM`;
+
+  if (amount == null || Number.isNaN(num)) {
+    const zeroValue =
+      rule.minimumFractionDigits > 0
+        ? (0).toFixed(rule.minimumFractionDigits)
+        : "0";
+    return `${zeroValue} ${normalizedAssetCode}`;
+  }
+
+  return `${num.toLocaleString("en-US", rule)} ${normalizedAssetCode}`;
 }
 
 /**

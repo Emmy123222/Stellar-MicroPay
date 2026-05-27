@@ -5,10 +5,10 @@
 
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
-import { Transaction, TransactionBuilder, FeeBumpTransaction, Networks } from "@stellar/stellar-sdk";
+import { Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 import { NETWORK_PASSPHRASE } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import { formatXLM } from "@/utils/format";
+import { formatAsset } from "@/utils/format";
 
 export default function MultiSigSignPage() {
   const router = useRouter();
@@ -89,7 +89,13 @@ export default function MultiSigSignPage() {
                 return (
                   <div key={i}>
                     <p><span className="text-slate-400">To:</span> {payment.destination}</p>
-                    <p><span className="text-slate-400">Amount:</span> {formatXLM(payment.amount)} XLM</p>
+                    <p>
+                      <span className="text-slate-400">Amount:</span>{" "}
+                      {formatAsset(
+                        payment.amount,
+                        payment.asset?.isNative() ? "XLM" : payment.asset?.code
+                      )}
+                    </p>
                   </div>
                 );
               }

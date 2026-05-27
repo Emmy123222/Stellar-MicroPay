@@ -12,7 +12,7 @@ import {
   PaymentRecord,
   PaymentHistoryResponse,
 } from "@/lib/stellar";
-import { formatXLM, timeAgo, copyToClipboard } from "@/utils/format";
+import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
 import clsx from "clsx";
 
 export type TransactionDirectionFilter = "all" | "sent" | "received";
@@ -353,7 +353,7 @@ export default function TransactionList({
               "flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group relative",
               focusedIndex === index && "outline-none ring-2 ring-stellar-500 ring-offset-2"
             )}
-            aria-label={`${tx.type === "sent" ? "Sent" : "Received"} ${tx.amount} XLM ${tx.type === "sent" ? "to" : "from"} ${tx.type === "sent" ? tx.to : tx.from}`}
+            aria-label={`${tx.type === "sent" ? "Sent" : "Received"} ${formatAsset(tx.amount, tx.asset)} ${tx.type === "sent" ? "to" : "from"} ${tx.type === "sent" ? tx.to : tx.from}`}
           >
             {/* Direction icon */}
             <div
@@ -413,7 +413,7 @@ export default function TransactionList({
                 )}
               >
                 {tx.type === "sent" ? "-" : "+"}
-                {formatXLM(tx.amount)}
+                {formatAsset(tx.amount, tx.asset)}
               </span>
 
               {/* Send Again — only for sent transactions */}

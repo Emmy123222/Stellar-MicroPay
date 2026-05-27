@@ -4,12 +4,11 @@ import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import { getXLMBalance, shortenAddress } from "@/lib/stellar";
 import { formatXLM } from "@/utils/format";
+import { useWallet } from "@/lib/useWallet";
 
 interface TipWidgetProps {
   creatorUsername: string;
   destination: string;
-  publicKey: string | null;
-  onConnect: (publicKey: string) => void;
 }
 
 const PRESET_TIPS = [
@@ -23,9 +22,8 @@ const MIN_TIP_AMOUNT = 0.0000001;
 export default function TipWidget({
   creatorUsername,
   destination,
-  publicKey,
-  onConnect,
 }: TipWidgetProps) {
+  const { publicKey } = useWallet();
   const [amount, setAmount] = useState<string>(PRESET_TIPS[0].amount);
   const [showConnectPrompt, setShowConnectPrompt] = useState(false);
   const [xlmBalance, setXlmBalance] = useState("0");
@@ -85,9 +83,8 @@ export default function TipWidget({
     }
   };
 
-  const handleConnect = (connectedPublicKey: string) => {
+  const handleConnect = () => {
     setShowConnectPrompt(false);
-    onConnect(connectedPublicKey);
   };
 
   const handleSuccess = async () => {
@@ -269,7 +266,7 @@ export default function TipWidget({
                     Connect your wallet to send {hasValidAmount ? formatXLM(parsedAmount) : "this tip"} to
                     {" "}@{creatorUsername}.
                   </p>
-                  <WalletConnect onConnect={handleConnect} />
+                  <WalletConnect onConnectSuccess={handleConnect} />
                 </div>
               </div>
             )}

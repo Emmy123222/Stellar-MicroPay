@@ -23,6 +23,7 @@ const tipsRoutes = require("./routes/tips");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
+const logger = require("./utils/logger");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -69,7 +70,10 @@ app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/health",       healthRoutes);
 
-// Global rate limiting — 100 requests per 15 minutes per IP
+// Global rate limiting — 100 requests per 15 minutes per IP.
+// standardHeaders: true  → emits RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset (RFC 6585 draft-7).
+// legacyHeaders: false   → suppresses deprecated X-RateLimit-* headers.
+// Clients should inspect RateLimit-Remaining and back off when it approaches 0.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -102,9 +106,18 @@ app.get("/api/docs.json", (req, res) => {
   res.send(swaggerSpec);
 });
 
+// ─── 404 Handler ───────────────────────────────────────────────────────────────
+
+app.use((req, res, next) => {
+  const sanitizedPath = req.path.replace(/[\r\n]/g, "");
+  logger.warn({ method: req.method, path: sanitizedPath }, "Route not found");
+  res.status(404).json({ error: "Route not found" });
+});
+
 // ─── Error Handling ────────────────────────────────────────────────────────────
 
-app.use((err, req, res, _next) => {
+app.use((err, req, res, next) => {
+  void next;
   const status = err.status || 500;
   const message = err.message || "Internal Server Error";
 

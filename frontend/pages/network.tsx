@@ -3,7 +3,7 @@
  * Stellar network statistics page with live data from Horizon API.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { fetchNetworkStats, NetworkStats } from "@/lib/stellar";
 
 export default function Network() {
@@ -13,7 +13,7 @@ export default function Network() {
   const [previousLedgerSequence, setPreviousLedgerSequence] = useState<number | null>(null);
   const [ledgerAnimation, setLedgerAnimation] = useState(false);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       setError(null);
       const newStats = await fetchNetworkStats();
@@ -32,7 +32,7 @@ export default function Network() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [previousLedgerSequence]);
 
   useEffect(() => {
     loadStats();
@@ -41,7 +41,7 @@ export default function Network() {
     const interval = setInterval(loadStats, 10000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [loadStats]);
 
   const formatTime = (isoString: string) => {
     return new Date(isoString).toLocaleString();

@@ -14,7 +14,21 @@ const options = {
       title: "Stellar MicroPay API",
       version: "1.0.0",
       description:
-        "Backend API for Stellar MicroPay — instant micropayments on the Stellar network.",
+        "Backend API for Stellar MicroPay — instant micropayments on the Stellar network.\n\n" +
+        "## Rate Limiting\n\n" +
+        "All endpoints are rate-limited. Two limiters apply:\n\n" +
+        "| Limiter | Window | Limit | Routes |\n" +
+        "|---------|--------|-------|--------|\n" +
+        "| Global | 15 minutes | 100 req/IP | All routes |\n" +
+        "| Strict | 1 minute | 20 req/IP | `/api/turrets/*` |\n\n" +
+        "Every response includes the following headers so clients can implement back-off:\n\n" +
+        "| Header | Description |\n" +
+        "|--------|-------------|\n" +
+        "| `RateLimit-Limit` | Maximum requests allowed in the current window |\n" +
+        "| `RateLimit-Remaining` | Requests remaining before the limit is reached |\n" +
+        "| `RateLimit-Reset` | Seconds until the window resets |\n\n" +
+        "When the limit is exceeded the server returns **HTTP 429** with `{ \"error\": \"Too many requests, please try again later.\" }`. " +
+        "Clients should read `RateLimit-Remaining` on each response and add exponential back-off when the value approaches 0.",
       contact: {
         name: "Stellar MicroPay",
         url: "https://github.com/Emmy123222/Stellar-MicroPay",
@@ -138,6 +152,91 @@ const options = {
             averageAmount: { type: "string" },
           },
         },
+        TxFunctionChallengeRequest: {
+          type: "object",
+          required: ["ownerPublicKey", "type", "config"],
+          properties: {
+            ownerPublicKey: {
+              type: "string",
+              pattern: "^G[A-Z0-9]{55}$",
+              description: "Stellar public key of the txFunction owner",
+            },
+            type: {
+              type: "string",
+              enum: ["dca", "stop_loss", "escrow_release"],
+              description: "Type of automated txFunction",
+            },
+            config: {
+              type: "object",
+              description: "Type-specific configuration — see DcaConfig, StopLossConfig, or EscrowReleaseConfig",
+            },
+          },
+        },
+        TxFunctionChallengeResponse: {
+          type: "object",
+          properties: {
+            challengeXDR: {
+              type: "string",
+              description: "Base64-encoded ManageData transaction XDR the owner must sign",
+            },
+            deploymentHash: {
+              type: "string",
+              description: "SHA-256 hash of the normalised config, included in the challenge",
+            },
+            normalizedConfig: { type: "object" },
+            networkPassphrase: { type: "string" },
+          },
+        },
+        TxFunctionDeployRequest: {
+          type: "object",
+          required: ["ownerPublicKey", "type", "config", "deploymentHash", "signedChallengeXDR"],
+          properties: {
+            ownerPublicKey: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            type: { type: "string", enum: ["dca", "stop_loss", "escrow_release"] },
+            config: { type: "object" },
+            deploymentHash: { type: "string" },
+            signedChallengeXDR: {
+              type: "string",
+              description: "The challenge XDR signed by the owner's Freighter (or Ledger) wallet",
+            },
+          },
+        },
+        TxFunctionDeployment: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            ownerPublicKey: { type: "string" },
+            type: { type: "string", enum: ["dca", "stop_loss", "escrow_release"] },
+            status: { type: "string", enum: ["active", "paused", "completed"] },
+            config: { type: "object" },
+            deploymentHash: { type: "string" },
+            createdAt: { type: "string", format: "date-time" },
+            nextRunAt: { type: "string", format: "date-time", nullable: true },
+            lastExecutedAt: { type: "string", format: "date-time", nullable: true },
+            lastCheckedAt: { type: "string", format: "date-time", nullable: true },
+            lastObservedPriceUsd: { type: "number", nullable: true },
+            lastError: { type: "string", nullable: true },
+          },
+        },
+        ExecutionLogEntry: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            deploymentId: { type: "string", format: "uuid" },
+            status: {
+              type: "string",
+              enum: ["created", "executed", "error", "status"],
+              description: "Execution event type",
+            },
+            message: { type: "string" },
+            result: {
+              type: "object",
+              nullable: true,
+              description: "Operation intent generated by the txFunction evaluator",
+            },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
       },
     },
     paths: {
@@ -246,6 +345,11 @@ const options = {
           responses: {
             200: {
               description: "Account info",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer", example: 100 } },
+                "RateLimit-Remaining": { schema: { type: "integer" } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
               content: {
                 "application/json": {
                   schema: {
@@ -259,6 +363,7 @@ const options = {
               },
             },
             404: { description: "Account not found" },
+            429: { description: "Rate limit exceeded — back off and retry after RateLimit-Reset seconds" },
           },
         },
       },
@@ -389,6 +494,11 @@ const options = {
           responses: {
             200: {
               description: "Payment history",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer", example: 100 } },
+                "RateLimit-Remaining": { schema: { type: "integer" } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
               content: {
                 "application/json": {
                   schema: {
@@ -404,6 +514,7 @@ const options = {
                 },
               },
             },
+            429: { description: "Rate limit exceeded" },
           },
         },
       },
@@ -662,18 +773,263 @@ const options = {
       "/api/turrets": {
         get: {
           tags: ["Turrets"],
-          summary: "List deployed turrets",
+          summary: "List txFunction deployments",
+          description: "Returns all deployments. Filter by owner using `ownerPublicKey` query parameter.",
+          parameters: [
+            {
+              name: "ownerPublicKey",
+              in: "query",
+              required: false,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+              description: "Filter deployments by owner Stellar public key",
+            },
+          ],
           responses: {
-            200: { description: "List of turrets" },
+            200: {
+              description: "Array of deployments",
+              headers: {
+                "RateLimit-Limit": {
+                  description: "Maximum requests allowed in the current window (20 per minute)",
+                  schema: { type: "integer", example: 20 },
+                },
+                "RateLimit-Remaining": {
+                  description: "Requests remaining in the current window",
+                  schema: { type: "integer", example: 19 },
+                },
+                "RateLimit-Reset": {
+                  description: "Seconds until the rate-limit window resets",
+                  schema: { type: "integer", example: 45 },
+                },
+              },
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      data: {
+                        type: "array",
+                        items: { $ref: "#/components/schemas/TxFunctionDeployment" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            429: {
+              description: "Rate limit exceeded",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer" } },
+                "RateLimit-Remaining": { schema: { type: "integer", example: 0 } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
+            },
           },
         },
       },
       "/api/turrets/challenge": {
         post: {
           tags: ["Turrets"],
-          summary: "Get a turrets authentication challenge",
+          summary: "Create a txFunction signing challenge",
+          description: "Returns a ManageData transaction XDR that the user must sign with their Stellar keypair to prove ownership. The signed XDR is then passed to `POST /api/turrets/deploy`.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TxFunctionChallengeRequest" },
+              },
+            },
+          },
           responses: {
-            200: { description: "Challenge data" },
+            200: {
+              description: "Challenge XDR and deployment hash",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer", example: 20 } },
+                "RateLimit-Remaining": { schema: { type: "integer" } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      data: { $ref: "#/components/schemas/TxFunctionChallengeResponse" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Invalid request body (bad public key, unknown type, invalid config)" },
+            429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/turrets/deploy": {
+        post: {
+          tags: ["Turrets"],
+          summary: "Deploy a signed txFunction",
+          description: "Verifies the signed challenge and registers the txFunction. The runner begins evaluating the deployment immediately.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TxFunctionDeployRequest" },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Deployment created",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer", example: 20 } },
+                "RateLimit-Remaining": { schema: { type: "integer" } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      data: { $ref: "#/components/schemas/TxFunctionDeployment" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Config hash mismatch or invalid asset" },
+            401: { description: "Signed challenge was not signed by the owner" },
+            429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/turrets/{id}": {
+        get: {
+          tags: ["Turrets"],
+          summary: "Get a single txFunction deployment",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Deployment details",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer", example: 20 } },
+                "RateLimit-Remaining": { schema: { type: "integer" } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      data: { $ref: "#/components/schemas/TxFunctionDeployment" },
+                    },
+                  },
+                },
+              },
+            },
+            404: { description: "Deployment not found" },
+            429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/turrets/{id}/history": {
+        get: {
+          tags: ["Turrets"],
+          summary: "Get execution history for a deployment",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Execution log entries (most recent first)",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer", example: 20 } },
+                "RateLimit-Remaining": { schema: { type: "integer" } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      data: {
+                        type: "array",
+                        items: { $ref: "#/components/schemas/ExecutionLogEntry" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            404: { description: "Deployment not found" },
+            429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/turrets/{id}/pause": {
+        post: {
+          tags: ["Turrets"],
+          summary: "Pause a txFunction deployment",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Updated deployment with status 'paused'",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer", example: 20 } },
+                "RateLimit-Remaining": { schema: { type: "integer" } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
+            },
+            404: { description: "Deployment not found" },
+            429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/turrets/{id}/resume": {
+        post: {
+          tags: ["Turrets"],
+          summary: "Resume a paused txFunction deployment",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string", format: "uuid" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Updated deployment with status 'active'",
+              headers: {
+                "RateLimit-Limit": { schema: { type: "integer", example: 20 } },
+                "RateLimit-Remaining": { schema: { type: "integer" } },
+                "RateLimit-Reset": { schema: { type: "integer" } },
+              },
+            },
+            404: { description: "Deployment not found" },
+            429: { description: "Rate limit exceeded" },
           },
         },
       },

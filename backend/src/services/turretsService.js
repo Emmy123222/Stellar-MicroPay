@@ -104,10 +104,61 @@ function normalizeStopLossConfig(config = {}) {
   };
 }
 
+function normalizeEscrowReleaseConfig(config = {}) {
+  const escrowPublicKey = config.escrowPublicKey || null;
+  const beneficiaryPublicKey = config.beneficiaryPublicKey || null;
+  const releaseAmount = Number(config.releaseAmount || 0);
+  const assetCode = (config.assetCode || "XLM").toUpperCase();
+  const assetIssuer = config.assetIssuer || null;
+  const releaseCondition = config.releaseCondition || "time";
+  const releaseAfterMs = Number(config.releaseAfterMs || 0);
+
+  if (!escrowPublicKey || !/^G[A-Z0-9]{55}$/.test(escrowPublicKey)) {
+    const err = new Error("escrow_release: valid escrowPublicKey is required");
+    err.status = 400;
+    throw err;
+  }
+
+  if (!beneficiaryPublicKey || !/^G[A-Z0-9]{55}$/.test(beneficiaryPublicKey)) {
+    const err = new Error("escrow_release: valid beneficiaryPublicKey is required");
+    err.status = 400;
+    throw err;
+  }
+
+  if (!Number.isFinite(releaseAmount) || releaseAmount <= 0) {
+    const err = new Error("escrow_release: releaseAmount must be greater than 0");
+    err.status = 400;
+    throw err;
+  }
+
+  if (!["time", "manual"].includes(releaseCondition)) {
+    const err = new Error("escrow_release: releaseCondition must be 'time' or 'manual'");
+    err.status = 400;
+    throw err;
+  }
+
+  if (releaseCondition === "time" && (!Number.isFinite(releaseAfterMs) || releaseAfterMs <= 0)) {
+    const err = new Error("escrow_release: releaseAfterMs must be greater than 0 for time-based release");
+    err.status = 400;
+    throw err;
+  }
+
+  return {
+    escrowPublicKey,
+    beneficiaryPublicKey,
+    releaseAmount,
+    assetCode,
+    assetIssuer,
+    releaseCondition,
+    releaseAfterMs,
+  };
+}
+
 function normalizeConfig(type, config) {
   if (type === "dca") return normalizeDcaConfig(config);
   if (type === "stop_loss") return normalizeStopLossConfig(config);
-  const err = new Error("Unsupported txFunction type. Use 'dca' or 'stop_loss'.");
+  if (type === "escrow_release") return normalizeEscrowReleaseConfig(config);
+  const err = new Error("Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'.");
   err.status = 400;
   throw err;
 }
@@ -223,6 +274,24 @@ function stopLossTxFunction(config, xlmUsdPrice) {
   };
 }
 
+function escrowReleaseTxFunction(config) {
+  const asset =
+    config.assetCode === "XLM"
+      ? { code: "XLM", issuer: null }
+      : { code: config.assetCode, issuer: config.assetIssuer };
+
+  return {
+    action: "escrow_release",
+    stellarOperation: "payment",
+    from: config.escrowPublicKey,
+    to: config.beneficiaryPublicKey,
+    asset,
+    amount: config.releaseAmount.toFixed(7),
+    releaseCondition: config.releaseCondition,
+    note: "Release escrowed funds to beneficiary without the backend holding private keys.",
+  };
+}
+
 function addExecutionLog(deploymentId, status, message, result = null) {
   executionHistory.push({
     id: crypto.randomUUID(),
@@ -298,6 +367,16 @@ async function evaluateDeployment(deployment) {
         deployment.nextRunAt = new Date(Date.now() + 60 * 1000).toISOString();
       }
     }
+
+    if (deployment.type === "escrow_release") {
+      const releaseAt = deployment.createdAtMs + deployment.config.releaseAfterMs;
+      if (deployment.config.releaseCondition === "time" && now >= releaseAt) {
+        const result = escrowReleaseTxFunction(deployment.config);
+        deployment.lastExecutedAt = new Date().toISOString();
+        deployment.status = "completed";
+        addExecutionLog(deployment.id, "executed", "Escrow time-lock expired, release triggered", result);
+      }
+    }
   } catch (err) {
     deployment.lastError = err.message;
     deployment.lastCheckedAt = new Date().toISOString();
@@ -346,7 +425,21 @@ function deployTxFunction({ ownerPublicKey, type, config, deploymentHash, signed
     toDexAsset(normalizedConfig.sellAssetCode, normalizedConfig.sellAssetIssuer);
   }
 
+  if (type === "escrow_release" && normalizedConfig.assetCode !== "XLM") {
+    toDexAsset(normalizedConfig.assetCode, normalizedConfig.assetIssuer);
+  }
+
   const id = crypto.randomUUID();
+  const now = Date.now();
+
+  let nextRunAt;
+  if (type === "dca") {
+    nextRunAt = nextRunIso(normalizedConfig.intervalMinutes);
+  } else if (type === "escrow_release") {
+    nextRunAt = new Date(now + normalizedConfig.releaseAfterMs).toISOString();
+  } else {
+    nextRunAt = new Date(now + 60 * 1000).toISOString();
+  }
 
   const deployment = {
     id,
@@ -356,11 +449,9 @@ function deployTxFunction({ ownerPublicKey, type, config, deploymentHash, signed
     config: normalizedConfig,
     deploymentHash,
     signedChallengeXDR,
-    createdAt: new Date().toISOString(),
-    nextRunAt:
-      type === "dca"
-        ? nextRunIso(normalizedConfig.intervalMinutes)
-        : new Date(Date.now() + 60 * 1000).toISOString(),
+    createdAt: new Date(now).toISOString(),
+    createdAtMs: now,
+    nextRunAt,
     lastExecutedAt: null,
     lastCheckedAt: null,
     lastObservedPriceUsd: null,

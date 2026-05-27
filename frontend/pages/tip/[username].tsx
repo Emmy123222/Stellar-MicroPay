@@ -4,11 +4,6 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import TipWidget from "@/components/TipWidget";
 
-interface TipPageProps {
-  publicKey: string | null;
-  onConnect: (publicKey: string) => void;
-}
-
 interface ResolvedAccount {
   username: string;
   publicKey: string;
@@ -20,7 +15,7 @@ type ResolveState =
   | { status: "not-found"; message: string }
   | { status: "error"; message: string };
 
-export default function TipPage({ publicKey, onConnect }: TipPageProps) {
+export default function TipPage() {
   const router = useRouter();
   const routeUsername = useMemo(() => {
     const raw = router.query.username;
@@ -143,8 +138,6 @@ export default function TipPage({ publicKey, onConnect }: TipPageProps) {
             <TipWidget
               creatorUsername={resolveState.account.username}
               destination={resolveState.account.publicKey}
-              publicKey={publicKey}
-              onConnect={onConnect}
             />
           )}
         </div>

@@ -5,23 +5,24 @@
 
 import { useState, useEffect } from "react";
 import { 
-  connectWallet, 
+  connectWallet as requestWalletConnection,
   isFreighterInstalled, 
   detectBrowser, 
   EXTENSION_URLS, 
   performSEP0010Auth,
   getLedgerPublicKey,
-  signTransactionWithLedger,
   isLedgerSupported
 } from "@/lib/wallet";
+import { useWallet } from "@/lib/useWallet";
 
 interface WalletConnectProps {
-  onConnect: (publicKey: string) => void;
+  onConnectSuccess?: (publicKey: string) => void;
 }
 
 type WalletType = "freighter" | "ledger";
 
-export default function WalletConnect({ onConnect }: WalletConnectProps) {
+export default function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
+  const { connectWallet } = useWallet();
   const [loading, setLoading] = useState(false);
   const [step, setStep]       = useState<"idle" | "connecting" | "authenticating">("idle");
   const [error, setError]     = useState<string | null>(null);
@@ -51,7 +52,7 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
     }
 
     setShowInstallPrompt(false);
-    const { publicKey, error: walletError } = await connectWallet();
+    const { publicKey, error: walletError } = await requestWalletConnection();
 
     if (walletError || !publicKey) {
       setError(walletError || "Could not retrieve public key.");
@@ -71,7 +72,8 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
       return;
     }
 
-    onConnect(publicKey);
+    connectWallet(publicKey);
+    onConnectSuccess?.(publicKey);
   };
 
   const handleLedgerConnect = async () => {
@@ -100,7 +102,8 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
       return;
     }
 
-    onConnect(publicKey);
+    connectWallet(publicKey);
+    onConnectSuccess?.(publicKey);
   };
 
   const extensionUrl = EXTENSION_URLS[browser];

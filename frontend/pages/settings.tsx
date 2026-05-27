@@ -6,7 +6,6 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
-import Navbar from "@/components/Navbar";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
 import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
 import {
@@ -18,6 +17,7 @@ import {
   TurretsDeployment,
 } from "@/lib/turrets";
 import { shortenAddress } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 
 interface SettingsPageProps {
   publicKey: string | null;
@@ -242,7 +242,7 @@ export default function SettingsPage({
     // Disconnect wallet to force reconnect on new network
     if (publicKey) {
       disconnectWallet();
-      onDisconnect();
+      disconnectCurrentWallet();
     }
 
     setShowMainnetWarning(false);
@@ -259,7 +259,7 @@ export default function SettingsPage({
       // Disconnect wallet on URL change
       if (publicKey) {
         disconnectWallet();
-        onDisconnect();
+        disconnectCurrentWallet();
       }
     }
   };
@@ -322,15 +322,8 @@ export default function SettingsPage({
       <Head>
         <title>Settings - Stellar MicroPay</title>
       </Head>
-
       <div className="min-h-screen bg-white dark:bg-cosmos-900">
-        <Navbar
-          publicKey={publicKey}
-          onConnect={onConnect}
-          onDisconnect={onDisconnect}
-        />
-
-        <main className="max-w-2xl mx-auto px-4 py-8">
+        <main className="mx-auto max-w-2xl px-4 py-8">
           <div className="space-y-8">
             <div>
               <h1 className="text-2xl font-display font-bold text-slate-900 dark:text-white mb-2">

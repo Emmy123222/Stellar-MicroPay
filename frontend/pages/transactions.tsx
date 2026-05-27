@@ -12,7 +12,8 @@ import TransactionList, {
   TransactionFilters,
 } from "@/components/TransactionList";
 import { fetchAllPayments, NETWORK, shortenAddress, PaymentRecord } from "@/lib/stellar";
-import { exportToCSV, exportToJSON, formatDate, formatXLM } from "@/utils/format";
+import { exportToCSV, exportToJSON, formatAsset, formatDate } from "@/utils/format";
+import { useWallet } from "@/lib/useWallet";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "stellar-micropay:transaction-filters";
@@ -26,16 +27,12 @@ const DIRECTION_FILTERS: Array<{
   { label: "Received", value: "received" },
 ];
 
-interface TransactionsProps {
-  publicKey: string | null;
-  onConnect: (pk: string) => void;
-}
-
 function isDirectionFilter(value: unknown): value is TransactionDirectionFilter {
   return value === "all" || value === "sent" || value === "received";
 }
 
-export default function Transactions({ publicKey, onConnect }: TransactionsProps) {
+export default function Transactions() {
+  const { publicKey } = useWallet();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [exporting, setExporting] = useState(false);
   const [exportCount, setExportCount] = useState(0);
@@ -194,7 +191,7 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
           </h1>
           <p className="text-slate-400">{`Connect your wallet to view your payments`}</p>
         </div>
-        <WalletConnect onConnect={onConnect} />
+        <WalletConnect />
       </div>
     );
   }
@@ -464,7 +461,10 @@ export default function Transactions({ publicKey, onConnect }: TransactionsProps
 
             <dl className="grid gap-4 text-sm text-slate-700">
               <ReceiptRow label="Date" value={formatDate(receiptPayment.createdAt)} />
-              <ReceiptRow label="Amount" value={formatXLM(receiptPayment.amount)} />
+              <ReceiptRow
+                label="Amount"
+                value={formatAsset(receiptPayment.amount, receiptPayment.asset)}
+              />
               <ReceiptRow label="Sender" value={receiptPayment.from} mono />
               <ReceiptRow label="Recipient" value={receiptPayment.to} mono />
               <ReceiptRow label="Memo" value={receiptPayment.memo || "-"} />

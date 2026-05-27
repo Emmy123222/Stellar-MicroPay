@@ -32,7 +32,7 @@ describe("tip page", () => {
   });
 
   afterEach(() => {
-    jest.resetAllMocks();
+    jest.clearAllMocks();
   });
 
   it("loads the tip widget for a resolved username", async () => {
@@ -48,7 +48,7 @@ describe("tip page", () => {
       }),
     });
 
-    render(<TipPage publicKey={null} onConnect={jest.fn()} />);
+    render(<TipPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("tip-widget")).toHaveTextContent(`alice:G${"A".repeat(55)}`);
@@ -68,7 +68,7 @@ describe("tip page", () => {
       }),
     });
 
-    render(<TipPage publicKey={null} onConnect={jest.fn()} />);
+    render(<TipPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Creator not found")).toBeInTheDocument();

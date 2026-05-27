@@ -14,7 +14,7 @@ import {
 import { copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
 import { useRouter } from "next/router";
-import clsx from "clsx";
+import { useWallet } from "@/lib/useWallet";
 
 interface Contact {
   id: string;
@@ -23,14 +23,10 @@ interface Contact {
   createdAt: number;
 }
 
-interface ContactsProps {
-  publicKey: string | null;
-  onConnect: (pk: string) => void;
-}
-
 const STORAGE_KEY = "stellar-micropay-contacts";
 
-export default function Contacts({ publicKey, onConnect }: ContactsProps) {
+export default function Contacts() {
+  const { publicKey } = useWallet();
   const router = useRouter();
   const { visible: toastVisible, message: toastMessage, showToast } = useToast();
 
@@ -187,7 +183,7 @@ export default function Contacts({ publicKey, onConnect }: ContactsProps) {
           </h1>
           <p className="text-slate-400">{`Connect your wallet to manage contacts`}</p>
         </div>
-        <WalletConnect onConnect={onConnect} />
+        <WalletConnect />
       </div>
     );
   }

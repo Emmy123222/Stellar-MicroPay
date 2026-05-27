@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20.19.5-alpine
 
 WORKDIR /app
 
@@ -12,4 +12,4 @@ COPY . .
 # Expose port 4000
 EXPOSE 4000
 
-CMD ["node", "src/index.js"]
+CMD ["node", "src/server.js"]

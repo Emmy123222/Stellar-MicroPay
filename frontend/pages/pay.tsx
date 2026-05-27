@@ -13,11 +13,7 @@ import {
   canRedeemPaymentLink,
   markPaymentLinkRedeemed,
 } from "@/lib/paymentLinks";
-
-interface PayPageProps {
-  publicKey: string | null;
-  onConnect: (pk: string) => void;
-}
+import { useWallet } from "@/lib/useWallet";
 
 interface PrefillData {
   destination: string;
@@ -26,7 +22,8 @@ interface PrefillData {
   validUntil?: number;
 }
 
-export default function PayPage({ publicKey, onConnect }: PayPageProps) {
+export default function PayPage() {
+  const { publicKey } = useWallet();
   const router = useRouter();
   const { data } = router.query;
   
@@ -138,7 +135,7 @@ export default function PayPage({ publicKey, onConnect }: PayPageProps) {
 
       {!publicKey ? (
         <div className="card border-stellar-500/20 bg-cosmos-900/50">
-          <WalletConnect onConnect={onConnect} />
+          <WalletConnect />
         </div>
       ) : (
         <div className="animate-slide-up">

@@ -4,6 +4,7 @@ import TipWidget from "@/components/TipWidget";
 import { getXLMBalance } from "@/lib/stellar";
 
 const mockSendPaymentForm = jest.fn();
+const mockUseWallet = jest.fn();
 
 jest.mock("@/components/SendPaymentForm", () => ({
   __esModule: true,
@@ -23,11 +24,15 @@ jest.mock("@/components/SendPaymentForm", () => ({
 
 jest.mock("@/components/WalletConnect", () => ({
   __esModule: true,
-  default: ({ onConnect }: { onConnect: (publicKey: string) => void }) => (
-    <button type="button" onClick={() => onConnect(`G${"B".repeat(55)}`)}>
+  default: ({ onConnectSuccess }: { onConnectSuccess?: (publicKey: string) => void }) => (
+    <button type="button" onClick={() => onConnectSuccess?.(`G${"B".repeat(55)}`)}>
       Mock wallet connect
     </button>
   ),
+}));
+
+jest.mock("@/lib/useWallet", () => ({
+  useWallet: () => mockUseWallet(),
 }));
 
 jest.mock("@/lib/stellar", () => ({
@@ -46,14 +51,14 @@ describe("TipWidget", () => {
   it("shows the wallet connect prompt only after an unconnected user clicks the tip CTA", async () => {
     const user = userEvent.setup();
 
-    render(
-      <TipWidget
-        creatorUsername="alice"
-        destination={destination}
-        publicKey={null}
-        onConnect={jest.fn()}
-      />
-    );
+    mockUseWallet.mockReturnValue({
+      publicKey: null,
+      connectWallet: jest.fn(),
+      disconnectWallet: jest.fn(),
+      isWalletReady: true,
+    });
+
+    render(<TipWidget creatorUsername="alice" destination={destination} />);
 
     expect(screen.queryByText("Mock wallet connect")).not.toBeInTheDocument();
 
@@ -65,14 +70,14 @@ describe("TipWidget", () => {
   it("uses preset and custom amounts to prefill the existing send form", async () => {
     const user = userEvent.setup();
 
-    render(
-      <TipWidget
-        creatorUsername="alice"
-        destination={destination}
-        publicKey={`G${"C".repeat(55)}`}
-        onConnect={jest.fn()}
-      />
-    );
+    mockUseWallet.mockReturnValue({
+      publicKey: `G${"C".repeat(55)}`,
+      connectWallet: jest.fn(),
+      disconnectWallet: jest.fn(),
+      isWalletReady: true,
+    });
+
+    render(<TipWidget creatorUsername="alice" destination={destination} />);
 
     await waitFor(() => {
       expect(mockSendPaymentForm).toHaveBeenCalled();
@@ -98,14 +103,14 @@ describe("TipWidget", () => {
   it("shows a success banner after a completed tip", async () => {
     const user = userEvent.setup();
 
-    render(
-      <TipWidget
-        creatorUsername="alice"
-        destination={destination}
-        publicKey={`G${"D".repeat(55)}`}
-        onConnect={jest.fn()}
-      />
-    );
+    mockUseWallet.mockReturnValue({
+      publicKey: `G${"D".repeat(55)}`,
+      connectWallet: jest.fn(),
+      disconnectWallet: jest.fn(),
+      isWalletReady: true,
+    });
+
+    render(<TipWidget creatorUsername="alice" destination={destination} />);
 
     await user.click(screen.getByRole("button", { name: /complete tip/i }));
 

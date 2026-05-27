@@ -9,7 +9,10 @@ const rateLimit = require("express-rate-limit");
 
 /**
  * Strict rate limiting — 20 requests per minute.
- * Applied to sensitive lookups like accounts and payments.
+ * Applied to Turrets txFunctions routes.
+ *
+ * standardHeaders: true  → emits RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset.
+ * legacyHeaders: false   → suppresses deprecated X-RateLimit-* headers.
  */
 const strictLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,

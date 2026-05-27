@@ -7,6 +7,7 @@
 "use strict";
 
 const { Horizon } = require("@stellar/stellar-sdk");
+const logger = require("../utils/logger");
 require("dotenv").config();
 
 const HORIZON_URL =
@@ -49,8 +50,10 @@ async function getAccount(publicKey) {
         "Account not found. It may not be funded yet. Use Friendbot on testnet."
       );
       error.status = 404;
+      logger.error({ err: error, publicKey: publicKey.replace(/[\r\n]/g, "") }, "Account not found");
       throw error;
     }
+    logger.error({ err, publicKey: publicKey.replace(/[\r\n]/g, "") }, "Error loading account from Horizon");
     throw err;
   }
 }
@@ -97,7 +100,8 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
       if (tx.memo_type === "text" && tx.memo) {
         memo = tx.memo;
       }
-    } catch {
+    } catch (err) {
+      logger.error({ err, transactionHash: op.transaction_hash }, "Failed to fetch memo for transaction");
       // memo is optional
     }
 

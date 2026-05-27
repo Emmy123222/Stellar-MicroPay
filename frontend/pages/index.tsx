@@ -8,12 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState } from "react";
 import WalletConnect from "@/components/WalletConnect";
-import { useCountUp } from "@/lib/useCountUp";
-
-interface HomeProps {
-    publicKey: string | null;
-    onConnect: (pk: string) => void;
-}
+import { useWallet } from "@/lib/useWallet";
 
 const FEATURES = [
   { icon: "⚡", title: "Instant Settlement", desc: "Stellar transactions confirm in 3–5 seconds. No waiting for bank transfers." },
@@ -28,12 +23,13 @@ const STATS = [
   { target: 100, label: "Countries supported", suffix: "+" },
 ];
 
-export default function Home({ publicKey, onConnect }: HomeProps) {
+export default function Home() {
+  const { publicKey } = useWallet();
   const router = useRouter();
   const [showConnect, setShowConnect] = useState(false);
 
-  const handleWalletConnect = (pk: string) => {
-    onConnect(pk);
+  const handleWalletConnect = (_publicKey: string) => {
+    setShowConnect(false);
     router.push("/dashboard");
   };
 
@@ -270,7 +266,7 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
         {showConnect && !publicKey && (
           <div className="fixed inset-0 z-50 bg-cosmos-900/90 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="w-full max-w-md">
-              <WalletConnect onConnect={handleWalletConnect} />
+              <WalletConnect onConnectSuccess={handleWalletConnect} />
               <button onClick={() => setShowConnect(false)} className="mt-4 w-full text-center text-sm text-slate-500 hover:text-slate-300 transition-colors cursor-pointer">
                 Cancel
               </button>

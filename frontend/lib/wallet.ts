@@ -256,8 +256,9 @@ export async function signTransactionWithWallet(
  * when the app's state is updated.
  */
 export function disconnectWallet(): void {
-  // Freighter doesn't have a disconnect API, so we just clear local state
-  // The actual disconnect is handled by the app's state management
+  // Freighter doesn't expose an explicit disconnect API, so the app clears
+  // any local auth state and lets React own the connected wallet lifecycle.
+  setJwtToken(null);
 }
 
 /**
@@ -278,6 +279,5 @@ export async function signTransactionWithLedger(xdr: string): Promise<{ signedXD
 export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; error: string | null }> {
   return { publicKey: null, error: "Ledger support not implemented." };
 }
-
 
 

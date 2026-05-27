@@ -3,7 +3,7 @@
  * Stellar DEX trading interface with market/limit orders, orderbook, and trade history.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Asset } from "@stellar/stellar-sdk";
 import {
   fetchOrderbook,
@@ -19,13 +19,12 @@ import {
 } from "@/lib/stellar";
 import TradeForm from "@/components/TradeForm";
 import Toast from "@/components/Toast";
+import WalletConnect from "@/components/WalletConnect";
+import { useWallet } from "@/lib/useWallet";
 import { format } from "date-fns";
 
-interface TradePageProps {
-  publicKey: string;
-}
-
-export default function Trade({ publicKey }: TradePageProps) {
+export default function Trade() {
+  const { publicKey } = useWallet();
   const [orderbook, setOrderbook] = useState<Orderbook | null>(null);
   const [tradeHistory, setTradeHistory] = useState<TradeAggregation[]>([]);
   const [openOffers, setOpenOffers] = useState<OpenOffer[]>([]);
@@ -34,17 +33,17 @@ export default function Trade({ publicKey }: TradePageProps) {
   const [activeTab, setActiveTab] = useState<"trade" | "orders" | "history">("trade");
 
   // Load orderbook data
-  const loadOrderbook = async () => {
+  const loadOrderbook = useCallback(async () => {
     try {
       const data = await fetchOrderbook(USDC, Asset.native(), 10);
       setOrderbook(data);
     } catch (error) {
       console.error("Failed to load orderbook:", error);
     }
-  };
+  }, []);
 
   // Load trade history for last 24 hours
-  const loadTradeHistory = async () => {
+  const loadTradeHistory = useCallback(async () => {
     try {
       const endTime = new Date();
       const startTime = new Date(endTime.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
@@ -61,20 +60,22 @@ export default function Trade({ publicKey }: TradePageProps) {
     } catch (error) {
       console.error("Failed to load trade history:", error);
     }
-  };
+  }, []);
 
   // Load open offers
-  const loadOpenOffers = async () => {
+  const loadOpenOffers = useCallback(async () => {
+    if (!publicKey) return;
     try {
       const offers = await fetchOpenOffers(publicKey);
       setOpenOffers(offers);
     } catch (error) {
       console.error("Failed to load open offers:", error);
     }
-  };
+  }, [publicKey]);
 
   // Cancel an offer
   const handleCancelOffer = async (offer: OpenOffer) => {
+    if (!publicKey) return;
     setIsLoading(true);
     try {
       const transaction = await buildCancelOfferTransaction({
@@ -112,18 +113,34 @@ export default function Trade({ publicKey }: TradePageProps) {
   // Load data on component mount and tab changes
   useEffect(() => {
     if (activeTab === "trade") {
-      loadOrderbook();
-      loadTradeHistory();
+      void loadOrderbook();
+      void loadTradeHistory();
     } else if (activeTab === "orders") {
-      loadOpenOffers();
+      void loadOpenOffers();
     }
-  }, [activeTab, publicKey]);
+  }, [activeTab, loadOpenOffers, loadOrderbook, loadTradeHistory]);
 
   // Format asset display
   const formatAsset = (asset: Asset): string => {
     if (asset.isNative()) return "XLM";
     return `${asset.code}:${asset.issuer}`;
   };
+
+  if (!publicKey) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
+        <div className="mb-10 text-center">
+          <h1 className="mb-3 font-display text-3xl font-bold text-white">
+            Stellar DEX Trading
+          </h1>
+          <p className="text-slate-400">
+            Connect your wallet to trade XLM and USDC on the Stellar DEX.
+          </p>
+        </div>
+        <WalletConnect />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">

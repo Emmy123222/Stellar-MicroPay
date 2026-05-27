@@ -258,3 +258,15 @@
 @media (prefers-reduced-motion: reduce) {
   .confetti__piece { animation: none; opacity: 0; }
 }
+
+@keyframes balance-flash {
+  0%   { color: #fff; }
+  30%  { color: #7dd3fc; text-shadow: 0 0 12px rgba(125,211,252,0.6); }
+  100% { color: inherit; text-shadow: none; }
+}
+.balance-flash {
+  animation: balance-flash 0.8s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .balance-flash { animation: none; }
+}
