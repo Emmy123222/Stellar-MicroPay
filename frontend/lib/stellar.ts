@@ -1661,3 +1661,51 @@ export async function fetchNetworkStats(): Promise<NetworkStats> {
   };
 }
 
+
+// ── Stellar Name Service ──────────────────────────────────────────────────
+
+const snsCache = new Map<string, { address: string; expiresAt: number }>()
+const SNS_CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+
+/**
+ * Resolves a Stellar name (e.g. alice.xlm) to a Stellar address.
+ * Uses Stellar Federation protocol under the hood.
+ * Caches results for 10 minutes.
+ */
+export async function resolveStellarName(name: string): Promise<string> {
+  const trimmed = name.trim()
+  
+  // Return as-is if already a valid Stellar address
+  if (isValidStellarAddress(trimmed)) return trimmed
+  
+  // Check cache
+  const cached = snsCache.get(trimmed)
+  if (cached && cached.expiresAt > Date.now()) return cached.address
+
+  // Must contain a * for federation (e.g. alice*stellar.org) or end in .xlm
+  let federationAddress = trimmed
+  if (trimmed.endsWith('.xlm')) {
+    // Convert alice.xlm -> alice*stellarnames.org
+    const parts = trimmed.split('.')
+    federationAddress = `${parts[0]}*stellarnames.org`
+  } else if (!trimmed.includes('*')) {
+    throw new Error(`Invalid Stellar name: ${trimmed}`)
+  }
+
+  try {
+    const record = await Federation.Server.resolve(federationAddress)
+    if (!record.account_id) throw new Error('Name resolved but no address found')
+    snsCache.set(trimmed, { address: record.account_id, expiresAt: Date.now() + SNS_CACHE_TTL_MS })
+    return record.account_id
+  } catch (err: any) {
+    throw new Error(`Could not resolve "${trimmed}": ${err.message ?? 'Unknown error'}`)
+  }
+}
+
+/**
+ * Returns true if the input looks like a Stellar name (not a raw address)
+ */
+export function isStellarName(value: string): boolean {
+  const v = value.trim()
+  return v.endsWith('.xlm') || v.includes('*')
+}
