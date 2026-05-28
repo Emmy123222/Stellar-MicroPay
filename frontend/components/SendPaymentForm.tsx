@@ -18,6 +18,8 @@ import {
   explorerUrl,
   fetchNetworkFeeStats,
   isValidStellarAddress,
+  resolveStellarName,
+  isStellarName,
   server,
   STELLAR_BASE_FEE_XLM,
   STELLAR_MEMO_TEXT_MAX_BYTES,
@@ -262,7 +264,25 @@ export default function SendPaymentForm({
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    
+  const handleDestinationChange = async (value: string) => {
+    setDestination(value)
+    setSnsResolved(null)
+    setSnsError(null)
+    if (isStellarName(value)) {
+      setSnsResolving(true)
+      try {
+        const address = await resolveStellarName(value)
+        setSnsResolved(address)
+      } catch (err: any) {
+        setSnsError(err.message ?? "Could not resolve name")
+      } finally {
+        setSnsResolving(false)
+      }
+    }
+  }
+
+  return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const saveRecipient = (address: string) => {
