@@ -30,7 +30,9 @@ ehthumbs.db
 Thumbs.db
 
 # ─── Editor ───────────────────────────────────────────────────────────────────
-.vscode/
+# Ignore personal editor settings but track shared team config
+.vscode/*
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo

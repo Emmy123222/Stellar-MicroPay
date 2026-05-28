@@ -1,0 +1,16 @@
+{
+  "recommendations": [
+    // JavaScript / TypeScript
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+
+    // Tailwind CSS
+    "bradlc.vscode-tailwindcss",
+
+    // Rust / Soroban contract development
+    "rust-lang.rust-analyzer",
+
+    // TOML (Cargo.toml)
+    "tamasfe.even-better-toml"
+  ]
+}
