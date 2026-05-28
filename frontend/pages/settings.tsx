@@ -25,6 +25,7 @@ interface SettingsPageProps {
   onDisconnect: () => void;
 }
 
+// SNS section added
 export default function SettingsPage({
   publicKey,
   onConnect,
@@ -707,7 +708,28 @@ export default function SettingsPage({
               </button>
             </div>
           </div>
-        </div>
+        
+          {/* ── Stellar Name Service ── */}
+          <div className="card">
+            <h2 className="text-lg font-semibold mb-2">Your Stellar Name</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Register a human-readable name (e.g. <strong>alice.xlm</strong>) that others can use to send you payments instead of your full address.
+            </p>
+            {publicKey && (
+              <p className="text-xs text-gray-400 mb-4 break-all">
+                Your address: <span className="font-mono">{publicKey}</span>
+              </p>
+            )}
+            <a
+              href="https://stellarnames.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary"
+            >
+              Register your name on StellarNames →
+            </a>
+          </div>
+</div>
       )}
     </>
   );
