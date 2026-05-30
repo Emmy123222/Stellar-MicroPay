@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatXLM, shortenAddress, formatUSD } from "@/utils/format";
+import { , , ,  } from "@/components/icons";
 
 interface TipRecord {
   id: number;

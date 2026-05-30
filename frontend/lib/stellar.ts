@@ -21,7 +21,7 @@ import {
   nativeToScVal,
   scValToNative,
   xdr,
-  SorobanRpc,
+  rpc,
   Federation,
 } from "@stellar/stellar-sdk";
 
@@ -206,19 +206,19 @@ export function getSorobanRpcUrl(): string {
 export const SOROBAN_RPC_URL = getSorobanRpcUrl();
 
 /** Pre-configured Soroban RPC server instance. */
-let _sorobanServer: SorobanRpc.Server | null = null;
-export function getSorobanServer(): SorobanRpc.Server {
+let _sorobanServer: rpc.Server | null = null;
+export function getSorobanServer(): rpc.Server {
   const currentUrl = getSorobanRpcUrl();
   if (!_sorobanServer || _sorobanServer.serverURL.toString() !== currentUrl) {
-    _sorobanServer = new SorobanRpc.Server(currentUrl);
+    _sorobanServer = new rpc.Server(currentUrl);
   }
   return _sorobanServer;
 }
 
 // For backwards compatibility
-export const sorobanServer = new Proxy({} as SorobanRpc.Server, {
+export const sorobanServer = new Proxy({} as rpc.Server, {
   get(target, prop) {
-    return getSorobanServer()[prop as keyof SorobanRpc.Server];
+    return getSorobanServer()[prop as keyof rpc.Server];
   },
 });
 
@@ -633,6 +633,44 @@ export async function buildPaymentTransaction({
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
 
+  // For XLM, verify the destination account exists; if not, use create_account
+  // operation with a minimum 1 XLM deposit so the transaction doesn't fail.
+  if (asset === "XLM") {
+    let destinationExists = true;
+    try {
+      await server.loadAccount(toPublicKey);
+    } catch {
+      destinationExists = false;
+    }
+
+    if (!destinationExists) {
+      const amountNum = parseFloat(amount);
+      if (amountNum < 1) {
+        throw new Error(
+          "Destination account does not exist on the Stellar network. A minimum of 1 XLM is required to create a new account."
+        );
+      }
+      // Use create_account operation to fund and activate the new account
+      const builder = new TransactionBuilder(sourceAccount, {
+        fee: STELLAR_BASE_FEE_STROOPS_STRING,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(
+          Operation.createAccount({
+            destination: toPublicKey,
+            startingBalance: amount,
+          })
+        )
+        .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
+
+      if (memo) {
+        builder.addMemo(Memo.text(truncateMemoText(memo)));
+      }
+
+      return builder.build();
+    }
+  }
+
   // For USDC, verify the recipient has a trustline before building the tx
   if (asset === "USDC") {
     const recipient = await server.loadAccount(toPublicKey).catch(() => null);
@@ -828,6 +866,23 @@ export async function getPaymentHistory(
 
   const operations = await operationsBuilder.call();
 
+  // Batch-fetch transaction memos: collect unique hashes for payment ops,
+  // then resolve them all in parallel instead of one-by-one (N+1 fix).
+  const paymentOps = operations.records.filter((op) => op.type === "payment");
+  const uniqueHashes = [...new Set(paymentOps.map((op) => (op as Horizon.HorizonApi.PaymentOperationResponse).transaction_hash))];
+
+  const memoMap = new Map<string, string | undefined>();
+  await Promise.all(
+    uniqueHashes.map(async (hash) => {
+      try {
+        const tx = await server.transactions().transaction(hash).call();
+        memoMap.set(hash, tx.memo && tx.memo_type === "text" ? tx.memo : undefined);
+      } catch {
+        memoMap.set(hash, undefined);
+      }
+    })
+  );
+
   const records: PaymentRecord[] = [];
 
   for (const op of operations.records) {
@@ -836,16 +891,8 @@ export async function getPaymentHistory(
     if (op.type === "payment") {
       const payment = op as Horizon.HorizonApi.PaymentOperationResponse;
 
-      // Fetch transaction for memo
-      let memo: string | undefined;
-      try {
-        const tx = await server.transactions().transaction(payment.transaction_hash).call();
-        if (tx.memo && tx.memo_type === "text") {
-          memo = tx.memo;
-        }
-      } catch {
-        // memo is optional, don't fail
-      }
+      // Look up memo from the pre-fetched batch
+      const memo = memoMap.get(payment.transaction_hash);
 
       const assetCode =
         payment.asset_type === "native" ? "XLM" : payment.asset_code || "???";
@@ -1027,7 +1074,12 @@ export function isValidStellarAddress(address: string): boolean {
  * // → "https://stellar.expert/explorer/testnet/tx/abc123..."
  * ```
 */
-export function explorerUrl(hash: string): string {
+export function explorerUrl(hash: string): string | null {
+  // A Stellar transaction hash is 64 hex chars. Reject anything else so we
+  // never produce a broken / misleading explorer link (#274).
+  if (!/^[a-f0-9]{64}$/i.test(hash)) {
+    return null;
+  }
   const net = NETWORK === "mainnet" ? "public" : "testnet";
   return `https://stellar.expert/explorer/${net}/tx/${hash}`;
 }
@@ -1086,7 +1138,7 @@ export async function buildSorobanTipTransaction({
   // Preflight: Simulate the transaction to get resources and fees
   const simulated = await sorobanServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(simulated)) {
+  if (rpc.Api.isSimulationError(simulated)) {
     throw new Error(`Simulation failed: ${simulated.error}`);
   }
 
@@ -1121,7 +1173,7 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
 
     const sim = await sorobanServer.simulateTransaction(tx);
 
-    if (SorobanRpc.Api.isSimulationSuccess(sim) && sim.result) {
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
       const value = scValToNative(sim.result.retval);
       return value.toString();
     }
@@ -1179,7 +1231,7 @@ export async function buildReceiptMintTransaction({
 
   const simulated = await sorobanServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(simulated)) {
+  if (rpc.Api.isSimulationError(simulated)) {
     throw new Error(`Receipt simulation failed: ${simulated.error}`);
   }
 
@@ -1204,7 +1256,7 @@ export async function getReceiptCount(payer: string): Promise<number> {
       .build();
 
     const sim = await sorobanServer.simulateTransaction(tx);
-    if (SorobanRpc.Api.isSimulationSuccess(sim) && sim.result) {
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
       const value = scValToNative(sim.result.retval);
       return Number(value);
     }

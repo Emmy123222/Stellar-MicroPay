@@ -12,6 +12,7 @@ import {
   submitTransaction,
   NETWORK_PASSPHRASE,
 } from "@/lib/stellar";
+import { SwapIcon } from "@/components/icons";
 
 interface TradeFormProps {
   publicKey: string;
@@ -186,9 +187,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
               onClick={swapAssets}
               className="p-2 rounded-lg bg-stellar-500/20 hover:bg-stellar-500/30 transition-colors"
             >
-              <svg className="w-5 h-5 text-stellar-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-              </svg>
+              <SwapIcon className="w-5 h-5 text-stellar-400" />
             </button>
           </div>
 

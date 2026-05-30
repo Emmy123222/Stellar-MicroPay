@@ -19,6 +19,7 @@ import {
 } from "@/lib/wallet";
 import { useWallet } from "@/lib/useWallet";
 import { useTheme } from "@/pages/_app";
+import { NavStarIcon, MoonIcon, SunIcon } from "@/components/icons";
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -105,7 +106,7 @@ export default function Navbar() {
         <div className="flex items-center gap-4">
           <Link href="/" className="group flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-stellar-500/30 bg-stellar-500/20 transition-colors group-hover:border-stellar-500/60">
-              <StarIcon className="h-4 w-4 text-stellar-400" />
+              <NavStarIcon className="h-4 w-4 text-stellar-400" />
             </div>
             <span className="font-display font-semibold tracking-tight text-slate-900 dark:text-white">
               Stellar<span className="text-stellar-400">MicroPay</span>
@@ -215,51 +216,3 @@ export default function Navbar() {
   );
 }
 
-function StarIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M12 2L14.09 8.26L21 9L15.5 14.14L17.18 21L12 17.77L6.82 21L8.5 14.14L3 9L9.91 8.26L12 2Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"
-      />
-    </svg>
-  );
-}
-
-function SunIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M12 3v1m0 16v1m8.66-9h-1M4.34 12h-1m15.07-6.07-.71.71M6.34 17.66l-.71.71m12.02 0-.71-.71M6.34 6.34l-.71-.71M12 7a5 5 0 100 10A5 5 0 0012 7z"
-      />
-    </svg>
-  );
-}

@@ -29,7 +29,7 @@ echo "✅ Node.js $NODE_VER"
 echo ""
 echo "📦 Installing frontend dependencies..."
 cd "$ROOT/frontend"
-npm install
+npm install || { echo "❌ npm install failed in frontend/"; exit 1; }
 
 if [[ ! -f ".env.local" ]]; then
   cp .env.example .env.local
@@ -42,7 +42,7 @@ fi
 echo ""
 echo "📦 Installing backend dependencies..."
 cd "$ROOT/backend"
-npm install
+npm install || { echo "❌ npm install failed in backend/"; exit 1; }
 
 if [[ ! -f ".env" ]]; then
   cp .env.example .env

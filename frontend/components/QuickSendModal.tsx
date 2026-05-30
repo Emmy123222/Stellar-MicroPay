@@ -7,6 +7,7 @@
 
 import { useEffect, useRef } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
+import {  } from "@/components/icons";
 
 interface QuickSendModalProps {
   isOpen: boolean;

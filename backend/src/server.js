@@ -11,6 +11,7 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
+const Sentry = require("@sentry/node");
 
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
@@ -27,6 +28,16 @@ const logger = require("./utils/logger");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// ─── Sentry ───────────────────────────────────────────────────────────────────
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || "development",
+  // Only enable in production unless SENTRY_DSN is explicitly set
+  enabled: !!process.env.SENTRY_DSN,
+  tracesSampleRate: 0.2,
+});
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
@@ -113,6 +124,9 @@ app.use((req, res, next) => {
 });
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
+
+// Sentry must capture errors before the generic handler responds
+Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
   void next;

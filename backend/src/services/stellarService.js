@@ -15,6 +15,34 @@ const HORIZON_URL =
 
 const server = new Horizon.Server(HORIZON_URL);
 
+// ─── In-memory LRU cache for getAccount (5 s TTL) ────────────────────────────
+const ACCOUNT_CACHE_TTL_MS = 5_000;
+const ACCOUNT_CACHE_MAX = 256;
+
+/** @type {Map<string, { value: object, expiresAt: number }>} */
+const accountCache = new Map();
+
+function cacheGet(key) {
+  const entry = accountCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    accountCache.delete(key);
+    return null;
+  }
+  // LRU: re-insert to move to end
+  accountCache.delete(key);
+  accountCache.set(key, entry);
+  return entry.value;
+}
+
+function cacheSet(key, value) {
+  if (accountCache.size >= ACCOUNT_CACHE_MAX) {
+    // Evict the oldest entry (first key in insertion order)
+    accountCache.delete(accountCache.keys().next().value);
+  }
+  accountCache.set(key, { value, expiresAt: Date.now() + ACCOUNT_CACHE_TTL_MS });
+}
+
 // ─── Account ──────────────────────────────────────────────────────────────────
 
 /**
@@ -22,6 +50,9 @@ const server = new Horizon.Server(HORIZON_URL);
  */
 async function getAccount(publicKey) {
   validatePublicKey(publicKey);
+
+  const cached = cacheGet(publicKey);
+  if (cached) return cached;
 
   try {
     const account = await server.loadAccount(publicKey);
@@ -38,12 +69,15 @@ async function getAccount(publicKey) {
       };
     });
 
-    return {
+    const result = {
       publicKey,
       sequence: account.sequence,
       balances,
       subentryCount: account.subentry_count,
     };
+
+    cacheSet(publicKey, result);
+    return result;
   } catch (err) {
     if (err?.response?.status === 404) {
       const error = new Error(

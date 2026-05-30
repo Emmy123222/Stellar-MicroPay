@@ -3,7 +3,7 @@
  * Displays paginated payment history for a Stellar account.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/router";
 import {
   getPaymentHistory,
@@ -13,6 +13,14 @@ import {
   PaymentHistoryResponse,
 } from "@/lib/stellar";
 import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
+import {
+  HistoryIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  RefreshIcon,
+  ExternalLinkIcon,
+  PrinterIcon,
+} from "@/components/icons";
 import clsx from "clsx";
 
 export type TransactionDirectionFilter = "all" | "sent" | "received";
@@ -134,6 +142,29 @@ export default function TransactionList({
   const [stalePaymentsAt, setStalePaymentsAt] = useState<number | null>(null);
   const router = useRouter();
 
+  // Sentinel ref for IntersectionObserver — defer initial fetch until visible
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const updatePayments = useCallback(
     (next: PaymentRecord[]) => {
       setPayments(next);
@@ -207,8 +238,9 @@ export default function TransactionList({
   );
 
   useEffect(() => {
+    if (!isVisible) return;
     fetchPayments();
-  }, [fetchPayments]);
+  }, [fetchPayments, isVisible]);
 
   const handleLoadMore = () => fetchPayments(true);
 
@@ -237,7 +269,7 @@ export default function TransactionList({
 
   if (loading) {
     return (
-      <div className={compact ? "" : "card"}>
+      <div ref={containerRef} className={compact ? "" : "card"}>
         {!compact && (
           <div className="flex items-center justify-between mb-6">
             <div className="h-5 w-36 rounded-lg bg-cosmos-700 animate-pulse" />
@@ -268,7 +300,7 @@ export default function TransactionList({
 
   if (error) {
     return (
-      <div className={compact ? "" : "card"}>
+      <div ref={containerRef} className={compact ? "" : "card"}>
         <div className="text-center py-8">
           <p className="text-red-400 text-sm mb-3">{error}</p>
           <button
@@ -285,7 +317,7 @@ export default function TransactionList({
   if (payments.length === 0) {
     if (compact) return null;
     return (
-      <div className="card">
+      <div ref={containerRef} className="card">
         <div className="text-center py-12">
           <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
             <HistoryIcon className="w-6 h-6 text-slate-500" />
@@ -294,13 +326,26 @@ export default function TransactionList({
           <p className="text-slate-600 text-xs mt-1">
             Send your first payment to get started
           </p>
+          {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
+            <p className="text-xs mt-3">
+              Need test XLM?{" "}
+              <a
+                href={`https://friendbot.stellar.org/?addr=${publicKey}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-stellar-400 hover:underline"
+              >
+                Fund this account with Friendbot
+              </a>
+            </p>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className={compact ? "" : "card"}>
+    <div ref={containerRef} className={compact ? "" : "card"}>
           {!compact && (
             <div className="flex items-center justify-between mb-6">
               <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
@@ -328,10 +373,15 @@ export default function TransactionList({
             <span>Keyboard navigation: ↑ ↓ to navigate, Enter to copy address</span>
           </div>
           
-          <div className="space-y-2">
+          <div
+            role="list"
+            aria-label="Payment history"
+            className="space-y-2"
+          >
         {visiblePayments.map((tx, index) => (
           <div
             key={tx.id}
+            role="listitem"
             tabIndex={focusedIndex === index ? 0 : -1}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
@@ -432,7 +482,7 @@ export default function TransactionList({
               )}
               
               <a
-                href={explorerUrl(tx.transactionHash)}
+                href={explorerUrl(tx.transactionHash) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-stellar-400"
@@ -469,52 +519,3 @@ export default function TransactionList({
   );
 }
 
-// ─── Icons ─────────────────────────────────────────────────────────────────────
-
-function HistoryIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  );
-}
-
-function ArrowUpIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
-    </svg>
-  );
-}
-
-function ArrowDownIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
-    </svg>
-  );
-}
-
-function RefreshIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-    </svg>
-  );
-}
-
-function ExternalLinkIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-    </svg>
-  );
-}
-
-function PrinterIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 9V3.75A1.75 1.75 0 018.5 2h7a1.75 1.75 0 011.75 1.75V9M7.5 18.75h9M5.25 9H18.75A2.25 2.25 0 0121 11.25v5.25a1.5 1.5 0 01-1.5 1.5h-2.25V15H6.75v3H4.5A1.5 1.5 0 013 16.5v-5.25A2.25 2.25 0 015.25 9z" />
-    </svg>
-  );
-}

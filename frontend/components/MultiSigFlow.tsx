@@ -30,6 +30,7 @@ import {
 } from "../lib/stellar";
 import { signTransactionWithWallet } from "../lib/wallet";
 import { formatXLM } from "../utils/format";
+import {  } from "../components/icons";
 
 interface MultiSigFlowProps {
   publicKey: string;

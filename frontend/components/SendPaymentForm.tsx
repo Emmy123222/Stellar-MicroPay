@@ -27,6 +27,18 @@ import {
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLM, shortenAddress } from "@/utils/format";
+import {
+  SendIcon,
+  CheckIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  StarIcon,
+  QrCodeIcon,
+  PencilIcon,
+  TrashIcon,
+  InfoIcon,
+  ReceiptIcon,
+} from "@/components/icons";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 
@@ -138,12 +150,35 @@ export default function SendPaymentForm({
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [destAccountWarning, setDestAccountWarning] = useState<string | null>(null);
+  const [isCheckingDest, setIsCheckingDest] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
+  const destinationInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Power-user shortcut: press "S" (when not already typing in a field and no
+  // modal is open) to jump focus to the destination input (#264).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== "s" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) {
+        return;
+      }
+      if (typeof document !== "undefined" && document.querySelector('[aria-modal="true"]')) {
+        return; // don't steal focus from an open dialog
+      }
+      e.preventDefault();
+      destinationInputRef.current?.focus();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     const checkSupport = async () => {
@@ -325,6 +360,34 @@ export default function SendPaymentForm({
     if (prefill.amount) setAmount(prefill.amount);
     if (prefill.memo) setMemo(truncateMemoText(prefill.memo));
   }, [prefill]);
+
+  // Pre-validate destination account existence on the Stellar network (#294)
+  useEffect(() => {
+    if (!isValidStellarAddress(destination)) {
+      setDestAccountWarning(null);
+      return;
+    }
+    let cancelled = false;
+    setIsCheckingDest(true);
+    setDestAccountWarning(null);
+    server.loadAccount(destination)
+      .then(() => {
+        if (!cancelled) setDestAccountWarning(null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDestAccountWarning(
+            selectedAsset === "XLM"
+              ? "This account doesn't exist yet. Sending ≥ 1 XLM will create it."
+              : "This account doesn't exist on the Stellar network."
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsCheckingDest(false);
+      });
+    return () => { cancelled = true; };
+  }, [destination, selectedAsset]);
 
   const xlmBal = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
@@ -557,8 +620,9 @@ export default function SendPaymentForm({
           </div>
         </div>
 
+
         <div className="flex flex-col gap-3">
-          <a href={explorerUrl(txHash)} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center justify-center gap-2">
+          <a href={explorerUrl(txHash) ?? undefined} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center justify-center gap-2">
             View on Explorer <ExternalLinkIcon className="h-4 w-4" />
           </a>
 
@@ -654,12 +718,19 @@ export default function SendPaymentForm({
                     }}
                     className="text-stellar-400 hover:text-stellar-300"
                     title={favourites.some((f) => f.address === destination) ? "Remove favourite" : "Add favourite"}
+                    aria-label={favourites.some((f) => f.address === destination) ? "Remove address from favourites" : "Add address to favourites"}
                   >
                     <StarIcon className="h-5 w-5" filled={favourites.some((f) => f.address === destination)} />
                   </button>
                 )}
                 {isScannerSupported && status === "idle" && (
-                  <button type="button" onClick={openScanner} className="text-slate-400 hover:text-white" title="Scan QR Code">
+                  <button
+                    type="button"
+                    onClick={openScanner}
+                    className="text-slate-400 hover:text-white"
+                    title="Scan QR Code"
+                    aria-label="Scan QR code to fill destination address"
+                  >
                     <QrCodeIcon className="h-5 w-5" />
                   </button>
                 )}
@@ -667,6 +738,7 @@ export default function SendPaymentForm({
             </div>
             
             <input
+              ref={destinationInputRef}
               type="text"
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
@@ -674,6 +746,14 @@ export default function SendPaymentForm({
               className={clsx("input-field font-mono text-sm", destination && !isValidDest && !isUsernameDestination && "border-red-500/50")}
               disabled={status !== "idle" || destinationReadOnly}
             />
+
+            {/* Destination account existence warning (#294) */}
+            {isCheckingDest && isValidDest && (
+              <p className="mt-1 text-xs text-slate-400">Checking account…</p>
+            )}
+            {!isCheckingDest && destAccountWarning && (
+              <p className="mt-1 text-xs text-amber-400">{destAccountWarning}</p>
+            )}
 
             {isFavouritesDropdownOpen && favourites.length > 0 && (
               <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
