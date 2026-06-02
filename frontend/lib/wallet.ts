@@ -87,8 +87,10 @@ export const EXTENSION_URLS: Record<SupportedBrowser, string> = {
 
 /**
  * Check whether the Freighter extension is installed in the browser.
+ * Returns false during SSR where `window` is undefined (#198).
  */
 export async function isFreighterInstalled(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
   try {
     const result = await isConnected();
     return Boolean(result.isConnected);
@@ -99,8 +101,10 @@ export async function isFreighterInstalled(): Promise<boolean> {
 
 /**
  * Check if this site has already been granted access by the user.
+ * Returns false during SSR where `window` is undefined (#198).
  */
 export async function hasSiteAccess(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
   try {
     const result = await isAllowed();
     return Boolean(result.isAllowed);
@@ -206,6 +210,9 @@ export async function performSEP0010Auth(
 export async function signTransactionWithWallet(
   transactionXDR: string
 ): Promise<{ signedXDR: string | null; error: string | null }> {
+  if (typeof window === "undefined") {
+    return { signedXDR: null, error: "Wallet signing is not available during server-side rendering." };
+  }
   try {
     const signed = await signTransaction(transactionXDR, {
       networkPassphrase: getNetworkPassphrase(),
