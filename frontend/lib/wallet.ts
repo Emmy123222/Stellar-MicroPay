@@ -137,6 +137,14 @@ export async function connectWallet(): Promise<{
     // 2. Request access from the user
     const access = await requestAccess();
 
+    // #199: check error field — denial does not throw, it returns {error}
+    if (access.error) {
+      return {
+        publicKey: null,
+        error: access.error.message || "Connection rejected. Please approve the connection in Freighter.",
+      };
+    }
+
     // 3. Get the public key
     const publicKey = access.address || (await getAddress()).address;
 

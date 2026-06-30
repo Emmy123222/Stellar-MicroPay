@@ -184,7 +184,7 @@ describe("stellarService", () => {
       expect(mockPaymentsOrder).toHaveBeenCalledWith("desc");
     });
 
-    it("uses cursor when provided", async () => {
+    it("correctly forwards cursor parameter to Horizon query", async () => {
       mockPaymentsCall.mockResolvedValue({ records: [] });
 
       await stellarService.getPayments(validPublicKey, { limit: 5, cursor: "12345" });
@@ -192,11 +192,98 @@ describe("stellarService", () => {
       expect(mockPaymentsCursor).toHaveBeenCalledWith("12345");
     });
 
+    it("correctly forwards limit parameter to Horizon query", async () => {
+      mockPaymentsCall.mockResolvedValue({ records: [] });
+
+      await stellarService.getPayments(validPublicKey, { limit: 50 });
+
+      expect(mockPaymentsLimit).toHaveBeenCalledWith(50);
+    });
+
+    it("uses default limit when not provided", async () => {
+      mockPaymentsCall.mockResolvedValue({ records: [] });
+
+      await stellarService.getPayments(validPublicKey);
+
+      expect(mockPaymentsLimit).toHaveBeenCalledWith(20);
+    });
+
+    it("handles both cursor and limit together", async () => {
+      mockPaymentsCall.mockResolvedValue({ records: [] });
+
+      await stellarService.getPayments(validPublicKey, { limit: 30, cursor: "next-cursor-token" });
+
+      expect(mockPaymentsLimit).toHaveBeenCalledWith(30);
+      expect(mockPaymentsCursor).toHaveBeenCalledWith("next-cursor-token");
+    });
+
     it("throws on invalid public key before any Horizon call", async () => {
       await expect(stellarService.getPayments("invalid-key")).rejects.toThrow(
         "Invalid Stellar public key format"
       );
       expect(mockPayments).not.toHaveBeenCalled();
+    });
+
+    it("handles path_payment_strict_send and path_payment_strict_receive operations", async () => {
+      const mockTransaction = jest.fn().mockResolvedValue({ memo_type: "none" });
+
+      mockPaymentsCall.mockResolvedValue({
+        records: [
+          {
+            id: "op-path-send",
+            type: "path_payment_strict_send",
+            amount: "10.0000000",
+            asset_type: "credit_alphanum4",
+            asset_code: "USDC",
+            from: validPublicKey,
+            to: "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+            created_at: "2026-03-27T10:00:00Z",
+            transaction_hash: "txhash",
+            paging_token: "pt",
+            transaction: mockTransaction,
+          },
+        ],
+      });
+
+      const result = await stellarService.getPayments(validPublicKey);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].type).toBe("sent");
+    });
+  });
+
+  describe("getAccount", () => {
+    it("returns account with correct structure and balances (happy path)", async () => {
+      mockLoadAccount.mockResolvedValue({
+        sequence: "12345",
+        subentry_count: 3,
+        balances: [
+          { asset_type: "native", balance: "100.5000000" },
+          { asset_type: "credit_alphanum4", asset_code: "USDC", asset_issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC", balance: "50.0000000" },
+        ],
+      });
+
+      const result = await stellarService.getAccount(validPublicKey);
+
+      expect(result.publicKey).toBe(validPublicKey);
+      expect(result.sequence).toBe("12345");
+      expect(result.subentryCount).toBe(3);
+      expect(result.balances).toHaveLength(2);
+      expect(result.balances[0].assetCode).toBe("XLM");
+      expect(result.balances[1].assetCode).toBe("USDC");
+    });
+
+    it("throws 404 error with expected message when account not found", async () => {
+      mockLoadAccount.mockRejectedValue({ response: { status: 404 } });
+
+      try {
+        await stellarService.getAccount(validPublicKey);
+        expect.fail("Should have thrown error");
+      } catch (err) {
+        expect(err.status).toBe(404);
+        expect(err.message).toContain("Account not found");
+        expect(err.message).toContain("Use Friendbot on testnet");
+      }
     });
   });
 });

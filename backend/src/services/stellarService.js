@@ -6,14 +6,8 @@
 
 "use strict";
 
-const { Horizon } = require("@stellar/stellar-sdk");
+const { server } = require("../config/stellar");
 const logger = require("../utils/logger");
-require("dotenv").config();
-
-const HORIZON_URL =
-  process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
-
-const server = new Horizon.Server(HORIZON_URL);
 
 // ─── In-memory LRU cache for getAccount (5 s TTL) ────────────────────────────
 const ACCOUNT_CACHE_TTL_MS = 5_000;

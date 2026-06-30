@@ -41,6 +41,28 @@ pub enum DataKey {
     TipRecord(Address, u32),
     ReceiptCount(Address),
     ReceiptRecord(Address, u32),
+    EscrowCount,
+    Escrow(u32),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub enum EscrowStatus {
+    Pending,
+    Released,
+    Cancelled,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Escrow {
+    pub id: u32,
+    pub from: Address,
+    pub to: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub release_ledger: u32,
+    pub status: EscrowStatus,
 }
 
 #[contract]
@@ -269,13 +291,97 @@ impl MicroPayContract {
     }
 
     pub fn create_escrow(
-        _env: Env,
-        _from: Address,
-        _to: Address,
-        _amount: i128,
-        _release_ledger: u32,
-    ) {
-        panic!("Escrow payments coming in v2.1 — see ROADMAP.md");
+        env: Env,
+        token_address: Address,
+        from: Address,
+        to: Address,
+        amount: i128,
+        release_ledger: u32,
+    ) -> u32 {
+        from.require_auth();
+        if amount <= 0 {
+            panic!("amount must be positive");
+        }
+        if release_ledger <= env.ledger().sequence() {
+            panic!("release_ledger must be in the future");
+        }
+
+        // Lock funds: transfer from creator into the contract itself.
+        let token = token::Client::new(&env, &token_address);
+        token.transfer(&from, &env.current_contract_address(), &amount);
+
+        let next_id: u32 = env.storage().persistent().get(&DataKey::EscrowCount).unwrap_or(0);
+        let escrow = Escrow {
+            id: next_id,
+            from: from.clone(),
+            to: to.clone(),
+            token: token_address,
+            amount,
+            release_ledger,
+            status: EscrowStatus::Pending,
+        };
+        env.storage().persistent().set(&DataKey::Escrow(next_id), &escrow);
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(next_id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        env.storage().persistent().set(&DataKey::EscrowCount, &(next_id + 1));
+        env.storage().persistent().extend_ttl(&DataKey::EscrowCount, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+
+        env.events()
+            .publish((Symbol::new(&env, "escrow_create"), next_id), (from, to, amount, release_ledger));
+        next_id
+    }
+
+    pub fn claim_escrow(env: Env, id: u32) {
+        let mut escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).expect("escrow not found");
+        if escrow.status != EscrowStatus::Pending {
+            panic!("escrow is not pending");
+        }
+        if env.ledger().sequence() < escrow.release_ledger {
+            panic!("release_ledger not reached");
+        }
+        // Only the recipient can claim.
+        escrow.to.require_auth();
+
+        let token = token::Client::new(&env, &escrow.token);
+        token.transfer(&env.current_contract_address(), &escrow.to, &escrow.amount);
+
+        escrow.status = EscrowStatus::Released;
+        env.storage().persistent().set(&DataKey::Escrow(id), &escrow);
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+
+        env.events()
+            .publish((Symbol::new(&env, "escrow_claim"), id), (escrow.to, escrow.amount));
+    }
+
+    pub fn cancel_escrow(env: Env, id: u32) {
+        let mut escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).expect("escrow not found");
+        if escrow.status != EscrowStatus::Pending {
+            panic!("escrow is not pending");
+        }
+        if env.ledger().sequence() >= escrow.release_ledger {
+            panic!("release_ledger already reached — cancellation is no longer allowed");
+        }
+        // Only the creator can cancel.
+        escrow.from.require_auth();
+
+        let token = token::Client::new(&env, &escrow.token);
+        token.transfer(&env.current_contract_address(), &escrow.from, &escrow.amount);
+
+        escrow.status = EscrowStatus::Cancelled;
+        env.storage().persistent().set(&DataKey::Escrow(id), &escrow);
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+
+        env.events()
+            .publish((Symbol::new(&env, "escrow_cancel"), id), (escrow.from, escrow.amount));
+    }
+
+    pub fn get_escrow(env: Env, id: u32) -> Escrow {
+        let escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).expect("escrow not found");
+        env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        escrow
+    }
+
+    pub fn get_escrow_count(env: Env) -> u32 {
+        env.storage().persistent().get(&DataKey::EscrowCount).unwrap_or(0)
     }
 
     pub fn batch_send(
@@ -612,5 +718,192 @@ mod tests {
         assert_eq!(client.get_tip_count(&alice), 2);
         assert_eq!(client.get_tip_total(&bob), 400);
         assert_eq!(client.get_tip_count(&bob), 1);
+    }
+
+    // ── Escrow tests ────────────────────────────────────────────────────────
+
+    fn advance_ledger(env: &Env, to_sequence: u32) {
+        env.ledger().with_mut(|info| {
+            info.sequence_number = to_sequence;
+        });
+    }
+
+    #[test]
+    fn test_create_escrow_locks_funds_and_returns_id() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 1_000;
+
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, amount);
+        let token = token::Client::new(&env, &token_id);
+        let release_ledger = env.ledger().sequence() + 100;
+
+        let id = client.create_escrow(&token_id, &from, &to, &amount, &release_ledger);
+        assert_eq!(id, 0);
+        assert_eq!(client.get_escrow_count(), 1);
+
+        // Funds moved into the contract, not the recipient.
+        assert_eq!(token.balance(&from), 0);
+        assert_eq!(token.balance(&contract_id), amount);
+        assert_eq!(token.balance(&to), 0);
+
+        let escrow = client.get_escrow(&id);
+        assert_eq!(escrow.amount, amount);
+        assert_eq!(escrow.status, EscrowStatus::Pending);
+    }
+
+    #[test]
+    #[should_panic(expected = "release_ledger must be in the future")]
+    fn test_create_escrow_rejects_past_release_ledger() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 100);
+
+        // release_ledger == current sequence is not "in the future".
+        let now = env.ledger().sequence();
+        client.create_escrow(&token_id, &from, &to, &100, &now);
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_create_escrow_rejects_non_positive_amount() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 100);
+        let release = env.ledger().sequence() + 50;
+        client.create_escrow(&token_id, &from, &to, &0i128, &release);
+    }
+
+    #[test]
+    fn test_claim_escrow_transfers_to_recipient_after_release() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 500;
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, amount);
+        let token = token::Client::new(&env, &token_id);
+
+        let release_ledger = env.ledger().sequence() + 10;
+        let id = client.create_escrow(&token_id, &from, &to, &amount, &release_ledger);
+
+        // Fast-forward past release.
+        advance_ledger(&env, release_ledger + 1);
+        client.claim_escrow(&id);
+
+        assert_eq!(token.balance(&to), amount);
+        assert_eq!(token.balance(&contract_id), 0);
+        assert_eq!(client.get_escrow(&id).status, EscrowStatus::Released);
+    }
+
+    #[test]
+    #[should_panic(expected = "release_ledger not reached")]
+    fn test_claim_escrow_rejected_before_release_ledger() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 100);
+        let release = env.ledger().sequence() + 50;
+        let id = client.create_escrow(&token_id, &from, &to, &100, &release);
+        client.claim_escrow(&id);
+    }
+
+    #[test]
+    fn test_cancel_escrow_returns_funds_to_creator() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 750;
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, amount);
+        let token = token::Client::new(&env, &token_id);
+
+        let release = env.ledger().sequence() + 100;
+        let id = client.create_escrow(&token_id, &from, &to, &amount, &release);
+
+        // Still before release_ledger.
+        client.cancel_escrow(&id);
+
+        assert_eq!(token.balance(&from), amount);
+        assert_eq!(token.balance(&contract_id), 0);
+        assert_eq!(token.balance(&to), 0);
+        assert_eq!(client.get_escrow(&id).status, EscrowStatus::Cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "release_ledger already reached")]
+    fn test_cancel_escrow_rejected_after_release_ledger() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 100);
+        let release = env.ledger().sequence() + 5;
+        let id = client.create_escrow(&token_id, &from, &to, &100, &release);
+        advance_ledger(&env, release + 1);
+        client.cancel_escrow(&id);
+    }
+
+    #[test]
+    #[should_panic(expected = "escrow is not pending")]
+    fn test_double_claim_rejected() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 100);
+        let release = env.ledger().sequence() + 5;
+        let id = client.create_escrow(&token_id, &from, &to, &100, &release);
+        advance_ledger(&env, release + 1);
+        client.claim_escrow(&id);
+        client.claim_escrow(&id);
     }
 }

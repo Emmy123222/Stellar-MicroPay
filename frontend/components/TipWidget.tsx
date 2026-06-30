@@ -294,7 +294,6 @@ export default function TipWidget({
                   hideAssetSelector
                   hideDestinationField
                   hideAmountField
-                  hideMemoField
                 />
               </div>
             )}

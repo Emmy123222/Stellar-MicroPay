@@ -3,27 +3,26 @@
  * Contacts page: save names mapped to Stellar addresses, lookup federation addresses.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import {
-  shortenAddress,
   isValidStellarAddress,
   resolveFederationAddress,
 } from "@/lib/stellar";
+import {
+  type AddressBookContact,
+  deleteAddressBookContact,
+  loadAddressBookContacts,
+  saveAddressBookContacts,
+  subscribeToAddressBookContacts,
+  upsertAddressBookContact,
+} from "@/lib/addressBook";
 import { copyToClipboard } from "@/utils/format";
 import { useToast } from "@/lib/useToast";
 import { useRouter } from "next/router";
 import { useWallet } from "@/lib/useWallet";
 
-interface Contact {
-  id: string;
-  name: string;
-  address: string;
-  createdAt: number;
-}
-
-const STORAGE_KEY = "stellar-micropay-contacts";
 
 export default function Contacts() {
   const { publicKey } = useWallet();
@@ -31,8 +30,7 @@ export default function Contacts() {
   const { visible: toastVisible, message: toastMessage, showToast } = useToast();
 
   // Contact management state
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [contacts, setContacts] = useState<AddressBookContact[]>(loadAddressBookContacts);
 
   // Form state
   const [name, setName] = useState("");
@@ -47,25 +45,7 @@ export default function Contacts() {
     federationAddress: string;
   } | null>(null);
 
-  // Load contacts from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setContacts(JSON.parse(stored));
-      } catch (err) {
-        console.error("Failed to load contacts:", err);
-      }
-    }
-    setLoaded(true);
-  }, []);
-
-  // Save contacts to localStorage whenever they change
-  useEffect(() => {
-    if (loaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts));
-    }
-  }, [contacts, loaded]);
+  useEffect(() => subscribeToAddressBookContacts(setContacts), []);
 
   // Create or update a contact
   const handleSaveContact = () => {
@@ -80,21 +60,18 @@ export default function Contacts() {
     }
 
     if (editingId) {
-      setContacts((prev) =>
-        prev.map((c) =>
-          c.id === editingId ? { ...c, name: name.trim(), address } : c
-        )
+      const updatedAt = Date.now();
+      const nextContacts = contacts.map((contact) =>
+        contact.id === editingId
+          ? { ...contact, nickname: name.trim(), address, updatedAt }
+          : contact
       );
+      saveAddressBookContacts(nextContacts);
+      setContacts(nextContacts);
       showToast("Contact updated");
       setEditingId(null);
     } else {
-      const newContact: Contact = {
-        id: Date.now().toString(),
-        name: name.trim(),
-        address,
-        createdAt: Date.now(),
-      };
-      setContacts((prev) => [newContact, ...prev]);
+      setContacts(upsertAddressBookContact({ nickname: name, address }));
       showToast("Contact saved");
     }
 
@@ -104,14 +81,14 @@ export default function Contacts() {
 
   // Delete a contact
   const handleDeleteContact = (id: string) => {
-    setContacts((prev) => prev.filter((c) => c.id !== id));
+    setContacts(deleteAddressBookContact(id));
     showToast("Contact deleted");
   };
 
   // Start editing a contact
-  const handleEditContact = (contact: Contact) => {
+  const handleEditContact = (contact: AddressBookContact) => {
     setEditingId(contact.id);
-    setName(contact.name);
+    setName(contact.nickname);
     setAddress(contact.address);
   };
 
@@ -159,7 +136,7 @@ export default function Contacts() {
   };
 
   // Send XLM to a contact
-  const handleSendXLM = (contact: Contact) => {
+  const handleSendXLM = (contact: AddressBookContact) => {
     router.push({
       pathname: "/dashboard",
       query: {
@@ -346,7 +323,7 @@ export default function Contacts() {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-white">{contact.name}</h3>
+                      <h3 className="font-semibold text-white">{contact.nickname}</h3>
                       <p className="text-xs text-slate-400 font-mono mt-1 break-all">
                         {contact.address}
                       </p>

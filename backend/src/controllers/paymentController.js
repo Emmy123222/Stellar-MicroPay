@@ -13,7 +13,18 @@ const stellarService = require("../services/stellarService");
 async function getPayments(req, res, next) {
   try {
     const { publicKey } = req.params;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+    // #197: explicit validation — || 20 silently swallows limit=0; NaN propagates to Horizon
+    const rawLimit = req.query.limit;
+    let limit = 20;
+    if (rawLimit !== undefined) {
+      const parsed = parseInt(rawLimit, 10);
+      if (isNaN(parsed) || !Number.isSafeInteger(parsed) || parsed < 1) {
+        return res.status(400).json({ error: "limit must be a positive integer" });
+      }
+      limit = Math.min(parsed, 100);
+    }
+
     const cursor = req.query.cursor || undefined;
 
     const payments = await stellarService.getPayments(publicKey, { limit, cursor });

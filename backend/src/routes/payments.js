@@ -25,6 +25,6 @@ router.get("/:publicKey", strictLimiter, sanitizePublicKey, paymentController.ge
  * GET /api/payments/:publicKey/stats
  * Return aggregate stats for an account (total sent, received, count).
  */
-router.get("/:publicKey/stats", paymentController.getStats);
+router.get("/:publicKey/stats", strictLimiter, paymentController.getStats);
 
 module.exports = router;

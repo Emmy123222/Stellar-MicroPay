@@ -31,20 +31,35 @@ export interface URIParseResult {
  */
 export function parseStellarURI(uri: string): URIParseResult {
   try {
-    // Handle both stellar:pay and web+stellar:pay
+    // Accept three forms:
+    //   1. stellar:pay?destination=…           (SEP-0007 canonical)
+    //   2. web+stellar:pay?destination=…       (SEP-0007 PWA-friendly)
+    //   3. stellarmicropay://pay?to=…&amount=… (issue #209 deep link)
+    //
+    // The third form uses `to=` as a shorthand for `destination=`; we
+    // rewrite it transparently so the rest of the parser stays SEP-0007
+    // shaped. Everything else (amount, memo, etc.) keeps the SEP-0007
+    // parameter names.
     const stellarRegex = /^(?:web\+)?stellar:pay\?(.+)$/;
-    const match = uri.match(stellarRegex);
-    
-    if (!match) {
+    const microPayRegex = /^stellarmicropay:\/\/pay\?(.+)$/;
+    const stellarMatch = uri.match(stellarRegex);
+    const microPayMatch = uri.match(microPayRegex);
+
+    if (!stellarMatch && !microPayMatch) {
       return {
         success: false,
-        error: 'Invalid Stellar URI format. Expected stellar:pay or web+stellar:pay'
+        error: 'Invalid Stellar URI format. Expected stellar:pay, web+stellar:pay, or stellarmicropay://pay'
       };
     }
 
-    const queryString = match[1];
+    let queryString = (stellarMatch ?? microPayMatch)![1];
+    if (microPayMatch) {
+      // Rewrite `to=` → `destination=` so URLSearchParams downstream
+      // doesn't need a second code path.
+      queryString = queryString.replace(/(^|&)to=/g, '$1destination=');
+    }
     const params = new URLSearchParams(queryString);
-    
+
     // Extract required parameters
     const destination = params.get('destination');
     if (!destination) {

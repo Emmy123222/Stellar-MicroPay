@@ -234,4 +234,4 @@ All acceptance criteria have been met:
 - ✅ Public key fetched from Ledger device  
 - ✅ Transactions signed on the Ledger device
 - ✅ Error states for disconnected device and closed app
-- ✅ Freighter option still works as before
+- ✅ Freighter option still works as before............

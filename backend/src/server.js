@@ -31,6 +31,15 @@ const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// ─── Error message sanitization (#206) ───────────────────────────────────────
+// Stellar secret keys: 'S' + 55 base32 chars [A-Z2-7]. Strip before logging or
+// sending to Sentry/clients so a mis-routed key never appears in outputs.
+
+const STELLAR_SECRET_PATTERN = /S[A-Z2-7]{55}/g;
+function sanitizeMessage(msg) {
+  return typeof msg === "string" ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]") : msg;
+}
+
 // ─── Sentry ───────────────────────────────────────────────────────────────────
 
 Sentry.init({
@@ -39,6 +48,16 @@ Sentry.init({
   // Only enable in production unless SENTRY_DSN is explicitly set
   enabled: !!process.env.SENTRY_DSN,
   tracesSampleRate: 0.2,
+  // #206: strip Stellar secret keys from error messages before Sentry receives them
+  beforeSend(event) {
+    if (event.exception?.values) {
+      event.exception.values = event.exception.values.map((v) => ({
+        ...v,
+        value: sanitizeMessage(v.value),
+      }));
+    }
+    return event;
+  },
 });
 
 function stripProtocol(value) {
@@ -217,8 +236,8 @@ Sentry.setupExpressErrorHandler(app);
 app.use((err, req, res, next) => {
   void next;
   const status = err.status || 500;
-  const message = err.message || "Internal Server Error";
-
+  const message = sanitizeMessage(err.message) || "Internal Server Error";
+  logger.error({ status, message }, "Request error");
   res.status(status).json({ error: message });
 });
 

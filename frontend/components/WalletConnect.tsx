@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { withErrorBoundary } from "@/components/ErrorBoundary";
 import { 
   connectWallet as requestWalletConnection,
   isFreighterInstalled, 
@@ -22,7 +23,7 @@ interface WalletConnectProps {
 
 type WalletType = "freighter" | "ledger";
 
-export default function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
+function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
   const { connectWallet } = useWallet();
   const [loading, setLoading] = useState(false);
   const [step, setStep]       = useState<"idle" | "connecting" | "authenticating">("idle");
@@ -270,6 +271,8 @@ export default function WalletConnect({ onConnectSuccess }: WalletConnectProps) 
     </div>
   );
 }
+
+export default withErrorBoundary(WalletConnect, "WalletConnect");
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 

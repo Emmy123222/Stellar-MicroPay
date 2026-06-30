@@ -29,6 +29,7 @@ const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"),
 const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
 const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
 const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), { ssr: false });
+const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
 
 import {
   ResponsiveContainer,
@@ -41,7 +42,6 @@ import {
 } from "recharts";
 
 
-import Toast from "@/components/Toast";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 
@@ -49,19 +49,21 @@ import {
   getXLMBalance,
   getAccountReserveInfo,
   type AccountReserveInfo,
-  getUSDCBalance,
+  getBalances,
+  type WalletBalance,
   getFriendBotFunding,
   waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
   getRecentPaymentsForStats,
   getRecentPaymentsForSparkline,
+  fetchAllPayments,
   PaymentRecord,
 } from "@/lib/stellar";
-import { formatAsset, formatUSD, copyToClipboard } from "@/utils/format";
-import { useToast } from "@/lib/useToast";
+import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
+import { useToastContext } from "@/lib/ToastContext";
+import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
-import { getJwtToken } from "@/lib/auth"; // Assuming auth helper exists or similar logic
 import { useWallet } from "@/lib/useWallet";
 
 interface DashboardProps {
@@ -140,6 +142,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
   const [reserveInfo, setReserveInfo] = useState<AccountReserveInfo | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [otherBalances, setOtherBalances] = useState<Array<{ code: string; issuer: string; balance: string }>>([]);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [staleBalanceAt, setStaleBalanceAt] = useState<number | null>(null);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
@@ -149,7 +152,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshCountdown, setRefreshCountdown] = useState(AUTO_REFRESH_SECONDS);
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
-  const { visible: toastVisible, message: toastMessage, showToast } = useToast();
+  const { addToast } = useToastContext();
+  const showToast = (msg: string) => addToast(msg, "info");
   const [showQRModal, setShowQRModal] = useState(false);
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
@@ -191,6 +195,18 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     memo?: string;
   } | null>(null);
 
+  // Recurring payments prefill — set when user clicks "Pay Now" on a due schedule
+  const [recurringPrefill, setRecurringPrefill] = useState<{
+    destination: string;
+    amount: string;
+    memo: string;
+  } | null>(null);
+
+  const handleRecurringPayNow = (data: { destination: string; amount: string; memo: string }) => {
+    setRecurringPrefill(data);
+    setActivePaymentTab("single");
+  };
+
   // Creator username for tips dashboard
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
 
@@ -200,6 +216,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [selectedMonth, setSelectedMonth] = useState<any | null>(null);
   const [sparklineData, setSparklineData] = useState<any[]>([]);
   const [sparklineLoading, setSparklineLoading] = useState(false);
+
+  // Analytics state
+  const [thirtyDayData, setThirtyDayData] = useState<any[]>([]);
+  const [thirtyDayLoading, setThirtyDayLoading] = useState(false);
+  const [topRecipients, setTopRecipients] = useState<Array<{ address: string; totalXLMSent: string }>>([]);
+  const [topRecipientsLoading, setTopRecipientsLoading] = useState(false);
+  const [csvExporting, setCsvExporting] = useState(false);
 
   // Notification state
   const [notificationEnabled, setNotificationEnabled] = useState(false);
@@ -239,11 +262,22 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     setAccountNotFound(false);
 
     try {
-      const [bal, usdc, reserve] = await Promise.all([
-        getXLMBalance(publicKey),
-        getUSDCBalance(publicKey),
+      const [allBalances, reserve] = await Promise.all([
+        getBalances(publicKey),
         getAccountReserveInfo(publicKey),
       ]);
+      const xlm = allBalances.find((b) => b.assetCode === "XLM");
+      const usdc = allBalances.find((b) => b.assetCode === "USDC");
+      const others = allBalances
+        .filter((b) => b.assetCode !== "XLM" && b.assetCode !== "USDC")
+        .map((b) => {
+          const [, issuer] = b.asset.split(":");
+          return { code: b.assetCode, issuer: issuer ?? "", balance: b.balance };
+        });
+
+      const bal = xlm?.balance ?? "0";
+      const usdcBal = usdc?.balance ?? null;
+
       setXlmBalance((prev) => {
         if (prev !== null && prev !== bal) {
           setBalanceFlash(true);
@@ -251,12 +285,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         }
         return bal;
       });
-      setUsdcBalance(usdc);
+      setUsdcBalance(usdcBal);
+      setOtherBalances(others);
       setReserveInfo(reserve);
       setStaleBalanceAt(null);
       saveBalanceSnapshot(publicKey, {
         xlmBalance: bal,
-        usdcBalance: usdc,
+        usdcBalance: usdcBal,
         reserveInfo: reserve,
       });
     } catch (err: unknown) {
@@ -280,6 +315,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       }
       setXlmBalance(null);
       setUsdcBalance(null);
+      setOtherBalances([]);
       setReserveInfo(null);
       setStaleBalanceAt(null);
     } finally {
@@ -416,6 +452,84 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   useEffect(() => {
     fetchSpendingHistory();
   }, [fetchSpendingHistory, refreshKey]);
+
+  const fetchThirtyDayVolume = useCallback(async () => {
+    if (!publicKey) return;
+    setThirtyDayLoading(true);
+    try {
+      const payments = await getRecentPaymentsForStats(publicKey, 200);
+      const now = new Date();
+      const days: any[] = [];
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        days.push({
+          day: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          dateKey: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`,
+          sent: 0,
+          received: 0,
+        });
+      }
+      payments.forEach((p: PaymentRecord) => {
+        const pd = new Date(p.createdAt);
+        const key = `${pd.getFullYear()}-${pd.getMonth()}-${pd.getDate()}`;
+        const entry = days.find((d: any) => d.dateKey === key);
+        if (entry) {
+          const amt = parseFloat(p.amount);
+          if (p.type === "sent") entry.sent += amt;
+          else entry.received += amt;
+        }
+      });
+      setThirtyDayData(days);
+    } catch (err) {
+      console.error("Failed to fetch 30-day volume:", err);
+    } finally {
+      setThirtyDayLoading(false);
+    }
+  }, [publicKey]);
+
+  const fetchTopRecipients = useCallback(async () => {
+    if (!publicKey) return;
+    setTopRecipientsLoading(true);
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+      const headers: HeadersInit = {};
+      const token = getJwtToken();
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(
+        `${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
+        { headers }
+      );
+      if (res.ok) {
+        const payload = await res.json();
+        setTopRecipients(payload?.data?.topRecipients ?? []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch top recipients:", err);
+    } finally {
+      setTopRecipientsLoading(false);
+    }
+  }, [publicKey]);
+
+  const handleExportCSV = async () => {
+    if (!publicKey || csvExporting) return;
+    setCsvExporting(true);
+    try {
+      const records = await fetchAllPayments(publicKey);
+      exportToCSV(records);
+    } catch {
+      showToast("Failed to export CSV. Please try again.");
+    } finally {
+      setCsvExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchThirtyDayVolume();
+  }, [fetchThirtyDayVolume, refreshKey]);
+
+  useEffect(() => {
+    fetchTopRecipients();
+  }, [fetchTopRecipients, refreshKey]);
 
   const handleFriendbot = async () => {
     if (!publicKey) return;
@@ -832,7 +946,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               </div>
             </div>
           </div>
-          <button 
+          <button
             onClick={() => setSelectedMonth(null)}
             className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/5"
           >
@@ -840,6 +954,35 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           </button>
         </div>
       )}
+
+      <ThirtyDayVolumeChart data={thirtyDayData} loading={thirtyDayLoading} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <TopRecipientsWidget recipients={topRecipients} loading={topRecipientsLoading} />
+        <div className="card flex flex-col justify-between">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-white mb-2">Export Payment History</h2>
+            <p className="text-sm text-slate-400">Download your full transaction history as a CSV file.</p>
+          </div>
+          <button
+            onClick={handleExportCSV}
+            disabled={csvExporting}
+            className="mt-4 btn-secondary flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {csvExporting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                Exporting…
+              </>
+            ) : (
+              <>
+                <DownloadIcon className="w-4 h-4" />
+                Export CSV
+              </>
+            )}
+          </button>
+        </div>
+      </div>
 
       <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
@@ -1051,6 +1194,19 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       )}
 
+      {otherBalances.map((b) => (
+        <div key={b.code} className="card mb-4 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-violet-500/20 relative overflow-hidden">
+          <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="label mb-1">{b.code} Balance</p>
+              <div className="font-display text-3xl font-bold text-white">
+                {formatAsset(b.balance, b.code)}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+
       {/* Creator Tips Dashboard */}
       <CreatorTipsDashboard 
         publicKey={publicKey} 
@@ -1102,8 +1258,15 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               publicKey={publicKey}
               xlmBalance={xlmBalance || "0"}
               usdcBalance={usdcBalance}
+              accountBalances={otherBalances}
               onSuccess={handlePaymentSuccess}
-              prefill={stellarURI && stellarURI.success ? uriToPrefillData(stellarURI.data!) : null}
+              prefill={
+                recurringPrefill
+                  ? recurringPrefill
+                  : stellarURI && stellarURI.success
+                  ? uriToPrefillData(stellarURI.data!)
+                  : null
+              }
             />
           ) : (
             <BatchPaymentForm
@@ -1115,6 +1278,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
 
         <div className="lg:col-span-1">
+          <RecurringPayments onPayNow={handleRecurringPayNow} />
           <PaymentRequestGenerator />
           <div className="mt-6">
             <MultiSigFlow
@@ -1145,13 +1309,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       </div>
 
       <BubbleNotification message={bubbleMessage} visible={showBubble} />
-      {toastVisible && (
-        <Toast
-          message={toastMessage}
-          type="info"
-          onClose={() => {}}
-        />
-      )}
 
       <QRCodeModal
         isOpen={showQRModal}
@@ -1310,6 +1467,88 @@ function MonthlySpendingChart({
         </ResponsiveContainer>
       </div>
     </div>
+  );
+}
+
+function ThirtyDayVolumeChart({ data, loading }: { data: any[]; loading: boolean }) {
+  if (loading && data.length === 0) {
+    return <div className="card mb-6 h-[280px] animate-pulse bg-white/[0.03] border-white/10" />;
+  }
+  const visibleData = data.filter((_: any, i: number) => i % 5 === 0 || i === data.length - 1);
+  return (
+    <div className="card mb-6 overflow-hidden">
+      <h2 className="font-display text-lg font-semibold text-white mb-6">30-Day Volume (XLM)</h2>
+      <div className="h-[220px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <XAxis
+              dataKey="day"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 11 }}
+              ticks={visibleData.map((d: any) => d.day)}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 11 }}
+            />
+            <Tooltip
+              cursor={{ fill: "rgba(255,255,255,0.05)" }}
+              contentStyle={{ backgroundColor: "#0f172a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }}
+              itemStyle={{ color: "#38bdf8" }}
+            />
+            <Bar dataKey="sent" fill="#38bdf8" name="Sent" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="received" fill="#34d399" name="Received" radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function TopRecipientsWidget({
+  recipients,
+  loading,
+}: {
+  recipients: Array<{ address: string; totalXLMSent: string }>;
+  loading: boolean;
+}) {
+  return (
+    <div className="card">
+      <h2 className="font-display text-lg font-semibold text-white mb-4">Top Recipients</h2>
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-10 bg-white/5 rounded-lg animate-pulse" />
+          ))}
+        </div>
+      ) : recipients.length === 0 ? (
+        <p className="text-sm text-slate-400">No sent payments yet.</p>
+      ) : (
+        <ol className="space-y-2">
+          {recipients.map((r, idx) => (
+            <li key={r.address} className="flex items-center justify-between gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/5">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-stellar-400 w-5 text-center">{idx + 1}</span>
+                <span className="font-mono text-sm text-slate-200">{shortenAddress(r.address)}</span>
+              </div>
+              <span className="text-sm font-semibold text-white">{parseFloat(r.totalXLMSent).toFixed(2)} XLM</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function DownloadIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
   );
 }
 

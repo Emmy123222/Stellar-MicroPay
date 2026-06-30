@@ -8,6 +8,8 @@ import { useState, useEffect, createContext, useContext } from "react";
 import Head from "next/head";
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
+import { ToastContainer } from "@/components/Toast";
+import { ToastProvider } from "@/lib/ToastContext";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
 import {
   getStellarURIFromURL,
@@ -53,19 +55,19 @@ function InstallBanner() {
 
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50 animate-slide-up sm:left-auto sm:right-4 sm:w-96">
-      <div className="rounded-xl border border-stellar-500/30 bg-cosmos-800 p-4 shadow-2xl backdrop-blur-sm">
+      <div className="rounded-xl border border-stellar-500/30 bg-white dark:bg-cosmos-800 p-4 shadow-2xl backdrop-blur-sm dark:shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
-            <h3 className="mb-1 text-sm font-display font-semibold text-white">
+            <h3 className="mb-1 text-sm font-display font-semibold text-slate-900 dark:text-white">
               Install MicroPay
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Add to your home screen for quick access and offline support
             </p>
           </div>
           <button
             onClick={() => setShowBanner(false)}
-            className="cursor-pointer p-1 text-slate-400 transition-colors hover:text-slate-300"
+            className="cursor-pointer p-1 text-slate-500 transition-colors hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
             aria-label="Dismiss"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -200,6 +202,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <ToastProvider>
       <WalletProvider>
         <Head>
           <title>Stellar-MicroPay | Instant Micropayments</title>
@@ -246,7 +249,9 @@ export default function App({ Component, pageProps }: AppProps) {
           isQuickSendOpen={isQuickSendOpen}
           setIsQuickSendOpen={setIsQuickSendOpen}
         />
+        <ToastContainer />
       </WalletProvider>
+      </ToastProvider>
     </ThemeContext.Provider>
   );
 }

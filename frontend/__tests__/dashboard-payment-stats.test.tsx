@@ -31,13 +31,16 @@ jest.mock("@/components/SendPaymentForm", () => ({
 }));
 
 jest.mock("@/lib/stellar", () => ({
+  getBalances: jest.fn().mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
   getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
   getAccountReserveInfo: jest.fn().mockResolvedValue(null),
   getUSDCBalance: jest.fn().mockResolvedValue(null),
   getRecentPaymentsForStats: jest.fn().mockResolvedValue([]),
   getRecentPaymentsForSparkline: jest.fn().mockResolvedValue([]),
+  fetchAllPayments: jest.fn().mockResolvedValue([]),
   getPaymentHistory: jest.fn().mockResolvedValue({ records: [], hasMore: false }),
-  fundWithFriendbot: jest.fn(),
+  getFriendBotFunding: jest.fn(),
+  waitForAccountFunding: jest.fn().mockResolvedValue(true),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
   streamPayments: jest.fn(() => jest.fn()),
   isValidStellarAddress: jest.fn().mockReturnValue(true),

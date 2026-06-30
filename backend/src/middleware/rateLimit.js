@@ -22,4 +22,17 @@ const strictLimiter = rateLimit({
   message: { error: "Too many requests to sensitive routes, please wait 1 minute." },
 });
 
-module.exports = { strictLimiter };
+/**
+ * Sensitive route limiting — 10 requests per minute (#205).
+ * Applied to account lookup and balance endpoints that could be used for
+ * account enumeration.
+ */
+const sensitiveLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests to this endpoint, please wait 1 minute." },
+});
+
+module.exports = { strictLimiter, sensitiveLimiter };

@@ -33,6 +33,7 @@
     "eslint-config-prettier": "9.1.0",
     "fast-check": "^3.22.0",
     "jest": "^30.3.0",
+    "nock": "^14.0.15",
     "nodemon": "^3.1.2",
     "supertest": "^7.2.2"
   },

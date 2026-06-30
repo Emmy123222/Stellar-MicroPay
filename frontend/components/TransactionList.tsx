@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/router";
+import { withErrorBoundary } from "@/components/ErrorBoundary";
 import {
   getPaymentHistory,
   shortenAddress,
@@ -13,6 +14,7 @@ import {
   PaymentHistoryResponse,
 } from "@/lib/stellar";
 import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
+import { loadAddressBookContacts, upsertAddressBookContact } from "@/lib/addressBook";
 import {
   HistoryIcon,
   ArrowUpIcon,
@@ -122,7 +124,7 @@ export function filterPayments(
   });
 }
 
-export default function TransactionList({
+function TransactionList({
   publicKey,
   limit = 20,
   compact = false,
@@ -272,6 +274,17 @@ export default function TransactionList({
     await copyToClipboard(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleSaveContact = (address: string) => {
+    const existing = loadAddressBookContacts().find((contact) => contact.address === address);
+    const nickname = window.prompt(
+      existing ? "Update contact nickname:" : "Nickname for this contact:",
+      existing?.nickname || address.slice(0, 8)
+    );
+
+    if (!nickname) return;
+    upsertAddressBookContact({ nickname, address });
   };
 
   // Prepend a newly streamed payment if it doesn't already exist
@@ -516,6 +529,15 @@ export default function TransactionList({
                 {formatAsset(tx.amount, tx.asset)}
               </span>
 
+              <button
+                onClick={() => handleSaveContact(tx.type === "sent" ? tx.to : tx.from)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-400 hover:text-stellar-300 font-medium whitespace-nowrap"
+                title="Save this address to contacts"
+                aria-label={`Save ${tx.type === "sent" ? "recipient" : "sender"} to contacts`}
+              >
+                Save contact
+              </button>
+
               {/* Send Again — only for sent transactions */}
               {tx.type === "sent" && (
                 <button
@@ -579,4 +601,6 @@ export default function TransactionList({
     </div>
   );
 }
+
+export default withErrorBoundary(TransactionList, "TransactionList");
 

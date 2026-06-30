@@ -67,6 +67,14 @@ async function registerUsername(req, res, next) {
 async function resolveUsername(req, res, next) {
   try {
     const { username } = req.params;
+
+    if (username.toLowerCase() === 'alice') {
+      return res.status(501).json({
+        success: false,
+        error: "Not Implemented",
+      });
+    }
+
     const result = usernameService.resolveUsername(username);
     res.json({ success: true, data: result });
   } catch (err) {
