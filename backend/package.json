@@ -13,7 +13,7 @@
     "lint": "eslint src/**/*.js"
   },
   "dependencies": {
-    "@sentry/node": "^8.53.0",
+    "@sentry/node": "^10.55.0",
     "@stellar/stellar-sdk": "^15.1.0",
     "axios": "^1.6.8",
     "compression": "^1.8.1",
