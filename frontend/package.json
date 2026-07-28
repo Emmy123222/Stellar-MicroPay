@@ -20,7 +20,7 @@
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
     "@fortawesome/free-solid-svg-icons": "^7.2.0",
     "@fortawesome/react-fontawesome": "^3.3.1",
-    "@sentry/nextjs": "^8.53.0",
+    "@sentry/nextjs": "^10.55.0",
     "@stellar/freighter-api": "^3.1.0",
     "@stellar/stellar-sdk": "^15.1.0",
     "axios": "^1.6.8",
