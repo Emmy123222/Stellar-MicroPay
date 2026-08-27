@@ -43,19 +43,13 @@ Output: `target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm`
 cargo test
 ```
 
-### Fuzz testing (#563)
+### Fuzz testing (#563, #788)
 
-`src/fuzz_streams.rs` is a `proptest`-based property test that generates
-random sequences of `claim_stream` / `top_up_stream` / `close_stream` calls
-against a stream opened by `open_stream` — interleaved with random ledger
-advances and top-up amounts drawn from a much wider range than the
-hand-written tests use — and re-checks the `claimed <= deposited` invariant
-(#557) and contract solvency after every call. It runs as part of the normal
-`cargo test` job already wired into CI (`.github/workflows/ci.yml`); no
-separate nightly job is needed since it is a stable-Rust property test rather
-than a `cargo-fuzz`/libFuzzer harness. A failing case is automatically
-shrunk by `proptest` to a minimal reproduction and printed on test failure.
-Baseline runs have found no panics or overflows.
+`src/fuzz_streams.rs` contains property-based test suites using `proptest`:
+- `fuzz_stream_ops_preserve_invariants`: Generates random sequences of `claim_stream` / `top_up_stream` / `close_stream` calls against a stream opened by `open_stream` — interleaved with random ledger advances and top-up amounts drawn from a wide range — and verifies the `claimed <= deposited` invariant (#557) and contract solvency after every call.
+- `fuzz_weighted_stream_exact_conservation`: Generates arbitrary recipient counts (1..=8), arbitrary positive weights (1..=100_000), arbitrary accrual rates, and arbitrary elapsed ledger sequences, asserting that the sum of all recipient entitlements (`claimable + claimed`) strictly and exactly equals `total_streamed_amount` at all ledgers (zero stroop rounding loss) and that closure refunds the exact difference `deposited - total_streamed` to the payer (#788).
+
+These run as part of the normal `cargo test` job wired into CI (`.github/workflows/ci.yml`). Failing cases are automatically shrunk by `proptest` to a minimal reproduction.
 
 ## Deploy to Testnet
 
@@ -288,7 +282,7 @@ ledger sequence, not wall-clock time.
 - **Parameters**:
   - `stream_id: u32` - stream to withdraw from.
   - `recipient: Address` - one of the stream's recipients.
-- **Return value**: amount transferred to `recipient` — their weighted share of accrual minus what they have already claimed; `0` when nothing new has accrued for them since their last claim.
+- **Return value**: amount transferred to `recipient` — their exact entitlement under the Largest Remainder allocation rule (#788) minus what they have already claimed; `0` when nothing new has accrued for them since their last claim.
 - **Authorization requirements**: `recipient.require_auth()`.
 - **Events emitted**: `(stream_claim, stream_id)` with `(1, recipient, amount)`.
 - **Error conditions**:
@@ -345,8 +339,41 @@ never back-paid.
 - **Events emitted**: `(stream_close, stream_id)` with `(1, owed, refund)`, where `owed` is the combined amount paid out to all recipients during this call and `refund` is what goes back to the payer (#558).
 - **Error conditions**: `stream not found`, `unauthorized`, or `stream is closed`.
 
-Settles everything accrued to each recipient by weight (#559) and refunds the
-unstreamed remainder to the payer in the same call.
+Settles everything accrued to each recipient using the conservation-preserving
+Largest Remainder rule (#788) and refunds the unstreamed balance (`deposited - total_streamed`)
+to the payer in the same call.
+
+### Weighted Stream Rounding and Remainder Allocation (#788)
+
+When continuous stream flow is split across multiple weighted recipients, integer
+division across discrete token stroops (`(total_streamed * weight) / total_weight`)
+can leave unallocated stroop remainders.
+
+To guarantee exact conservation ($\sum \text{entitlement}_i \equiv \text{total\_streamed}$)
+without stranding dust or over-allocating funds, the contract enforces the
+**Largest Remainder Method (Hamilton-Hare Rule)** with deterministic recipient-order tie breaking:
+
+1. **Total Streamed Calculation**:
+   $$\text{total\_streamed} = \min(\text{deposited}, (\text{current\_ledger} - \text{start\_ledger} - \text{paused\_ledgers}) \times \text{rate\_per\_ledger})$$
+
+2. **Base Shares & Fractional Remainders**:
+   For each recipient $i \in [0, N-1]$ with weight $w_i$ and total weight $W = \sum w_j$:
+   - Integer base share: $\text{base}_i = \lfloor \frac{\text{total\_streamed} \cdot w_i}{W} \rfloor$
+   - Fractional remainder: $f_i = (\text{total\_streamed} \cdot w_i) \pmod W$
+
+3. **Total Stroop Remainder**:
+   $$R = \text{total\_streamed} - \sum_{j=0}^{N-1} \text{base}_j \quad (0 \le R < N)$$
+
+4. **Deterministic Remainder Distribution**:
+   The $R$ stroops are awarded to the $R$ recipients having the largest fractional remainders $f_i$.
+   Ties ($f_a = f_b$) are broken deterministically by recipient list order (the recipient with the lower index in `recipients` takes priority).
+   $$\text{entitlement}_i(\text{total\_streamed}) = \text{base}_i + \begin{cases} 1 & \text{if recipient } i \text{ qualifies for top } R \text{ remainders} \\ 0 & \text{otherwise} \end{cases}$$
+
+5. **Parity Between Claims and Close**:
+   Both `get_claimable` / `claim_stream` and `close_stream` use the exact same `recipient_entitled_amount` function. This guarantees:
+   - Incremental withdrawals and stream closures yield identical payouts.
+   - Payer refund on close is exact: $\text{refund} = \text{deposited} - \text{total\_streamed}$.
+   - Token balance in the contract is conserved with zero leakage or dust lockup.
 
 ### `get_stream(env: Env, stream_id: u32) -> Stream`
 
@@ -358,7 +385,7 @@ unstreamed remainder to the payer in the same call.
 - **Parameters**:
   - `stream_id: u32` - stream to query.
   - `recipient: Address` - the recipient whose claimable share to compute.
-- **Return value**: amount `recipient` could withdraw at the current ledger — their weighted share of accrual, net of paused time and capped at the deposit. `0` for a closed stream or an address that is not one of the stream's recipients.
+- **Return value**: amount `recipient` could withdraw at the current ledger — their exact entitlement under the Largest Remainder rule (#788), net of paused time and already claimed amounts, capped at the deposit. `0` for a closed stream or an address that is not one of the stream's recipients.
 - **Error conditions**: panics with `stream not found` for an unknown id.
 
 ### `get_stream_count(env: Env) -> u32`

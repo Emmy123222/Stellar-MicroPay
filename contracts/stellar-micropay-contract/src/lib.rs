@@ -232,8 +232,74 @@ fn total_streamed_amount(stream: &Stream, current_ledger: u32) -> i128 {
     stream.rate_per_ledger * elapsed_ledgers as i128
 }
 
+/// Computes recipient `recipient_idx`'s entitled share of `total_streamed` using
+/// the conservation-preserving Largest Remainder (Hamilton-Hare) method (#788).
+///
+/// 1. Each recipient receives a base integer share:
+///    `base_i = total_streamed * weight_i / total_weight`.
+/// 2. The integer division remainder `R = total_streamed - sum(base_shares)`
+///    (where `0 <= R < recipient_count`) is distributed 1 stroop each to the `R`
+///    recipients with the largest fractional remainders:
+///    `rem_i = (total_streamed * weight_i) % total_weight`.
+/// 3. Fractional remainder ties are broken deterministically by recipient list order
+///    (smaller index receives priority).
+///
+/// This guarantees the conservation invariant `sum(entitled_i) == total_streamed`
+/// for all inputs, ensuring zero stroop remainder is ever stranded or misallocated.
+fn recipient_entitled_amount(
+    recipients: &soroban_sdk::Vec<StreamRecipient>,
+    recipient_idx: u32,
+    total_streamed: i128,
+) -> i128 {
+    let count = recipients.len();
+    if count == 0 || total_streamed <= 0 {
+        return 0;
+    }
+    let weight_total = i128::from(total_weight(recipients));
+    if weight_total == 0 {
+        return 0;
+    }
+
+    let target = recipients.get(recipient_idx).unwrap();
+    let target_weight = i128::from(target.weight);
+    let target_base = total_streamed * target_weight / weight_total;
+    let target_rem = (total_streamed * target_weight) % weight_total;
+
+    let mut sum_base: i128 = 0;
+    for i in 0..count {
+        let w = i128::from(recipients.get(i).unwrap().weight);
+        sum_base += total_streamed * w / weight_total;
+    }
+    let remainder = total_streamed - sum_base;
+
+    if remainder <= 0 {
+        return target_base;
+    }
+
+    // Count how many other recipients rank strictly ahead of `recipient_idx`.
+    // Recipient A ranks ahead of recipient B if:
+    //   rem_A > rem_B  OR  (rem_A == rem_B && idx_A < idx_B)
+    let mut rank_ahead: i128 = 0;
+    for i in 0..count {
+        if i == recipient_idx {
+            continue;
+        }
+        let w = i128::from(recipients.get(i).unwrap().weight);
+        let rem_i = (total_streamed * w) % weight_total;
+        if rem_i > target_rem || (rem_i == target_rem && i < recipient_idx) {
+            rank_ahead += 1;
+        }
+    }
+
+    if rank_ahead < remainder {
+        target_base + 1
+    } else {
+        target_base
+    }
+}
+
 /// Amount `recipient` can withdraw right now: their weighted share of the
-/// total streamed so far, minus what they have already claimed (#559).
+/// total streamed so far, minus what they have already claimed (#559, #788).
 ///
 /// While a stream is paused the accrual window stops growing, so this stays
 /// flat until `resume_stream` — and after the resume it picks up exactly where
@@ -248,8 +314,7 @@ fn claimable_amount(stream: &Stream, recipient: &Address, current_ledger: u32) -
     let entry = stream.recipients.get(idx).unwrap();
 
     let total_streamed = total_streamed_amount(stream, current_ledger);
-    let weight_total = total_weight(&stream.recipients);
-    let entitled = total_streamed * i128::from(entry.weight) / i128::from(weight_total);
+    let entitled = recipient_entitled_amount(&stream.recipients, idx, total_streamed);
 
     let claimable = entitled - entry.claimed;
     if claimable > 0 {
@@ -1109,7 +1174,7 @@ impl MicroPayContract {
     }
 
     /// Stop a stream: settle everything accrued to each recipient by weight
-    /// (#559) and refund the unstreamed remainder to the payer.
+    /// (#559, #788) and refund the unstreamed remainder to the payer.
     pub fn close_stream(env: Env, stream_id: u32, payer: Address) {
         payer.require_auth();
         let mut stream = load_stream(&env, stream_id);
@@ -1129,7 +1194,6 @@ impl MicroPayContract {
         }
 
         let total_streamed = total_streamed_amount(&stream, current_ledger);
-        let weight_total = total_weight(&stream.recipients);
 
         let token = token::Client::new(&env, &stream.token);
         let contract_address = env.current_contract_address();
@@ -1138,7 +1202,7 @@ impl MicroPayContract {
         let mut owed: i128 = 0;
         for i in 0..recipients.len() {
             let mut entry = recipients.get(i).unwrap();
-            let entitled = total_streamed * i128::from(entry.weight) / i128::from(weight_total);
+            let entitled = recipient_entitled_amount(&stream.recipients, i, total_streamed);
             let share = entitled - entry.claimed;
             if share > 0 {
                 entry.claimed += share;
@@ -1280,6 +1344,8 @@ mod migration_tests;
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+    use std::format;
     use super::*;
     use soroban_sdk::{
         testutils::{Address as _, Ledger as _},
@@ -2175,7 +2241,7 @@ mod tests {
             vec![
                 &env,
                 (
-                    contract_id,
+                    contract_id.clone(),
                     (Symbol::new(&env, "stream_close"), id).into_val(&env),
                     (EVENT_SCHEMA_VERSION, streamed, refund).into_val(&env),
                 ),
@@ -2401,6 +2467,113 @@ mod tests {
         assert_eq!(token.balance(&recipient), streamed / 2);
         assert_eq!(token.balance(&second), streamed / 2);
         assert_eq!(token.balance(&payer), DEPOSIT - streamed);
+        assert_eq!(token.balance(&contract_id), 0);
+    }
+
+    /// #788 — Largest Remainder (Hamilton-Hare) allocation distributes stroop remainders
+    /// deterministically to preserve exact conservation: sum(entitled) == total_streamed.
+    #[test]
+    fn test_weighted_stream_exact_remainder_conservation_equal_weights() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, r0) = stream_fixture(&env, DEPOSIT);
+        let token = token::Client::new(&env, &token_id);
+        let r1 = Address::generate(&env);
+        let r2 = Address::generate(&env);
+
+        // 3 recipients with equal weights [1, 1, 1]
+        let id = client.open_stream(
+            &token_id,
+            &payer,
+            &soroban_sdk::vec![&env, r0.clone(), r1.clone(), r2.clone()],
+            &soroban_sdk::vec![&env, 1u32, 1u32, 1u32],
+            &10i128, // rate 10 stroops/ledger
+            &DEPOSIT,
+        );
+
+        advance_by(&env, 10); // total_streamed = 100 stroops
+        // 100 / 3 = 33 with remainder 1.
+        // Ties in remainder are broken by index: r0 gets +1 -> 34, r1 gets 33, r2 gets 33.
+        assert_eq!(client.get_claimable(&id, &r0), 34);
+        assert_eq!(client.get_claimable(&id, &r1), 33);
+        assert_eq!(client.get_claimable(&id, &r2), 33);
+
+        assert_eq!(client.claim_stream(&id, &r0), 34);
+        assert_eq!(client.claim_stream(&id, &r1), 33);
+        assert_eq!(client.claim_stream(&id, &r2), 33);
+
+        assert_eq!(token.balance(&r0), 34);
+        assert_eq!(token.balance(&r1), 33);
+        assert_eq!(token.balance(&r2), 33);
+        assert_eq!(token.balance(&contract_id), DEPOSIT - 100);
+    }
+
+    /// #788 — Verify that asymmetric weights award remainders to the recipient with
+    /// the largest fractional remainder.
+    #[test]
+    fn test_weighted_stream_asymmetric_weights_remainder_allocation() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, r0) = stream_fixture(&env, DEPOSIT);
+        let token = token::Client::new(&env, &token_id);
+        let r1 = Address::generate(&env);
+        let r2 = Address::generate(&env);
+
+        // Weights [3, 2, 1], total weight = 6. Rate = 11 stroops / ledger.
+        let id = client.open_stream(
+            &token_id,
+            &payer,
+            &soroban_sdk::vec![&env, r0.clone(), r1.clone(), r2.clone()],
+            &soroban_sdk::vec![&env, 3u32, 2u32, 1u32],
+            &11i128,
+            &DEPOSIT,
+        );
+
+        advance_by(&env, 10); // total_streamed = 110 stroops
+        // r0: 110 * 3 / 6 = 55 rem 0
+        // r1: 110 * 2 / 6 = 36 rem 4  <-- highest fractional remainder!
+        // r2: 110 * 1 / 6 = 18 rem 2
+        // sum(base) = 109, remainder = 1.
+        // Remainder 1 goes to r1 -> entitlements: r0=55, r1=37, r2=18. Sum = 110.
+        assert_eq!(client.get_claimable(&id, &r0), 55);
+        assert_eq!(client.get_claimable(&id, &r1), 37);
+        assert_eq!(client.get_claimable(&id, &r2), 18);
+
+        assert_eq!(client.claim_stream(&id, &r0), 55);
+        assert_eq!(client.claim_stream(&id, &r1), 37);
+        assert_eq!(client.claim_stream(&id, &r2), 18);
+
+        assert_eq!(token.balance(&r0), 55);
+        assert_eq!(token.balance(&r1), 37);
+        assert_eq!(token.balance(&r2), 18);
+        assert_eq!(token.balance(&contract_id), DEPOSIT - 110);
+    }
+
+    /// #788 — close_stream applies the exact same remainder allocation rule as claimable,
+    /// leaving contract balance at 0 and refunding exactly deposited - total_streamed to payer.
+    #[test]
+    fn test_weighted_stream_close_preserves_conservation_with_remainders() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, r0) = stream_fixture(&env, DEPOSIT);
+        let token = token::Client::new(&env, &token_id);
+        let r1 = Address::generate(&env);
+        let r2 = Address::generate(&env);
+
+        let id = client.open_stream(
+            &token_id,
+            &payer,
+            &soroban_sdk::vec![&env, r0.clone(), r1.clone(), r2.clone()],
+            &soroban_sdk::vec![&env, 1u32, 1u32, 1u32],
+            &10i128,
+            &DEPOSIT,
+        );
+
+        advance_by(&env, 7); // total_streamed = 70 stroops
+        // 70 / 3 = 23 rem 1. r0 gets 24, r1 gets 23, r2 gets 23.
+        client.close_stream(&id, &payer);
+
+        assert_eq!(token.balance(&r0), 24);
+        assert_eq!(token.balance(&r1), 23);
+        assert_eq!(token.balance(&r2), 23);
+        assert_eq!(token.balance(&payer), DEPOSIT - 70);
         assert_eq!(token.balance(&contract_id), 0);
     }
 

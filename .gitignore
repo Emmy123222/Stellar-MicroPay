@@ -4,3 +4,7 @@ node_modules/
 target/
 secrets/*.txt
 !secrets/.gitkeep
+target/
+test_snapshots/
+**/test_snapshots/
+
