@@ -4,6 +4,13 @@ node_modules/
 target/
 secrets/*.txt
 !secrets/.gitkeep
-target/
 test_snapshots/
+dist/
+build/
+# Playwright
+playwright-report/
+test-results/
 
+# ─── Local scripts (never push) ───────────────────────────────────────────────
+scripts/create_issues.py
+backend/data/usernames.json

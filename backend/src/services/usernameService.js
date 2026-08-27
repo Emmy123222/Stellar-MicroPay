@@ -1,7 +1,11 @@
 /**
  * src/services/usernameService.js
  * Business logic for username-to-public-key mapping and resolution.
- * Uses in-memory storage for v1 (can be migrated to database later).
+ *
+ * Registrations are persisted to a JSON store on disk (durable across
+ * restarts). The store path can be overridden with USERNAME_STORE_PATH and
+ * defaults to backend/data/usernames.json. In test mode (NODE_ENV=test)
+ * persistence is skipped so tests stay hermetic.
  *
  * Canonical form: usernames are case-insensitive. The Map is keyed by the
  * lowercased ("canonical") form of the username so that "Alice123",
@@ -14,8 +18,45 @@
 
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
+
+const storePath =
+  process.env.USERNAME_STORE_PATH ||
+  path.join(__dirname, "../../data/usernames.json");
+
 // In-memory storage for canonicalUsername → publicKey mapping
 const usernameMap = new Map();
+
+/** Load previously persisted registrations from disk (skipped in tests). */
+function load() {
+  if (process.env.NODE_ENV === "test") return;
+  try {
+    const records = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    for (const record of records) {
+      usernameMap.set(record.username, record.publicKey);
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
+/** Persist the current registrations to disk (skipped in tests). */
+function persist() {
+  if (process.env.NODE_ENV === "test") return;
+  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+  const temp = `${storePath}.${process.pid}.tmp`;
+  fs.writeFileSync(
+    temp,
+    `${JSON.stringify(
+      Array.from(usernameMap, ([username, publicKey]) => ({ username, publicKey })),
+      null,
+      2
+    )}\n`,
+    { mode: 0o600 }
+  );
+  fs.renameSync(temp, storePath);
+}
 
 /**
  * Canonicalize a username to its case-insensitive storage/lookup form.
@@ -54,6 +95,7 @@ function registerUsername(username, publicKey) {
   }
 
   usernameMap.set(canonicalUsername, publicKey);
+  persist();
   return { username: canonicalUsername, publicKey };
 }
 
@@ -103,6 +145,7 @@ function removeUsername(username) {
   }
 
   usernameMap.delete(canonicalUsername);
+  persist();
   return { username: canonicalUsername };
 }
 
@@ -182,7 +225,11 @@ function createUsernameService(store = new Map()) {
       }
       return { username: canonical, publicKey };
     },
-    getAllUsernames: () => Array.from(store.entries()).map(([username, publicKey]) => ({ username, publicKey })),
+    getAllUsernames: () =>
+      Array.from(store.entries()).map(([username, publicKey]) => ({
+        username,
+        publicKey,
+      })),
     removeUsername(username) {
       validateUsername(username);
       const canonical = canonicalizeUsername(username);
@@ -204,6 +251,8 @@ function createUsernameService(store = new Map()) {
 function clearUsernames() {
   usernameMap.clear();
 }
+
+load();
 
 module.exports = {
   registerUsername,
