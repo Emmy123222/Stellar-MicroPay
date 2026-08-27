@@ -70,16 +70,14 @@
     "typescript": "^5"
   },
   "overrides": {
-    "axios": "$axios"
-  },
-  "engines": {
-    "node": "20.19.5"
-  },
-  "overrides": {
+    "axios": "$axios",
     "image-size": "^1.2.1",
     "sharp": "^0.33.5",
     "ws": "^8.18.0",
     "webpack": "5.101.2"
+  },
+  "engines": {
+    "node": "20.19.5"
   },
   "size-limit": [
     {
