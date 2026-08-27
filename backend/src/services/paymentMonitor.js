@@ -9,10 +9,13 @@
 const { Horizon } = require("@stellar/stellar-sdk");
 
 const logger = require("../utils/logger");
-
-const cursorStore = require("./cursorStore");
+const {
+  getWebhooksByPublicKey,
+  getAllWebhooks,
+  saveMonitorCursor,
+  getMonitorCursor,
+} = require("./webhookStore");
 const { deliverWebhook } = require("./webhookDelivery");
-const { getWebhooksByPublicKey, getAllWebhooks } = require("./webhookStore");
 
 const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -44,12 +47,11 @@ function startMonitoring(publicKey) {
     return; // idempotent — already monitored
   }
 
-  logger.info({ publicKey }, "[monitor] starting SSE stream");
-
-  // Resume from the last persisted paging token so payments processed during
-  // downtime or a reconnect gap are not missed. Falls back to "now" only when
-  // no cursor has been persisted yet.
-  const resumeCursor = cursorStore.get(publicKey);
+  // Resume from the last durably-persisted cursor so payments received while
+  // the process was down aren't silently dropped (#768); fall back to "now"
+  // for accounts monitored for the first time.
+  const resumeCursor = getMonitorCursor(publicKey) || "now";
+  logger.info({ publicKey, resumeCursor }, "[monitor] starting SSE stream");
 
   const closeStream = horizonServer
     .payments()
@@ -57,6 +59,8 @@ function startMonitoring(publicKey) {
     .cursor(resumeCursor)
     .stream({
       onmessage: async (record) => {
+        saveMonitorCursor(publicKey, record.paging_token);
+
         // Only handle incoming simple payments to this account
         if (record.type !== "payment" || record.to !== publicKey) return;
 
@@ -64,7 +68,7 @@ function startMonitoring(publicKey) {
         let seen = seenTokens.get(publicKey) || new Set();
         if (
           seen.has(record.paging_token) ||
-          record.paging_token === cursorStore.get(publicKey)
+          record.paging_token === resumeCursor
         ) {
           return;
         }
@@ -100,10 +104,6 @@ function startMonitoring(publicKey) {
           // Parallel delivery — one failed hook must not block others
           await Promise.allSettled(hooks.map((hook) => deliverWebhook(hook, payload)));
         }
-
-        // Advance the durable cursor even when no webhook is registered, so a
-        // payment with no endpoint is not reprocessed on the next reconnect.
-        cursorStore.set(publicKey, record.paging_token);
       },
 
       onerror: (err) => {

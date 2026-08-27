@@ -21,7 +21,7 @@ jest.mock("@stellar/stellar-sdk", () => ({
 }));
 
 const webhookService = require("../src/services/webhookService");
-const paymentMonitor = require("../src/services/paymentMonitor");
+const webhookStore = require("../src/services/webhookStore");
 
 // Distinct accounts for registry tests
 const ACCOUNT_A = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
@@ -60,6 +60,32 @@ describe("webhook registry", () => {
     expect(webhookService.getWebhooksByPublicKey(ACCOUNT_B)).toHaveLength(1);
     expect(webhookService.deleteWebhook(webhook.id)).toBe(true);
     expect(webhookService.getWebhooksByPublicKey(ACCOUNT_B)).toHaveLength(0);
+  });
+
+  it("enforces uniqueness on (publicKey, url) instead of creating duplicates", () => {
+    const first = webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/dup",
+      "secret-one"
+    );
+    const second = webhookService.registerWebhook(
+      ACCOUNT_A,
+      "https://x.test/dup",
+      "secret-two"
+    );
+
+    expect(second.id).toBe(first.id);
+    expect(
+      webhookService
+        .getWebhooksByPublicKey(ACCOUNT_A)
+        .filter((w) => w.url === "https://x.test/dup")
+    ).toHaveLength(1);
+  });
+
+  it("persists monitor cursors durably so restarts can resume", () => {
+    webhookStore.saveMonitorCursor(ACCOUNT_A, "123456789-0");
+    expect(webhookStore.getMonitorCursor(ACCOUNT_A)).toBe("123456789-0");
+    expect(webhookStore.getMonitorCursor("unregistered-account")).toBeUndefined();
   });
 });
 
