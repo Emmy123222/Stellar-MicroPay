@@ -994,7 +994,7 @@ mod tests {
     #[test]
     fn test_initialize() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1008,7 +1008,7 @@ mod tests {
         use soroban_sdk::{testutils::Events, vec, IntoVal};
 
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1033,7 +1033,7 @@ mod tests {
     #[test]
     fn test_double_initialize_returns_error() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1050,7 +1050,7 @@ mod tests {
     #[test]
     fn test_mint_receipt() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1077,7 +1077,7 @@ mod tests {
     #[test]
     fn test_receipt_count_tracks_multiple_mints() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1100,7 +1100,7 @@ mod tests {
     #[test]
     fn test_tip_totals_start_at_zero() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1113,7 +1113,7 @@ mod tests {
 
     // ── Helper: deploy a SAC token, mint `amount` to `to`, return token address ──
     fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
-        let token_id = env.register_stellar_asset_contract(admin.clone());
+        let token_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
         let sac = token::StellarAssetClient::new(env, &token_id);
         sac.mint(to, &amount);
         token_id
@@ -1122,7 +1122,7 @@ mod tests {
     #[test]
     fn test_send_tip_stores_record() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1146,7 +1146,7 @@ mod tests {
     #[test]
     fn test_send_tip_increments_totals() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1170,7 +1170,7 @@ mod tests {
     #[should_panic]
     fn test_send_tip_unauthorized() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1201,7 +1201,7 @@ mod tests {
     #[test]
     fn test_create_escrow_locks_funds_and_returns_id() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1234,7 +1234,7 @@ mod tests {
     #[should_panic(expected = "release_ledger must be in the future")]
     fn test_create_escrow_rejects_past_release_ledger() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1253,7 +1253,7 @@ mod tests {
     #[should_panic(expected = "amount must be positive")]
     fn test_create_escrow_rejects_non_positive_amount() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1269,7 +1269,7 @@ mod tests {
     #[test]
     fn test_claim_escrow_transfers_to_recipient_after_release() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1297,7 +1297,7 @@ mod tests {
     #[should_panic(expected = "release_ledger not reached")]
     fn test_claim_escrow_rejected_before_release_ledger() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1314,7 +1314,7 @@ mod tests {
     #[test]
     fn test_cancel_escrow_returns_funds_to_creator() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1342,7 +1342,7 @@ mod tests {
     #[should_panic(expected = "release_ledger already reached")]
     fn test_cancel_escrow_rejected_after_release_ledger() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1361,7 +1361,7 @@ mod tests {
     #[should_panic(expected = "escrow is not pending")]
     fn test_double_claim_rejected() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1393,7 +1393,7 @@ mod tests {
         env: &Env,
         funding: i128,
     ) -> (Address, MicroPayContractClient<'_>, Address, Address, Address) {
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
         client.initialize(&admin);
@@ -2081,7 +2081,7 @@ mod tests {
     #[test]
     fn test_initialize_sets_schema_version() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         client.initialize(&Address::generate(&env));
 
@@ -2091,7 +2091,7 @@ mod tests {
     #[test]
     fn test_migrate_stamps_unversioned_instance() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -2111,7 +2111,7 @@ mod tests {
     #[should_panic(expected = "schema already at current version")]
     fn test_migrate_rejects_current_version() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -2124,7 +2124,7 @@ mod tests {
     #[should_panic(expected = "Unauthorized")]
     fn test_migrate_requires_admin() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);

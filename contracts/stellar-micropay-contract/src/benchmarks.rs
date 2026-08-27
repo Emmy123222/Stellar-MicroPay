@@ -31,7 +31,7 @@ fn make_env() -> Env {
 
 #[cfg(test)]
 fn deploy(env: &Env) -> (Address, crate::MicroPayContractClient) {
-    let contract_id = env.register_contract(None, MicroPayContract);
+    let contract_id = env.register(MicroPayContract, ());
     let client = crate::MicroPayContractClient::new(env, &contract_id);
     let admin = Address::generate(env);
     client.initialize(&admin);
@@ -40,7 +40,7 @@ fn deploy(env: &Env) -> (Address, crate::MicroPayContractClient) {
 
 #[cfg(test)]
 fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
-    let token_id = env.register_stellar_asset_contract(admin.clone());
+    let token_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
     let sac = token::StellarAssetClient::new(env, &token_id);
     sac.mint(to, &amount);
     token_id
