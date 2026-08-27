@@ -67,12 +67,22 @@ describe("API Integration Tests", () => {
     });
   });
 
-  describe("GET /api/accounts/resolve/alice", () => {
-    it("should return 501 Not Implemented", async () => {
+  describe("GET /api/accounts/resolve/:username", () => {
+    it("should return 404 if username not found", async () => {
+      const response = await request(app).get("/api/accounts/resolve/notfound");
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe("Username not found");
+    });
+
+    it("should return 200 and resolve a registered username", async () => {
+      const publicKey = "GAO6LBHHRHUW6XBLUPLWZHWVISNL6XF6MY722G37WS2JMHVVIEEFN4DR";
+      await request(app).post("/api/accounts/register").send({ username: "alice", publicKey });
+
       const response = await request(app).get("/api/accounts/resolve/alice");
-      expect(response.status).toBe(501);
-      expect(response.body.success).toBe(false);
-      expect(response.body.error).toBe("Not Implemented");
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.username).toBe("alice");
+      expect(response.body.data.publicKey).toBe(publicKey);
     });
   });
 
