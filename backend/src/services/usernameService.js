@@ -106,6 +106,31 @@ function removeUsername(username) {
   return { username: canonicalUsername };
 }
 
+function renameUsername(currentUsername, nextUsername, publicKey) {
+  validateUsername(currentUsername);
+  validateUsername(nextUsername);
+  validatePublicKey(publicKey);
+  const current = usernameMap.get(currentUsername);
+  if (!current) {
+    const error = new Error("Username not found");
+    error.status = 404;
+    throw error;
+  }
+  if (current !== publicKey) {
+    const error = new Error("Forbidden: username is owned by another account");
+    error.status = 403;
+    throw error;
+  }
+  if (usernameMap.has(nextUsername)) {
+    const error = new Error("Username already registered");
+    error.status = 409;
+    throw error;
+  }
+  usernameMap.delete(currentUsername);
+  usernameMap.set(nextUsername, publicKey);
+  return { username: nextUsername, publicKey };
+}
+
 /**
  * Validate username format.
  * @param {string} username - The username to validate
@@ -210,6 +235,7 @@ module.exports = {
   resolveUsername,
   getAllUsernames,
   removeUsername,
+  renameUsername,
   validateUsername,
   validatePublicKey,
   canonicalizeUsername,
