@@ -27,6 +27,7 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const { resumeAllMonitors } = require("./services/paymentMonitor");
+const scheduledTransactionWorker = require("./services/scheduledTransactionWorker");
 const logger = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 
@@ -302,6 +303,9 @@ if (require.main === module) {
 
   // Resume SSE monitoring for all webhooks that existed before restart
   resumeAllMonitors();
+
+  // Start the scheduled-transaction worker so due jobs are submitted
+  scheduledTransactionWorker.start();
 }
 
 module.exports = app;

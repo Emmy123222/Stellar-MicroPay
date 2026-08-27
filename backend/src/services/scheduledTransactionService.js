@@ -46,6 +46,9 @@ function scheduleTransaction(signedXDR, submitAt, publicKey) {
     createdAt: new Date().getTime(),
     paused: false, // New: pause state
     pausedAt: null, // New: timestamp when paused
+    claimed: false, // Worker ownership flag (atomic claim)
+    status: "pending", // pending | submitted | failed
+    transactionHash: null, // Populated on successful submission
   };
 
   scheduledTransactions.set(id, scheduledTx);
@@ -77,6 +80,8 @@ function getPendingTransactions(publicKey) {
         attempts: tx.attempts,
         createdAt: new Date(tx.createdAt),
         paused: tx.paused || false,
+        status: tx.status,
+        transactionHash: tx.transactionHash,
       });
     }
   }
@@ -116,15 +121,69 @@ function getDueTransactions() {
     // 1. Are due for submission (submitAt <= now)
     // 2. Haven't exceeded max attempts (attempts < 3)
     // 3. Are not paused (paused !== true)
-    // 4. Haven't been successfully submitted yet (we don't track success separately,
-    //    but we'll assume if it's still in the queue, it hasn't succeeded)
-    if (tx.submitAt <= now && tx.attempts < 3 && !tx.paused) {
+    // 4. Haven't been claimed by the worker yet (claimed !== true)
+    // 5. Are still pending (not already submitted or permanently failed)
+    if (tx.submitAt <= now && tx.attempts < 3 && !tx.paused && !tx.claimed && tx.status === "pending") {
       due.push(tx);
     }
   }
 
   // Sort by submitAt ascending (oldest first)
   return due.sort((a, b) => a.submitAt - b.submitAt);
+}
+
+/**
+ * Atomically claim a transaction for processing by a worker.
+ * Returns true if the claim succeeded (i.e. the transaction was unclaimed and
+ * is still pending), false if another worker already claimed it or it no
+ * longer exists.
+ *
+ * @param {number} id - The transaction ID
+ * @returns {boolean}
+ */
+function claimTransaction(id) {
+  const tx = scheduledTransactions.get(id);
+  if (!tx || tx.claimed || tx.status !== "pending") {
+    return false;
+  }
+  tx.claimed = true;
+  return true;
+}
+
+/**
+ * Mark a transaction as successfully submitted.
+ * Records the transaction hash and removes it from the queue.
+ *
+ * @param {number} id - The transaction ID
+ * @param {string} transactionHash - The Horizon transaction hash
+ */
+function markComplete(id, transactionHash) {
+  const tx = scheduledTransactions.get(id);
+  if (tx) {
+    tx.status = "submitted";
+    tx.transactionHash = transactionHash;
+    scheduledTransactions.delete(id);
+  }
+}
+
+/**
+ * Mark a transaction attempt as failed.
+ * Increments the attempt counter, stores the error, and releases the claim so
+ * the scheduler can pick it up again on the next tick (until max attempts).
+ * If max attempts are exhausted the status is set to "failed".
+ *
+ * @param {number} id - The transaction ID
+ * @param {string} errorMessage - Human-readable failure reason
+ */
+function markFailed(id, errorMessage) {
+  const tx = scheduledTransactions.get(id);
+  if (!tx) return;
+  tx.attempts += 1;
+  tx.lastError = errorMessage || null;
+  tx.claimed = false; // release so the worker can retry
+  if (tx.attempts >= 3) {
+    tx.status = "failed";
+  }
 }
 
 /**
@@ -161,7 +220,6 @@ function pauseTransaction(id) {
   if (tx) {
     tx.paused = true;
     tx.pausedAt = Date.now();
-    logger.info(JSON.stringify({ type: "transaction_paused", id }));
     return true;
   }
   return false;
@@ -177,7 +235,6 @@ function resumeTransaction(id) {
   if (tx) {
     tx.paused = false;
     tx.pausedAt = null;
-    logger.info(JSON.stringify({ type: "transaction_resumed", id }));
     return true;
   }
   return false;
@@ -189,6 +246,9 @@ module.exports = {
   getTransactionById,
   cancelTransaction,
   getDueTransactions,
+  claimTransaction,
+  markComplete,
+  markFailed,
   incrementAttempt,
   removeTransaction,
   pauseTransaction,
