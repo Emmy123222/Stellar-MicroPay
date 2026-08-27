@@ -118,7 +118,7 @@ describe("stellarService", () => {
             amount: "5.0000000",
             asset_type: "native",
             from: validPublicKey,
-            to: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC",
+            to: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
             created_at: "2026-03-27T10:00:00Z",
             transaction_hash: "txhash1",
             paging_token: "pt1",
@@ -161,7 +161,7 @@ describe("stellarService", () => {
         amount: "5.0000000",
         asset: "XLM",
         from: validPublicKey,
-        to: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC",
+        to: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
         memo: "hello",
         createdAt: "2026-03-27T10:00:00Z",
         transactionHash: "txhash1",
@@ -259,7 +259,7 @@ describe("stellarService", () => {
         subentry_count: 3,
         balances: [
           { asset_type: "native", balance: "100.5000000" },
-          { asset_type: "credit_alphanum4", asset_code: "USDC", asset_issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC", balance: "50.0000000" },
+          { asset_type: "credit_alphanum4", asset_code: "USDC", asset_issuer: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", balance: "50.0000000" },
         ],
       });
 

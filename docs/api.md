@@ -2,9 +2,55 @@
 
 **Base URL:** `http://localhost:4000` (default; override with `PORT`)
 
+**Versioned Base URL:** `http://localhost:4000/api/v1`
+
 **Interactive docs:** [Swagger UI](http://localhost:4000/api/docs) · [OpenAPI JSON](http://localhost:4000/api/docs.json)
 
 **Client examples:** [TypeScript & Python](./sdk-examples.md)
+
+---
+
+## API Versioning Strategy & Deprecation Policy (#853)
+
+All primary API routes are versioned under the `/api/v1/` prefix:
+- `http://localhost:4000/api/v1/auth`
+- `http://localhost:4000/api/v1/accounts`
+- `http://localhost:4000/api/v1/payments`
+- `http://localhost:4000/api/v1/webhooks`
+- `http://localhost:4000/api/v1/analytics`
+- `http://localhost:4000/api/v1/turrets`
+- `http://localhost:4000/api/v1/tips`
+- `http://localhost:4000/api/v1/health`
+
+### Deprecation & Sunset Headers
+Legacy unversioned endpoints (`/api/*`) are maintained for backward compatibility. Whenever a client calls a legacy unversioned endpoint, the API server includes standard HTTP Deprecation and Sunset headers (RFC 8594 / IETF RFC draft):
+
+```http
+HTTP/1.1 200 OK
+Deprecation: true
+Sunset: Sun, 31 Dec 2028 23:59:59 GMT
+Link: </api/v1/accounts/resolve/alice>; rel="successor-version"
+```
+
+- **`Deprecation: true`**: Signals that the requested URL path is deprecated.
+- **`Sunset: <HTTP-date>`**: Specifies the date after which the legacy endpoint will be permanently retired.
+- **`Link: <URI>; rel="successor-version"`**: Points directly to the versioned replacement endpoint.
+
+### Migration Example for Breaking Changes
+
+When upgrading client code to handle breaking contract changes:
+
+#### Legacy Call (Deprecated)
+```bash
+curl -X GET http://localhost:4000/api/accounts/resolve/alice
+```
+*Returns deprecation headers and will be retired at Sunset.*
+
+#### Updated Call (Versioned)
+```bash
+curl -X GET http://localhost:4000/api/v1/accounts/resolve/alice
+```
+*Guarantees stable v1 contract without deprecation warnings.*
 
 ---
 

@@ -249,4 +249,5 @@ module.exports = {
   getTipsSent,
   validateTipInput,
   getTopTippers,
+  tipsByCreator,
 };

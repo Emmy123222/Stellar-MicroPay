@@ -150,14 +150,14 @@ describe("accountController", () => {
     it("resolves a username to its associated public key", async () => {
       usernameService.resolveUsername.mockReturnValue({ publicKey: "G_VALID" });
 
-      const res = await request(app).get("/api/accounts/resolve/alice");
+      const res = await request(app).get("/api/accounts/resolve/bob");
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         success: true,
         data: { publicKey: "G_VALID" }
       });
-      expect(usernameService.resolveUsername).toHaveBeenCalledWith("alice");
+      expect(usernameService.resolveUsername).toHaveBeenCalledWith("bob");
     });
 
     it("propagates errors when username cannot be resolved", async () => {
