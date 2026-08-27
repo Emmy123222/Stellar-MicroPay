@@ -169,6 +169,11 @@ fn paused_ledgers_total(stream: &Stream, current_ledger: u32) -> u32 {
     }
 }
 
+fn effective_elapsed_ledgers(stream: &Stream, current_ledger: u32) -> u32 {
+    let paused = paused_ledgers_total(stream, current_ledger);
+    current_ledger.saturating_sub(stream.start_ledger).saturating_sub(paused)
+}
+
 /// Total amount streamed to *all* recipients combined, as of `current_ledger`.
 ///
 /// Cap the accrual window at the ledger where the deposit runs out. That
@@ -176,8 +181,7 @@ fn paused_ledgers_total(stream: &Stream, current_ledger: u32) -> u32 {
 /// overflow i128) and enforces `total_streamed <= deposited` structurally
 /// rather than by an after-the-fact clamp.
 fn total_streamed_amount(stream: &Stream, current_ledger: u32) -> i128 {
-    let paused = paused_ledgers_total(stream, current_ledger);
-    let elapsed_ledgers = current_ledger.saturating_sub(stream.start_ledger).saturating_sub(paused);
+    let elapsed_ledgers = effective_elapsed_ledgers(stream, current_ledger);
 
     let funded_ledgers = stream.deposited / stream.rate_per_ledger;
     let elapsed_ledgers = if i128::from(elapsed_ledgers) > funded_ledgers {
@@ -856,6 +860,13 @@ impl MicroPayContract {
         }
 
         let current_ledger = env.ledger().sequence();
+        if stream.paused {
+            let pause_length = current_ledger.saturating_sub(stream.paused_at_ledger);
+            stream.paused_ledgers = stream.paused_ledgers.saturating_add(pause_length);
+            stream.paused = false;
+            stream.paused_at_ledger = 0;
+        }
+
         let total_streamed = total_streamed_amount(&stream, current_ledger);
         let weight_total = total_weight(&stream.recipients);
 
@@ -2032,6 +2043,43 @@ mod tests {
         assert_eq!(token.balance(&recipient), streamed);
         assert_eq!(token.balance(&payer), DEPOSIT - streamed);
         assert_eq!(token.balance(&contract_id), 0);
+
+        let stream = client.get_stream(&id);
+        assert_eq!(stream.paused_ledgers, 400);
+        assert!(!stream.paused);
+    }
+
+    #[test]
+    fn test_multiple_pause_intervals() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, recipient) = stream_fixture(&env, DEPOSIT);
+        let token = token::Client::new(&env, &token_id);
+
+        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+        advance_by(&env, 10);
+        
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 100);
+        client.resume_stream(&id, &payer);
+        
+        advance_by(&env, 10);
+        
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 200);
+        
+        // Close while on the second pause.
+        client.close_stream(&id, &payer);
+        
+        // 10 + 10 = 20 ledgers of active streaming.
+        let streamed = RATE * 20;
+        assert_eq!(token.balance(&recipient), streamed);
+        assert_eq!(token.balance(&payer), DEPOSIT - streamed);
+        assert_eq!(token.balance(&contract_id), 0);
+
+        let stream = client.get_stream(&id);
+        // 100 + 200 = 300 ledgers of paused time.
+        assert_eq!(stream.paused_ledgers, 300);
+        assert!(!stream.paused);
     }
 
     #[test]
