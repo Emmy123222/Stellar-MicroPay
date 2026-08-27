@@ -17,6 +17,7 @@ const {
 } = require("@stellar/stellar-sdk");
 const { server } = require("../config/stellar");
 const logger = require("../utils/logger");
+const { correlationHeaders } = require("../utils/logger");
 
 const NETWORK_PASSPHRASE =
   process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
@@ -350,7 +351,14 @@ async function getXlmUsdPrice() {
   }
 
   const res = await fetch(
-    "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd"
+    "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd",
+    {
+      // #837: forward the request's correlation ID (if any) so the upstream
+      // provider / our own load-balancer can trace this lookup to the
+      // originating request. Background-runners started outside a request
+      // pass no ID.
+      headers: correlationHeaders(),
+    }
   );
 
   if (!res.ok) {

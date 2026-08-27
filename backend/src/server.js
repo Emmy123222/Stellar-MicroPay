@@ -11,6 +11,7 @@ const compression = require("compression");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
+const crypto = require("crypto");
 require("dotenv").config();
 const Sentry = require("@sentry/node");
 
@@ -28,6 +29,10 @@ const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const { resumeAllMonitors } = require("./services/paymentMonitor");
 const logger = require("./utils/logger");
+const {
+  runWithCorrelationId,
+  CORRELATION_HEADER,
+} = require("./utils/logger");
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 
 const app = express();
@@ -41,6 +46,48 @@ const STELLAR_SECRET_PATTERN = /S[A-Z2-7]{55}/g;
 function sanitizeMessage(msg) {
   return typeof msg === "string" ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]") : msg;
 }
+
+// ─── Correlation IDs (#837) ──────────────────────────────────────────────────
+// A single request is traced end-to-end with a correlation ID. We accept an
+// inbound X-Request-Id header (if it is a well-formed UUID) or generate a fresh
+// one. The ID is echoed back on the response header and made available to
+// structured logs AND outbound third-party requests via AsyncLocalStorage, so
+// it propagates into async jobs and Horizon/webhook calls automatically.
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Accept a caller-supplied correlation ID if it is a valid UUID, otherwise
+ * generate a fresh, validated one.
+ *
+ * @param {string|undefined} incoming
+ * @returns {string}
+ */
+function resolveCorrelationId(incoming) {
+  if (typeof incoming === "string" && UUID_PATTERN.test(incoming.trim())) {
+    return incoming.trim();
+  }
+  return crypto.randomUUID();
+}
+
+/**
+ * Middleware that binds the request's correlation ID to the async context and
+ * echoes it back on the response, so callers can correlate logs with requests.
+ *
+ * Must run before pino-http so HTTP access logs are correctly tagged.
+ */
+app.use((req, res, next) => {
+  const correlationId = resolveCorrelationId(req.get(CORRELATION_HEADER));
+  // Attach to the request for later use and to the response headers so
+  // clients / proxies can forward it to correlated systems.
+  req.correlationId = correlationId;
+  res.setHeader(CORRELATION_HEADER, correlationId);
+
+  // Everything downstream — handlers, async jobs spawned during handling, and
+  // outbound requests — sees the ID in its async context and logs it.
+  runWithCorrelationId(correlationId, next);
+});
 
 // ─── Sentry ───────────────────────────────────────────────────────────────────
 

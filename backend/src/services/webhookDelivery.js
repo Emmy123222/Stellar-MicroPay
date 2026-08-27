@@ -7,6 +7,7 @@
 "use strict";
 
 const logger = require("../utils/logger");
+const { correlationHeaders } = require("../utils/logger");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
 
 /**
@@ -50,6 +51,9 @@ async function deliverWebhook(webhook, payload) {
         "Content-Type": "application/json",
         "X-Stellar-Signature": `sha256=${sig}`,
         "X-Webhook-ID": webhook.id,
+        // #837: forward the request's correlation ID so the webhook consumer
+        // can trace this delivery back to the originating request.
+        ...correlationHeaders(),
       },
       body,
     });
