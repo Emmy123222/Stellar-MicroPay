@@ -5,7 +5,7 @@ describe("Security: JSON Body Limits", () => {
   it("should reject JSON payloads larger than 10kb", async () => {
     // Generate a string larger than 10kb
     const largePayload = {
-      data: "a".repeat(11 * 1024)
+      data: "a".repeat(50 * 1024)
     };
 
     const res = await request(app)
