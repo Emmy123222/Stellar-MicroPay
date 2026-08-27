@@ -62,6 +62,18 @@ jobs:
       - name: Bundle size budget
         run: npm run size
 
+      - name: Route bundle and hydration budgets
+        run: npm run bundle-report
+        env:
+          NEXT_PUBLIC_STELLAR_NETWORK: testnet
+
+      - name: Upload route bundle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-route-bundle-report
+          path: frontend/bundle-reports/
+
   # ─── Backend ───────────────────────────────────────────────────────────────
   backend:
     name: Backend (Node.js)
