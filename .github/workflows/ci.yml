@@ -242,6 +242,18 @@ jobs:
           test -s ../../contract-sbom.cyclonedx.json
           test -f ../../target/wasm32v1-none/release/stellar_micropay_contract.wasm
 
+      - name: Reproducible WASM Build & Size Verification (#806)
+        run: ./scripts/build-and-verify.sh
+
+      - name: Upload Contract WASM Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-micropay-contract-wasm
+          path: |
+            contracts/stellar-micropay-contract/target/wasm32v1-none/release/stellar_micropay_contract.wasm
+            contracts/stellar-micropay-contract/target/wasm32v1-none/release/stellar_micropay_contract.wasm.sha256
+            contracts/stellar-micropay-contract/target/wasm_build_report.json
+
   # ─── E2E Tests ─────────────────────────────────────────────────────────────
   e2e:
     name: E2E Tests (Playwright)

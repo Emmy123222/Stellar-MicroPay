@@ -5,13 +5,14 @@
 #   make test                — run all tests (frontend unit + backend unit)
 #   make lint                — lint frontend + backend
 #   make build               — build Docker images (dev compose)
-#   make contracts-build     — build Soroban contracts WASM
+#   make contracts-build     — build Soroban contracts WASM (target wasm32v1-none)
+#   make contracts-verify    — reproducible double-build & size ceiling verification (#806)
 #   make contracts-test      — run Soroban contract tests
 #   make contracts-fmt       — check Rust formatting (mirrors CI gate 1)
 #   make contracts-scout     — run Clippy lints with warnings-as-errors (mirrors CI gate 2)
 #   make contracts-check     — run all four CI gates locally in sequence
 
-.PHONY: dev test lint build storybook contracts-build contracts-test contracts-fmt contracts-scout contracts-check
+.PHONY: dev test lint build storybook contracts-build contracts-verify contracts-test contracts-fmt contracts-scout contracts-check
 
 dev:
 	npm run dev
@@ -33,7 +34,10 @@ storybook:
 # ── Contracts ────────────────────────────────────────────────────────────────
 
 contracts-build:
-	cd contracts/stellar-micropay-contract && cargo build --target wasm32-unknown-unknown --release
+	cd contracts/stellar-micropay-contract && cargo build --target wasm32v1-none --release
+
+contracts-verify:
+	cd contracts/stellar-micropay-contract && ./scripts/build-and-verify.sh
 
 contracts-test:
 	cd contracts/stellar-micropay-contract && cargo test
@@ -42,7 +46,7 @@ contracts-fmt:
 	cd contracts/stellar-micropay-contract && cargo fmt --all -- --check
 
 contracts-scout:
-	cd contracts/stellar-micropay-contract && cargo clippy --target wasm32-unknown-unknown -- -D warnings
+	cd contracts/stellar-micropay-contract && cargo clippy --target wasm32v1-none -- -D warnings
 
 contracts-check: contracts-fmt contracts-scout contracts-test contracts-build
 	@echo "All four contract gates passed."
