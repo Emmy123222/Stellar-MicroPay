@@ -984,6 +984,9 @@ mod benchmarks;
 mod fuzz_streams;
 
 #[cfg(test)]
+mod migration_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use soroban_sdk::{
