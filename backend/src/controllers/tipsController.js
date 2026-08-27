@@ -91,8 +91,8 @@ async function getTipsReceived(req, res, next) {
     const { limit, offset } = req.query;
 
     const result = tipsService.getTipsReceived(creatorPublicKey, {
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      limit,
+      offset,
     });
 
     // Also get stats
@@ -155,8 +155,8 @@ async function getTipsSent(req, res, next) {
     const { limit, offset } = req.query;
 
     const result = tipsService.getTipsSent(senderPublicKey, {
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      limit,
+      offset,
     });
 
     res.json({
@@ -186,9 +186,7 @@ async function getTopTippers(req, res, next) {
     const { creatorPublicKey } = req.params;
     const { limit } = req.query;
     
-    const parsedLimit = limit ? parseInt(limit, 10) : 5;
-    
-    const result = tipsService.getTopTippers(creatorPublicKey, parsedLimit);
+    const result = tipsService.getTopTippers(creatorPublicKey, limit);
     
     res.json({
       success: true,

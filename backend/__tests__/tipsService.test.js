@@ -341,4 +341,46 @@ describe("tipsService", () => {
       expect(() => tipsService.validateTipInput(data)).toThrow("amount must be a positive number");
     });
   });
+
+  describe("validatePagination", () => {
+    it("uses defaults when no params provided", () => {
+      const result = tipsService.validatePagination(undefined, undefined);
+      expect(result.limit).toBe(50);
+      expect(result.offset).toBe(0);
+    });
+
+    it("parses valid integer strings", () => {
+      const result = tipsService.validatePagination("10", "20");
+      expect(result.limit).toBe(10);
+      expect(result.offset).toBe(20);
+    });
+
+    it("rejects negative limit", () => {
+      expect(() => tipsService.validatePagination("-5", "0")).toThrow("limit must be an integer between 1 and 100");
+    });
+
+    it("rejects zero limit", () => {
+      expect(() => tipsService.validatePagination("0", "0")).toThrow("limit must be an integer between 1 and 100");
+    });
+
+    it("rejects fractional limit", () => {
+      expect(() => tipsService.validatePagination("10.5", "0")).toThrow("limit must be an integer between 1 and 100");
+    });
+
+    it("rejects limit over max", () => {
+      expect(() => tipsService.validatePagination("101", "0")).toThrow("limit must be an integer between 1 and 100");
+    });
+
+    it("rejects negative offset", () => {
+      expect(() => tipsService.validatePagination("10", "-1")).toThrow("offset must be a non-negative integer");
+    });
+
+    it("rejects fractional offset", () => {
+      expect(() => tipsService.validatePagination("10", "5.5")).toThrow("offset must be a non-negative integer");
+    });
+
+    it("rejects non-numeric limit", () => {
+      expect(() => tipsService.validatePagination("abc", "0")).toThrow("limit must be an integer between 1 and 100");
+    });
+  });
 });

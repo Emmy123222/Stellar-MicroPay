@@ -160,7 +160,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTipsReceived).toHaveBeenCalledWith(
         req.params.creatorPublicKey,
-        { limit: 10, offset: 20 }
+        { limit: "10", offset: "20" }
       );
 
       expect(res.json).toHaveBeenCalledWith({
@@ -194,7 +194,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTipsSent).toHaveBeenCalledWith(
         req.params.senderPublicKey,
-        { limit: 15, offset: 5 }
+        { limit: "15", offset: "5" }
       );
 
       expect(res.json).toHaveBeenCalledWith({
@@ -220,7 +220,7 @@ describe("tipsController", () => {
       );
     });
 
-    it("parses pagination params as integers", async () => {
+    it("passes pagination params to service", async () => {
       req.params = {
         senderPublicKey: "GABC123456789012345678901234567890123456789012345678",
       };
@@ -235,7 +235,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTipsSent).toHaveBeenCalledWith(
         req.params.senderPublicKey,
-        { limit: 25, offset: 50 }
+        { limit: "25", offset: "50" }
       );
     });
 
@@ -375,7 +375,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTopTippers).toHaveBeenCalledWith(
         req.params.creatorPublicKey,
-        10
+        "10"
       );
 
       expect(res.json).toHaveBeenCalledWith({
@@ -396,7 +396,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTopTippers).toHaveBeenCalledWith(
         req.params.creatorPublicKey,
-        5 // Default limit
+        undefined
       );
     });
   });

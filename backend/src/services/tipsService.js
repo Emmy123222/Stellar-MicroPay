@@ -53,6 +53,39 @@ function recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", m
 }
 
 /**
+ * Validate pagination parameters.
+ * @param {any} limit - The limit parameter
+ * @param {any} offset - The offset parameter
+ * @param {number} defaultLimit - The default limit
+ * @param {number} maxLimit - The maximum allowed limit (documented maximum page size)
+ * @returns {object} { limit: number, offset: number }
+ */
+function validatePagination(limit, offset, defaultLimit = 50, maxLimit = 100) {
+  let parsedLimit = defaultLimit;
+  let parsedOffset = 0;
+
+  if (limit !== undefined) {
+    parsedLimit = Number(limit);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > maxLimit) {
+      const error = new Error(`limit must be an integer between 1 and ${maxLimit}`);
+      error.status = 400;
+      throw error;
+    }
+  }
+
+  if (offset !== undefined) {
+    parsedOffset = Number(offset);
+    if (!Number.isInteger(parsedOffset) || parsedOffset < 0) {
+      const error = new Error("offset must be a non-negative integer");
+      error.status = 400;
+      throw error;
+    }
+  }
+
+  return { limit: parsedLimit, offset: parsedOffset };
+}
+
+/**
  * Get all tips received by a creator.
  * @param {string} creatorPublicKey - The Stellar public key of the creator
  * @param {object} [options] - Optional filters
@@ -67,7 +100,7 @@ function getTipsReceived(creatorPublicKey, options = {}) {
     throw error;
   }
 
-  const { limit = 50, offset = 0 } = options;
+  const { limit, offset } = validatePagination(options.limit, options.offset, 50, 100);
 
   const tips = tipsByCreator.get(creatorPublicKey) || [];
   const total = tips.length;
@@ -144,7 +177,7 @@ function getTipsSent(senderPublicKey, options = {}) {
     throw error;
   }
 
-  const { limit = 50, offset = 0 } = options;
+  const { limit, offset } = validatePagination(options.limit, options.offset, 50, 100);
 
   // Search all tips to find ones sent by this user
   const allTips = [];
@@ -209,12 +242,14 @@ function validateTipInput(data) {
  * @param {number} limit - The number of tippers to return
  * @returns {Array} Sorted array of top tippers
  */
-function getTopTippers(creatorPublicKey, limit = 5) {
+function getTopTippers(creatorPublicKey, limit) {
   if (!creatorPublicKey) {
     const error = new Error("creatorPublicKey is required");
     error.status = 400;
     throw error;
   }
+
+  const { limit: validLimit } = validatePagination(limit, undefined, 5, 100);
 
   const tips = tipsByCreator.get(creatorPublicKey) || [];
   
@@ -237,7 +272,7 @@ function getTopTippers(creatorPublicKey, limit = 5) {
   entries.sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
 
   // Limit result count
-  const result = entries.slice(0, limit);
+  const result = entries.slice(0, validLimit);
 
   return result;
 }
@@ -250,4 +285,5 @@ module.exports = {
   validateTipInput,
   getTopTippers,
   tipsByCreator,
+  validatePagination,
 };
