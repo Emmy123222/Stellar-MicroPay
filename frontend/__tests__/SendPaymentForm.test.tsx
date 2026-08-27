@@ -11,6 +11,8 @@ jest.mock("@/lib/stellar", () => ({
   explorerUrl: jest.fn((hash) => `https://testnet.expert.stellar.org/tx/${hash}`),
   isValidStellarAddress: jest.fn((addr) => addr.startsWith("G") && addr.length === 56),
   isValidFederationAddress: jest.fn((addr) => addr.includes("*")),
+  isStellarName: jest.fn(() => false),
+  resolveStellarName: jest.fn(() => Promise.reject(new Error("not a name"))),
   resolveFederationAddress: jest.fn(),
   submitTransaction: jest.fn(),
   fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })),
@@ -91,11 +93,16 @@ describe("SendPaymentForm", () => {
   });
 
   describe("Submit button disabled state", () => {
-    it("disables submit button when destination is empty", () => {
+    it("submitting with an empty destination moves focus to the destination field (#822)", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
+      // The Submit button is activatable so a submission attempt can surface
+      // (and focus) the first invalid field for assistive-tech users.
       const sendButton = screen.getByRole("button", { name: /Send/i });
-      expect(sendButton).toBeDisabled();
+      fireEvent.click(sendButton);
+
+      const destinationInput = screen.getByPlaceholderText("G... address or alice.xlm");
+      expect(destinationInput).toHaveFocus();
     });
 
     it("enables submit button when destination and amount are valid", async () => {
@@ -116,24 +123,25 @@ describe("SendPaymentForm", () => {
       });
     });
 
-    it("disables submit button when amount exceeds balance minus 1 XLM reserve", async () => {
+    it("submitting with an amount above the balance focuses the amount field and marks it invalid (#822)", async () => {
       mockIsValidStellarAddress.mockReturnValue(true);
       const user = userEvent.setup();
 
       render(<SendPaymentForm {...defaultProps} xlmBalance="10.0000000" />);
 
-      const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
+      const destinationInput = screen.getByPlaceholderText("G... address or alice.xlm");
       const amountInput = screen.getByPlaceholderText("0.0000000");
 
       await user.type(destinationInput, validDestination);
-      // Balance is 10, minus 1 XLM reserve = 9 XLM max sendable
-      // Try to send 9.5 which exceeds max
+      // Balance is 10, minus 1 XLM reserve = 9 XLM max sendable; 9.5 is too much.
       await user.type(amountInput, "9.5");
 
-      await waitFor(() => {
-        const sendButton = screen.getByRole("button", { name: /Send/i });
-        expect(sendButton).toBeDisabled();
-      });
+      const sendButton = screen.getByRole("button", { name: /Send/i });
+      fireEvent.click(sendButton);
+
+      expect(amountInput).toHaveFocus();
+      expect(amountInput).toHaveAttribute("aria-invalid", "true");
+      expect(amountInput).toHaveAttribute("aria-describedby", "send-payment-amount-error");
     });
 
     it("allows send button when amount is within balance minus 1 XLM", async () => {

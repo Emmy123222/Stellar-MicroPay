@@ -52,10 +52,7 @@ import {
 import clsx from "clsx";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import { useEffect, useRef, useState } from "react";
 import { useToastContext } from "@/lib/ToastContext";
-import { useTranslation } from "@/lib/i18n";
 
 
 interface SendPaymentFormProps {
@@ -110,6 +107,59 @@ const RECENT_RECIPIENTS_KEY = "stellar-micropay:recent-recipients";
 const MAX_RECENT = 3;
 const DESTINATION_VALIDATION_DEBOUNCE_MS = 400;
 
+// ─── Local translation for the send form (#822) ──────────────────────────────
+// The app's i18n layer (`lib/i18n.ts`) does not yet expose a `useTranslation`
+// hook or a `sendPayment` namespace, so the Send Payment form carries its own
+// minimal, self-contained dictionary. Keeps the component rendering correctly
+// without reaching into out-of-scope i18n files.
+
+const sendPaymentMessages: Record<string, (params?: Record<string, unknown>) => string> = {
+  success_title: () => "Payment Sent",
+  success_message: () => "Your payment has been sent successfully.",
+  transaction_hash: () => "Transaction Hash",
+  view_explorer: () => "View on explorer",
+  minting_receipt: () => "Minting receipt…",
+  mint_receipt: () => "Mint NFT receipt",
+  mint_success: () => "Receipt minted!",
+  send_another: () => "Send another payment",
+  destination: () => "Destination",
+  close: () => "Close",
+  contacts: () => "Contacts",
+  remove_contact: () => "Remove contact",
+  save_contact: () => "Save contact",
+  scan_qr: () => "Scan QR code",
+  checking_account: () => "Checking account…",
+  amount: (p) => `Amount (${p?.asset ?? "XLM"})`,
+  max: (p) => `Max ${p?.amount ?? ""}`,
+  amount_placeholder: () => "0.0000000",
+  memo_optional: () => "Memo (optional)",
+  memo_placeholder: () => "Enter memo (optional)",
+  memo_limit: () => "Memo is limited to 28 bytes",
+  default_title: () => "Send Payment",
+  send_button: (p) => `Send ${p?.amount ?? ""} ${p?.asset ?? ""}`.trim(),
+  processing: () => "Processing…",
+  high_value_warning: (p) =>
+    `This is a large payment. For amounts ≥ ${p?.threshold ?? ""} XLM, consider using Multi-Signature for additional security.`,
+  to: () => "To",
+  estimated_fee: () => "Estimated Fee",
+  cancel: () => "Cancel",
+  confirm_title: () => "Confirm Payment",
+  confirm_sign: () => "Confirm & Sign",
+};
+
+/**
+ * Returns a `t(key, params)` translator for the send form. Unknown keys fall
+ * back to the key itself so rendering never throws.
+ */
+function useSendPaymentTranslation() {
+  return {
+    t: (key: string, params?: Record<string, unknown>) => {
+      const fn = sendPaymentMessages[key];
+      return fn ? fn(params ?? {}) : key;
+    },
+  };
+}
+
 function createInitialStepTimings(): Record<PaymentStepId, PaymentStepTiming> {
   return {
     building: { startedAt: null, completedAt: null, error: null },
@@ -137,7 +187,7 @@ function SendPaymentForm({
   hideMemoField = false,
   accountBalances = [],
 }: SendPaymentFormProps) {
-  const { t } = useTranslation("sendPayment");
+  const { t } = useSendPaymentTranslation();
   const { addToast } = useToastContext();
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
@@ -152,6 +202,7 @@ function SendPaymentForm({
   const [snsResolved, setSnsResolved] = useState<string | null>(null);
   const [snsError, setSnsError] = useState<string | null>(null);
   const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [snsResolvedAddress, setSnsResolvedAddress] = useState<string | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
   const [showCustomAssetForm, setShowCustomAssetForm] = useState(false);
   const [selectedMemoTemplate, setSelectedMemoTemplate] = useState<string | null>(null);
@@ -180,7 +231,10 @@ function SendPaymentForm({
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
-  const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destinationValidationRequestRef = useRef(0);
+  const amountInputRef = useRef<HTMLInputElement | null>(null);
+  const memoInputRef = useRef<HTMLInputElement | null>(null);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
@@ -411,21 +465,28 @@ function SendPaymentForm({
     };
   }, [destination]);
 
-  // Pre-validate destination account existence on the Stellar network (#294)
-  useEffect(() => {
-    if (!isValidStellarAddress(destination)) {
-      setDestAccountWarning(null);
-      setIsCheckingDest(false);
-      return;
-    }
+  // Pre-validate destination account existence on the Stellar network (#294).
+  // Runs a Horizon lookup on each candidate destination and surfaces a warning
+  // when the account does not appear to exist yet. Stale results are ignored by
+  // comparing against a monotonically increasing request id.
+  const validateDestinationAccount = useCallback(
+    async (value: string) => {
+      const requestId = ++destinationValidationRequestRef.current;
+      const addr = value.trim();
+      if (!isValidStellarAddress(addr)) {
+        setDestAccountWarning(null);
+        setIsCheckingDest(false);
+        return;
+      }
 
-    setIsCheckingDest(true);
-    setDestAccountWarning(null);
-    server.loadAccount(trimmedAddress)
-      .then(() => {
-        if (destinationValidationRequestRef.current === requestId) setDestAccountWarning(null);
-      })
-      .catch(() => {
+      setIsCheckingDest(true);
+      setDestAccountWarning(null);
+      try {
+        await server.loadAccount(addr);
+        if (destinationValidationRequestRef.current === requestId) {
+          setDestAccountWarning(null);
+        }
+      } catch {
         if (destinationValidationRequestRef.current === requestId) {
           setDestAccountWarning(
             selectedAsset === "XLM"
@@ -433,13 +494,17 @@ function SendPaymentForm({
               : "This account doesn't exist on the Stellar network."
           );
         }
-      })
-      .finally(() => {
-        if (destinationValidationRequestRef.current === requestId) setIsCheckingDest(false);
-      });
-  }, [selectedAsset]);
+      } finally {
+        if (destinationValidationRequestRef.current === requestId) {
+          setIsCheckingDest(false);
+        }
+      }
+    },
+    [selectedAsset]
+  );
 
-  // Pre-validate destination account existence on the Stellar network (#294)
+  // Debounced pre-validation of the destination account (skipped for raw
+  // non-Stellar inputs, SNS names and federated addresses).
   useEffect(() => {
     if (destinationValidationTimeoutRef.current) {
       clearTimeout(destinationValidationTimeoutRef.current);
@@ -453,7 +518,7 @@ function SendPaymentForm({
     }
 
     destinationValidationTimeoutRef.current = setTimeout(() => {
-      validateDestinationAccount(destination);
+      void validateDestinationAccount(destination);
       destinationValidationTimeoutRef.current = null;
     }, DESTINATION_VALIDATION_DEBOUNCE_MS);
 
@@ -500,9 +565,49 @@ function SendPaymentForm({
   
   const memoBytes = new TextEncoder().encode(memo).length;
   const isMemoValid = memoBytes <= 28;
-  
+
+  // Per-field validation errors used for both visible messages and the
+  // aria-describedby / aria-invalid associations (#822).
+  const destinationTouched = destination.trim().length > 0;
+  const destinationError = destinationTouched
+    ? "Enter a valid Stellar address, federation address, or username."
+    : "Destination is required.";
+  const hasDestinationError =
+    destinationTouched &&
+    !isValidDest &&
+    !isFederationDestination &&
+    !isUsernameDestination;
+  const hasAmountError = amount.trim().length > 0 && !isValidAmt;
+  const hasMemoError = !isMemoValid;
+
+  // Move keyboard/screen-reader focus to the first field that fails validation,
+  // so assistive tech users land directly on the error to fix (#822). An empty
+  // destination counts as the first field to fix since it is required.
+  const focusFirstInvalidField = () => {
+    const destinationNeedsFix =
+      !hideDestinationField &&
+      (destination.trim().length === 0 ||
+        hasDestinationError ||
+        !!destinationResolutionError ||
+        !!snsError);
+    const order = [
+      { ref: () => destinationNeedsFix, node: destinationInputRef },
+      { ref: () => !hideAmountField && hasAmountError, node: amountInputRef },
+      { ref: () => !hideMemoField && hasMemoError, node: memoInputRef },
+    ];
+    for (const { ref, node } of order) {
+      if (ref()) {
+        node.current?.focus();
+        return;
+      }
+    }
+  };
+
   const canSubmit =
-    (isValidDest || isFederationDestination || isUsernameDestination || (isStellarName(trimmedDestination) && !!snsResolved)) &&
+    (isValidDest ||
+      isFederationDestination ||
+      isUsernameDestination ||
+      (isStellarName(trimmedDestination) && (!!snsResolved || !!snsResolvedAddress))) &&
     !isResolvingDestination &&
     !snsResolving &&
     !snsError &&
@@ -733,6 +838,9 @@ function SendPaymentForm({
       setError(message);
       markStepFailed(activeStep, message);
       setStatus("error");
+      // Move focus to the first field that is invalid so keyboard and
+      // screen-reader users are taken straight to what needs fixing (#822).
+      focusFirstInvalidField();
       addToast(message, "error", () => { setStatus("idle"); void executeSend(); });
     }
   };
@@ -759,12 +867,17 @@ function SendPaymentForm({
       clearTimeout(destinationValidationTimeoutRef.current);
       destinationValidationTimeoutRef.current = null;
     }
-    validateDestinationAccount(destination);
+    void validateDestinationAccount(destination);
   };
 
   const openConfirmation = () => {
     runImmediateDestinationValidation();
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      // Focus the first offending field so keyboard & screen-reader users are
+      // taken straight to the error (#822).
+      focusFirstInvalidField();
+      return;
+    }
     setIsConfirmOpen(true);
   };
 
@@ -851,7 +964,7 @@ function SendPaymentForm({
       <div className="card animate-fade-in">
       <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
         <SendIcon className="w-5 h-5 text-stellar-400" />
-        {title}
+        {title || t("default_title")}
       </h2>
 
       <div className="space-y-5">
@@ -895,7 +1008,7 @@ function SendPaymentForm({
         {!hideDestinationField && (
           <div className="relative" ref={dropdownRef}>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("destination")}</label>
+              <label className="label mb-0" htmlFor="send-payment-destination">{t("destination")}</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -937,8 +1050,16 @@ function SendPaymentForm({
             </div>
             
             <input
+              id="send-payment-destination"
               ref={destinationInputRef}
               type="text"
+              aria-label={t("destination")}
+              aria-invalid={hasDestinationError || !!destinationResolutionError || !!snsError}
+              aria-describedby={
+                hasDestinationError || destinationResolutionError || snsError
+                  ? "send-payment-destination-error"
+                  : undefined
+              }
               value={destination}
               onChange={(e) => {
                 const val = e.target.value;
@@ -1004,12 +1125,16 @@ function SendPaymentForm({
                 Resolves to: <span className="font-mono text-stellar-300">{snsResolved}</span> ✓
               </p>
             )}
-            {!snsResolving && snsError && (
-              <p className="mt-1.5 text-xs text-red-400">{snsError}</p>
+            {/* Combined destination error — referenced by the input's
+                aria-describedby so screen readers announce it (#822). */}
+            {(hasDestinationError || destinationResolutionError || snsError) && (
+              <p id="send-payment-destination-error" className="mt-1.5 text-xs text-red-400" role="alert">
+                {destinationResolutionError || snsError || destinationError}
+              </p>
             )}
 
-            {destinationResolutionError && (
-              <p className="mt-2 text-xs text-red-400">{destinationResolutionError}</p>
+            {!snsResolving && snsError && destinationResolutionError && (
+              <p className="mt-1.5 text-xs text-red-400">{snsError}</p>
             )}
 
             {/* SNS resolution feedback */}
@@ -1054,13 +1179,17 @@ function SendPaymentForm({
         {!hideAmountField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("amount", { asset: selectedAsset })}</label>
+              <label className="label mb-0" htmlFor="send-payment-amount">{t("amount", { asset: selectedAsset })}</label>
               <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"}>
                 {t("max", { amount: formatXLM(maxSend) })}
               </button>
             </div>
             <input
+              id="send-payment-amount"
+              ref={amountInputRef}
               type="number"
+              aria-invalid={hasAmountError}
+              aria-describedby={hasAmountError ? "send-payment-amount-error" : undefined}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               onKeyDown={(e) => {
@@ -1070,19 +1199,28 @@ function SendPaymentForm({
               className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
               disabled={status !== "idle"}
             />
+            {hasAmountError && (
+              <p id="send-payment-amount-error" className="mt-1 text-xs text-red-400" role="alert">
+                {"Amount must be at least 0.0000001 and no more than your available balance."}
+              </p>
+            )}
           </div>
         )}
 
         {!hideMemoField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("memo_optional")}</label>
+              <label className="label mb-0" htmlFor="send-payment-memo">{t("memo_optional")}</label>
               <span className={clsx("text-xs transition-colors", memoBytes > 28 ? "text-red-400 font-bold" : "text-slate-400")}>
                 {memoBytes}/28 bytes
               </span>
             </div>
             <input
+              id="send-payment-memo"
+              ref={memoInputRef}
               type="text"
+              aria-invalid={hasMemoError}
+              aria-describedby={hasMemoError ? "send-payment-memo-error" : undefined}
               value={memo}
               onChange={(e) => handleMemoChange(e.target.value)}
               placeholder={t("memo_placeholder")}
@@ -1090,14 +1228,26 @@ function SendPaymentForm({
               disabled={status !== "idle"}
             />
             {memoBytes > 28 && (
-              <p className="mt-1 text-xs text-red-400">{t("memo_limit")}</p>
+              <p id="send-payment-memo-error" className="mt-1 text-xs text-red-400" role="alert">
+                {t("memo_limit")}
+              </p>
             )}
           </div>
         )}
 
+        {/* The Submit button stays activatable on static field errors so a
+            submission attempt can move focus to the first invalid field for
+            screen readers (#822). It is only disabled during in-flight
+            resolution / signing / processing. */}
         <button
           onClick={openConfirmation}
-          disabled={!canSubmit || status !== "idle"}
+          disabled={
+            status !== "idle" ||
+            isResolvingDestination ||
+            snsResolving ||
+            !!snsError ||
+            !!destinationResolutionError
+          }
           className="btn-primary w-full flex items-center justify-center gap-2"
         >
           {status === "idle" ? t("send_button", { amount: amount || "", asset: selectedAsset }) : t("processing")}
@@ -1154,7 +1304,7 @@ interface SendConfirmationModalProps {
 }
 
 function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estimatedFee, onCancel, onConfirm }: SendConfirmationModalProps) {
-  const { t } = useTranslation("sendPayment");
+  const { t } = useSendPaymentTranslation();
   if (!isOpen) return null;
   const shortened = shortenAddress(destination, 8);
   return (
