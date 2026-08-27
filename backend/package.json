@@ -10,7 +10,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "jest",
-    "lint": "eslint src/**/*.js"
+    "test:openapi": "jest __tests__/openapi-drift.test.js",
+    "lint": "eslint src/**/*.js",
+    "generate:openapi": "node ../../scripts/generate-openapi.js"
   },
   "dependencies": {
     "@sentry/node": "^8.53.0",

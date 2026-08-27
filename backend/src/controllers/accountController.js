@@ -83,6 +83,7 @@ async function registerUsername(req, res, next) {
 
     if (!username || !publicKey) {
       return res.status(400).json({
+        success: false,
         error: "Username and public key are required",
       });
     }
@@ -108,7 +109,7 @@ async function registerUsername(req, res, next) {
  * @param {object} res - Express response
  * @param {function} next - Express error-handling callback
  * @returns {Promise<void>} JSON: `{ success: true, data: { username: string, publicKey: string } }`,
- *   or 501 JSON: `{ error: string }` for the reserved "alice" username
+ *   or 501 JSON: `{ success: false, error: string }` for the reserved "alice" username
  */
 async function resolveUsername(req, res, next) {
   try {
@@ -116,6 +117,7 @@ async function resolveUsername(req, res, next) {
 
     if (username.toLowerCase() === 'alice') {
       return res.status(501).json({
+        success: false,
         error: "Not Implemented",
       });
     }

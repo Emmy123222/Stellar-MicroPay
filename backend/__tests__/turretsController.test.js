@@ -10,7 +10,7 @@ const jwt = require("jsonwebtoken");
 jest.mock("../src/services/turretsService");
 
 const JWT_SECRET = process.env.JWT_SECRET || "stellar_micropay_secret_key";
-const generateToken = (payload) => jwt.sign(payload, JWT_SECRET);
+const generateToken = (payload) => jwt.sign(payload, JWT_SECRET, { issuer: "stellar-micropay" });
 
 function setupApp() {
   const app = express();
@@ -89,7 +89,7 @@ describe("turretsController", () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true, data: { id: "1", status: "paused" } });
-      expect(turretsService.setDeploymentStatus).toHaveBeenCalledWith("1", "paused");
+      expect(turretsService.setDeploymentStatus).toHaveBeenCalledWith("1", "paused", "G_TEST");
     });
   });
 
@@ -104,7 +104,7 @@ describe("turretsController", () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true, data: { id: "1", status: "active" } });
-      expect(turretsService.setDeploymentStatus).toHaveBeenCalledWith("1", "active");
+      expect(turretsService.setDeploymentStatus).toHaveBeenCalledWith("1", "active", "G_TEST");
     });
   });
 

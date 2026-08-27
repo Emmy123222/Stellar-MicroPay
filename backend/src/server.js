@@ -237,15 +237,27 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
+// ─── API Versioning & Deprecation Policy (#853) ────────────────────────────────
+const { apiDeprecationHeader } = require("./middleware/deprecation");
 
-app.use("/api/auth", authRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/api/webhooks", webhookRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/turrets", turretsRoutes);
-app.use("/api/tips", tipsRoutes);
+// Primary Versioned Routes (/api/v1/*)
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/accounts", accountRoutes);
+app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/v1/webhooks", webhookRoutes);
+app.use("/api/v1/analytics", analyticsRoutes);
+app.use("/api/v1/turrets", turretsRoutes);
+app.use("/api/v1/tips", tipsRoutes);
+app.use("/api/v1/health", healthRoutes);
+
+// Legacy Unversioned Routes (/api/*) — includes HTTP Deprecation & Sunset headers
+app.use("/api/auth", apiDeprecationHeader, authRoutes);
+app.use("/api/accounts", apiDeprecationHeader, accountRoutes);
+app.use("/api/payments", apiDeprecationHeader, paymentRoutes);
+app.use("/api/webhooks", apiDeprecationHeader, webhookRoutes);
+app.use("/api/analytics", apiDeprecationHeader, analyticsRoutes);
+app.use("/api/turrets", apiDeprecationHeader, turretsRoutes);
+app.use("/api/tips", apiDeprecationHeader, tipsRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
