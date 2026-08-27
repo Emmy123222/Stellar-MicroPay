@@ -44,3 +44,22 @@ describe("account routes authorization (#278)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("username registration wallet ownership (#755)", () => {
+  const app = appWithAccounts();
+
+  it("rejects registration without a wallet proof", async () => {
+    const res = await request(app)
+      .post("/api/accounts/register")
+      .send({ username: "alice", publicKey: ME });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a key that differs from the authenticated wallet subject", async () => {
+    const res = await request(app)
+      .post("/api/accounts/register")
+      .set("Authorization", `Bearer ${tokenFor(ME)}`)
+      .send({ username: "alice", publicKey: OTHER });
+    expect(res.status).toBe(403);
+  });
+});
