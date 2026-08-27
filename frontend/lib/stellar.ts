@@ -1893,6 +1893,15 @@ const SNS_CACHE_TTL_MS = 600_000;
 export const resolvedNameCache = new Map<string, { address: string; expiry: number }>();
 
 /**
+ * Clear the module-level Stellar name resolution cache.
+ * Exported for tests — use `clearNameCache()` to reset cached
+ * resolutions between test cases or on logout.
+ */
+export function clearNameCache(): void {
+  resolvedNameCache.clear();
+}
+
+/**
  * Resolves a human-readable Stellar name to a public key (G... address).
  *
  * - Accepts federation addresses: `alice*domain.com`
