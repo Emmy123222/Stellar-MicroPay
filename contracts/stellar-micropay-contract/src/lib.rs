@@ -18,7 +18,7 @@ const PERSISTENT_BUMP_AMOUNT: u32 = 500_000;
 /// Bump this whenever a stored struct (`Stream`, `Escrow`, …) or a `DataKey`
 /// variant changes shape, and add the corresponding step to the migration
 /// table in the contract README (#562).
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Smallest deposit `open_stream` accepts, in stroops (0.001 XLM against the
 /// native SAC).
@@ -36,6 +36,12 @@ pub const MIN_STREAM_DEPOSIT: i128 = 10_000;
 /// but paired with a rate that drains it in a handful of ledgers (or in zero
 /// ledgers, when `rate_per_ledger > deposit`).
 pub const MIN_STREAM_DURATION_LEDGERS: u32 = 60;
+
+/// A proposed two-step admin transfer stays valid for this many ledgers
+/// (~5.8 days at the ~5s Stellar ledger close time) before it expires. After
+/// expiry the pending recipient can no longer accept and the current admin can
+/// re-propose or cancel (#801).
+pub const ADMIN_TRANSFER_EXPIRY_LEDGERS: u32 = 100_000;
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -70,6 +76,14 @@ pub enum DataKey {
     StreamCount,
     Stream(u32),
     SchemaVersion,
+    /// Address proposed by `transfer_admin` as the next admin, pending the new
+    /// address's explicit `accept_admin` before the expiry ledger (#801).
+    PendingAdmin,
+    /// Ledger at which a pending admin transfer expires (#801).
+    PendingAdminExpiry,
+    /// Emergency pause flag: when `true`, value-moving operations are halted
+    /// while reads and withdrawals stay open (#802).
+    Paused,
 }
 
 #[contracttype]
@@ -267,25 +281,161 @@ impl MicroPayContract {
         Ok(())
     }
 
-    pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) {
-        current_admin.require_auth();
+    fn ensure_admin(env: &Env, caller: &Address) {
+        caller.require_auth();
         let stored_admin: Address = env
             .storage()
             .persistent()
             .get(&DataKey::Admin)
             .expect("Contract not initialized");
-        if current_admin != stored_admin {
+        if caller != &stored_admin {
             panic!("Unauthorized");
         }
+    }
+
+    /// True when emergency pause is active (#802).
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    fn require_not_paused(env: &Env) {
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            panic!("Contract is paused");
+        }
+    }
+
+    /// Emergency-pause the contract. Only the admin can call this. While
+    /// paused, value-moving operations (tips, escrows, batches, streams in)
+    /// are rejected; reads and withdrawals stay open so no funds are trapped
+    /// (#802).
+    pub fn pause(env: Env, admin: Address) {
+        Self::ensure_admin(&env, &admin);
+        env.storage().persistent().set(&DataKey::Paused, &true);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Paused,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        env.events().publish((Symbol::new(&env, "pause"),), ());
+    }
+
+    /// Clear the emergency pause. Only the admin can call this (#802).
+    pub fn unpause(env: Env, admin: Address) {
+        Self::ensure_admin(&env, &admin);
+        env.storage().persistent().set(&DataKey::Paused, &false);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Paused,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        env.events().publish((Symbol::new(&env, "unpause"),), ());
+    }
+
+    /// Two-step admin transfer — step one (propose).
+    ///
+    /// Replaces the previous one-call handover (which could permanently assign
+    /// control to a mistyped or inaccessible address) with a pending proposal
+    /// that the new admin must `accept_admin` before the expiry ledger, and
+    /// that the current admin can `cancel_transfer_admin` at any point (#801).
+    pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) {
+        Self::ensure_admin(&env, &current_admin);
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+        if new_admin == stored_admin {
+            panic!("new admin must differ from current admin");
+        }
+
+        let expiry = env.ledger().sequence().saturating_add(ADMIN_TRANSFER_EXPIRY_LEDGERS);
+        env.storage().persistent().set(&DataKey::PendingAdmin, &new_admin);
+        env.storage().persistent().extend_ttl(
+            &DataKey::PendingAdmin,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        env.storage().persistent().set(&DataKey::PendingAdminExpiry, &expiry);
+        env.storage().persistent().extend_ttl(
+            &DataKey::PendingAdminExpiry,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_transfer_pending"), current_admin),
+            (new_admin, expiry),
+        );
+    }
+
+    /// Two-step admin transfer — step two (accept).
+    ///
+    /// Only the proposed address can call this, and only before the proposal
+    /// expires. On success the proposal is promoted to admin and cleared (#801).
+    pub fn accept_admin(env: Env, new_admin: Address) {
+        new_admin.require_auth();
+
+        let pending: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingAdmin)
+            .expect("no pending admin transfer");
+        if pending != new_admin {
+            panic!("Unauthorized");
+        }
+
+        let expiry: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingAdminExpiry)
+            .expect("no pending admin transfer");
+        if env.ledger().sequence() > expiry {
+            panic!("admin transfer expired");
+        }
+
         env.storage().persistent().set(&DataKey::Admin, &new_admin);
         env.storage().persistent().extend_ttl(
             &DataKey::Admin,
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
         );
+        env.storage().persistent().remove(&DataKey::PendingAdmin);
+        env.storage().persistent().remove(&DataKey::PendingAdminExpiry);
+
+        env.events()
+            .publish((Symbol::new(&env, "admin_transfer_accepted"),), new_admin);
+    }
+
+    /// Cancel a pending admin transfer. Only the current admin can call this;
+    /// the proposal must still be pending (not yet accepted/removed) (#801).
+    pub fn cancel_transfer_admin(env: Env, current_admin: Address) {
+        Self::ensure_admin(&env, &current_admin);
+        if !env.storage().persistent().has(&DataKey::PendingAdmin) {
+            panic!("no pending admin transfer");
+        }
+        let pending: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingAdmin)
+            .expect("no pending admin transfer");
+        env.storage().persistent().remove(&DataKey::PendingAdmin);
+        env.storage().persistent().remove(&DataKey::PendingAdminExpiry);
+
+        env.events()
+            .publish((Symbol::new(&env, "admin_transfer_cancelled"),), pending);
     }
 
     pub fn send_tip(env: Env, token_address: Address, from: Address, to: Address, amount: i128) {
+        Self::require_not_paused(&env);
         from.require_auth();
         if amount <= 0 {
             panic!("Tip amount must be positive");
@@ -478,6 +628,7 @@ impl MicroPayContract {
         amount: i128,
         release_ledger: u32,
     ) -> u32 {
+        Self::require_not_paused(&env);
         from.require_auth();
         if amount <= 0 {
             panic!("amount must be positive");
@@ -571,6 +722,7 @@ impl MicroPayContract {
         recipients: soroban_sdk::Vec<Address>,
         amounts: soroban_sdk::Vec<i128>,
     ) {
+        Self::require_not_paused(&env);
         from.require_auth();
         if recipients.len() != amounts.len() {
             panic!("arrays must have equal length");
@@ -648,6 +800,7 @@ impl MicroPayContract {
         rate_per_ledger: i128,
         deposit: i128,
     ) -> u32 {
+        Self::require_not_paused(&env);
         payer.require_auth();
         if recipients.len() != weights.len() {
             panic!("recipients and weights must have equal length");
@@ -767,6 +920,7 @@ impl MicroPayContract {
 
     /// Add funds to an open stream, extending how long it can run.
     pub fn top_up_stream(env: Env, stream_id: u32, payer: Address, amount: i128) {
+        Self::require_not_paused(&env);
         payer.require_auth();
         let mut stream = load_stream(&env, stream_id);
         if stream.payer != payer {
@@ -2272,5 +2426,408 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── Issue #802: emergency pause ─────────────────────────────────────────
+
+    fn paused_fixture(env: &Env) -> (Address, MicroPayContractClient<'_>) {
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+        client.pause(&admin);
+        (admin, client)
+    }
+
+    #[test]
+    fn test_starts_unpaused() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_pause_requires_admin() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+        let attacker = Address::generate(&env);
+        client.pause(&attacker);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_unpause_requires_admin() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+        client.pause(&admin);
+        let attacker = Address::generate(&env);
+        client.unpause(&attacker);
+    }
+
+    #[test]
+    fn test_pause_toggles_state_and_emits_event() {
+        use soroban_sdk::{testutils::Events, vec, IntoVal};
+
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        client.pause(&admin);
+        assert!(client.is_paused());
+
+        client.unpause(&admin);
+        assert!(!client.is_paused());
+
+        assert_eq!(
+            env.events().all(),
+            vec![
+                &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "pause"),).into_val(&env),
+                    ().into_val(&env),
+                ),
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "unpause"),).into_val(&env),
+                    ().into_val(&env),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract is paused")]
+    fn test_send_tip_blocked_when_paused() {
+        let env = Env::default();
+        let (_admin, client) = paused_fixture(&env);
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let token_id = Address::generate(&env);
+        client.send_tip(&token_id, &from, &to, &500);
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract is paused")]
+    fn test_create_escrow_blocked_when_paused() {
+        let env = Env::default();
+        let (_admin, client) = paused_fixture(&env);
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let token_id = Address::generate(&env);
+        client.create_escrow(&token_id, &from, &to, &1_000, &(env.ledger().sequence() + 100));
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract is paused")]
+    fn test_open_stream_blocked_when_paused() {
+        let env = Env::default();
+        let (_admin, client) = paused_fixture(&env);
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let token_id = Address::generate(&env);
+        client.open_stream(
+            &token_id,
+            &payer,
+            &soroban_sdk::vec![&env, recipient.clone()],
+            &soroban_sdk::vec![&env, 1u32],
+            &100,
+            &10_000,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract is paused")]
+    fn test_batch_send_blocked_when_paused() {
+        let env = Env::default();
+        let (_admin, client) = paused_fixture(&env);
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let token_id = Address::generate(&env);
+        client.batch_send(
+            &token_id,
+            &from,
+            &soroban_sdk::vec![&env, to.clone()],
+            &soroban_sdk::vec![&env, 100i128],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract is paused")]
+    fn test_top_up_stream_blocked_when_paused() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, recipient) = stream_fixture(&env, 100_000);
+        let _ = contract_id;
+        let stream_id = open_single_stream(&env, &client, &token_id, &payer, &recipient, 100, 20_000);
+        let admin = client.get_admin();
+        env.mock_all_auths();
+        client.pause(&admin);
+        client.top_up_stream(&stream_id, &payer, &5_000);
+    }
+
+    #[test]
+    fn test_claim_escrow_remains_open_when_paused() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        let amount: i128 = 1_000;
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, amount);
+        let token = token::Client::new(&env, &token_id);
+        let release_ledger = env.ledger().sequence() + 100;
+
+        let id = client.create_escrow(&token_id, &from, &to, &amount, &release_ledger);
+        advance_ledger(&env, release_ledger + 1);
+
+        // Pause before withdrawing: the escrow deposit must stay claimable.
+        client.pause(&admin);
+        assert!(client.is_paused());
+
+        client.claim_escrow(&id);
+        assert_eq!(token.balance(&to), amount);
+        assert_eq!(token.balance(&contract_id), 0);
+        assert_eq!(client.get_escrow(&id).status, EscrowStatus::Released);
+    }
+
+    // ── Issue #801: two-step admin transfer ─────────────────────────────────
+
+    fn propose_admin(env: &Env, client: &MicroPayContractClient, admin: &Address, new_admin: &Address) {
+        client.transfer_admin(admin, new_admin);
+    }
+
+    #[test]
+    fn test_transfer_admin_proposes_without_promoting() {
+        use soroban_sdk::{testutils::Events, vec, IntoVal};
+
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&admin, &new_admin);
+
+        // The current admin is unchanged until the new one explicitly accepts.
+        assert_eq!(client.get_admin(), admin);
+
+        assert_eq!(
+            env.events().all(),
+            vec![
+                &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "admin_transfer_pending"), admin.clone()).into_val(&env),
+                    (new_admin.clone(), env.ledger().sequence() + ADMIN_TRANSFER_EXPIRY_LEDGERS)
+                        .into_val(&env),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "new admin must differ from current admin")]
+    fn test_transfer_admin_rejects_same_admin() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+        client.transfer_admin(&admin, &admin);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_transfer_admin_requires_current_admin() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+        let attacker = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&attacker, &new_admin);
+    }
+
+    #[test]
+    fn test_accept_admin_promotes_and_clears() {
+        use soroban_sdk::{testutils::Events, vec, IntoVal};
+
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&admin, &new_admin);
+        client.accept_admin(&new_admin);
+
+        assert_eq!(client.get_admin(), new_admin);
+
+        // The pending slot is cleared: a second accept must fail.
+        assert_eq!(
+            env.events().all(),
+            vec![
+                &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "admin_transfer_pending"), admin.clone()).into_val(&env),
+                    (new_admin.clone(), env.ledger().sequence() + ADMIN_TRANSFER_EXPIRY_LEDGERS)
+                        .into_val(&env),
+                ),
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "admin_transfer_accepted"),).into_val(&env),
+                    new_admin.clone().into_val(&env),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_accept_admin_requires_proposed_address() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&admin, &new_admin);
+
+        let interloper = Address::generate(&env);
+        client.accept_admin(&interloper);
+    }
+
+    #[test]
+    #[should_panic(expected = "admin transfer expired")]
+    fn test_accept_admin_rejects_after_expiry() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&admin, &new_admin);
+
+        advance_by(&env, ADMIN_TRANSFER_EXPIRY_LEDGERS + 1);
+        client.accept_admin(&new_admin);
+    }
+
+    #[test]
+    #[should_panic(expected = "no pending admin transfer")]
+    fn test_accept_admin_without_pending_panics() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+        let new_admin = Address::generate(&env);
+        client.accept_admin(&new_admin);
+    }
+
+    #[test]
+    fn test_cancel_transfer_admin_keeps_current_admin() {
+        use soroban_sdk::{testutils::Events, vec, IntoVal};
+
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&admin, &new_admin);
+        client.cancel_transfer_admin(&admin);
+
+        assert_eq!(client.get_admin(), admin);
+
+        assert_eq!(
+            env.events().all(),
+            vec![
+                &env,
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "admin_transfer_pending"), admin.clone()).into_val(&env),
+                    (new_admin.clone(), env.ledger().sequence() + ADMIN_TRANSFER_EXPIRY_LEDGERS)
+                        .into_val(&env),
+                ),
+                (
+                    contract_id.clone(),
+                    (Symbol::new(&env, "admin_transfer_cancelled"),).into_val(&env),
+                    new_admin.clone().into_val(&env),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "no pending admin transfer")]
+    fn test_cancel_without_pending_panics() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+        client.cancel_transfer_admin(&admin);
+    }
+
+    #[test]
+    fn test_two_step_admin_transfer_full_lifecycle() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        let new_admin = Address::generate(&env);
+        // Propose, cancel, then re-propose and accept — the new admin is active.
+        client.transfer_admin(&admin, &new_admin);
+        client.cancel_transfer_admin(&admin);
+        assert_eq!(client.get_admin(), admin);
+
+        client.transfer_admin(&admin, &new_admin);
+        client.accept_admin(&new_admin);
+        assert_eq!(client.get_admin(), new_admin);
+        let _ = contract_id;
+
+        // The promoted admin can now pause the contract.
+        env.mock_all_auths();
+        client.pause(&new_admin);
+        assert!(client.is_paused());
     }
 }
