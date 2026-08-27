@@ -61,6 +61,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+<<<<<<< HEAD
 
   smoke-test:
     name: Staging smoke tests
@@ -139,3 +140,10 @@ jobs:
               body: `## Automatic Rollback Triggered\n\nCommit: ${context.sha}\nWorkflow: ${context.workflow}\nRun: ${context.runId}\n\nSmoke tests failed after deployment. The staging environment has been rolled back to the previous stable image.\n\n### Rollback Criteria\n- Health endpoint non-responsive\n- API documentation unreachable\n- Security headers missing\n- Network isolation violation\n\nPlease investigate before re-deploying.`,
               labels: ["incident", "rollback", "staging"]
             });
+=======
+          build-args: |
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+            SENTRY_ORG=${{ secrets.SENTRY_ORG }}
+            SENTRY_PROJECT=${{ secrets.SENTRY_PROJECT }}
+            SENTRY_RELEASE=${{ github.sha }}
+>>>>>>> 1d46ec1 (fix:  perf, observ and refactor)
