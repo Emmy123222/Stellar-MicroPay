@@ -1,56 +1,5 @@
-# ─── Node ────────────────────────────────────────────────────────────────────
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# ─── Next.js ─────────────────────────────────────────────────────────────────
-frontend/.next/
-frontend/out/
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
-
-# ─── Backend ─────────────────────────────────────────────────────────────────
-backend/.env
-backend/logs/
-
-# ─── Rust / Cargo ─────────────────────────────────────────────────────────────
-target/
-# Cargo.lock is committed on purpose: the contract is a deployable artifact, so
-# every build — CI, local, release — must resolve the same dependency graph.
-# Leaving it unpinned is what broke the contracts CI job (soroban-sdk's
-# transitive deps drifted into versions that no longer compile).
-
-# ─── OS ───────────────────────────────────────────────────────────────────────
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# ─── Editor ───────────────────────────────────────────────────────────────────
-# Ignore personal editor settings but track shared team config
-.vscode/*
-!.vscode/extensions.json
-.idea/
-*.swp
-*.swo
-*.suo
-*.user
-
-# ─── Misc ─────────────────────────────────────────────────────────────────────
-*.log
+.next/
 .env
-dist/
-build/
-# Playwright
-playwright-report/
-test-results/
-test_snapshots
-
-# ─── Local scripts (never push) ───────────────────────────────────────────────
-scripts/create_issues.py
+secrets/*.txt
+!secrets/.gitkeep

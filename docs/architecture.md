@@ -93,6 +93,9 @@ Full version table, the rules for what counts as a breaking storage change,
 and the step-by-step upgrade/rollback procedure live in
 [contracts/stellar-micropay-contract/README.md](../contracts/stellar-micropay-contract/README.md#upgrades-and-storage-migration-562).
 
+### Ephemeral backend, durable blockchain
+The backend uses in-memory storage for operational state (webhooks, tips, usernames, turrets). All financial data is anchored on-chain via Soroban smart contracts and the Stellar ledger. See [storage-queue-boundaries.md](./storage-queue-boundaries.md) for the full durability model, queue processing patterns, and scaling boundaries.
+
 ## Security Considerations
 
 | Concern | Mitigation |

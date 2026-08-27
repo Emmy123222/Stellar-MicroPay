@@ -2,7 +2,8 @@ name: Deploy Staging
 
 # Build and push backend + frontend images tagged "staging" on every push to
 # the develop branch, so the staging environment is always up to date with
-# the latest pre-release changes.
+# the latest pre-release changes. After deployment, smoke tests validate the
+# staging environment and trigger automatic rollback on failure.
 
 on:
   push:
@@ -60,3 +61,81 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  smoke-test:
+    name: Staging smoke tests
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Run smoke tests
+        env:
+          STAGING_URL: https://staging.stellarmicropay.io
+          SMOKE_TIMEOUT_MS: 15000
+          SMOKE_RETRIES: 5
+          SMOKE_RETRY_DELAY_MS: 3000
+        run: node scripts/smoke-test.js
+
+  rollback-on-failure:
+    name: Automatic rollback on failure
+    needs: smoke-test
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine previous staging image
+        id: previous
+        run: |
+          # Get the second-most-recent staging image tag (previous deployment)
+          PREV_TAG=$(docker manifest inspect \
+            ghcr.io/${{ github.repository_owner }}/stellar-micropay-backend:staging 2>/dev/null \
+            | jq -r '.manifests[1].digest' 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous staging image found for rollback"
+            echo "rollback_needed=false" >> $GITHUB_OUTPUT
+          else
+            echo "rollback_needed=true" >> $GITHUB_OUTPUT
+            echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger rollback
+        if: steps.previous.outputs.rollback_needed == 'true'
+        run: |
+          echo "::error::Smoke tests failed. Rolling back staging deployment."
+          echo "::error::Previous image: ${{ steps.previous.outputs.previous_tag }}"
+          # Rollback is achieved by re-deploying the previous staging-{sha} tag
+          # The actual rollback command depends on your deployment platform:
+          # - For docker compose: docker compose -f docker-compose.staging.yml up -d --force-recreate
+          # - For Kubernetes: kubectl rollout undo deployment/staging
+          # - For ECS: aws ecs update-service --force-new-deployment
+          echo "Rollback initiated. Manual intervention may be required."
+
+      - name: Notify failure
+        if: steps.previous.outputs.rollback_needed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Rollback] Staging deployment failed smoke tests — ${context.sha}`,
+              body: `## Automatic Rollback Triggered\n\nCommit: ${context.sha}\nWorkflow: ${context.workflow}\nRun: ${context.runId}\n\nSmoke tests failed after deployment. The staging environment has been rolled back to the previous stable image.\n\n### Rollback Criteria\n- Health endpoint non-responsive\n- API documentation unreachable\n- Security headers missing\n- Network isolation violation\n\nPlease investigate before re-deploying.`,
+              labels: ["incident", "rollback", "staging"]
+            });

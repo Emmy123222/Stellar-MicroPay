@@ -19,11 +19,11 @@ services:
       timeout: 10s
       retries: 3
     restart: always
+    networks:
+      - proxy
 
   frontend:
     image: ghcr.io/chidubemkingsley/stellar-micropay-frontend:staging
-    ports:
-      - "3000:80"
     volumes:
       - frontend_static:/usr/share/nginx/html
     environment:
@@ -36,11 +36,12 @@ services:
       timeout: 10s
       retries: 3
     restart: always
+    networks:
+      - proxy
+      - frontend
 
   backend:
     image: ghcr.io/chidubemkingsley/stellar-micropay-backend:staging
-    ports:
-      - "4000:4000"
     environment:
       - PORT=4000
       - NODE_ENV=staging
@@ -49,12 +50,33 @@ services:
       - ALLOWED_ORIGINS=https://staging.stellarmicropay.io
       - FEDERATION_DOMAIN=stellarmicropay.io
       - FEDERATION_DOMAINS=stellarmicropay.io,stellarmicropay.com
+    secrets:
+      - jwt_secret
+      - server_private_key
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: always
+    networks:
+      - frontend
+      - backend
 
 volumes:
   frontend_static:
+
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  server_private_key:
+    file: ./secrets/server_private_key.txt
+
+networks:
+  proxy:
+    driver: bridge
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true
