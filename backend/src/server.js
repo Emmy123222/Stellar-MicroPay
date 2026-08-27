@@ -7,6 +7,7 @@
 
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const compression = require("compression");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
@@ -176,6 +177,10 @@ app.use(
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 app.use(pinoHttp({ logger }));
 app.use(express.json({ limit: "10kb" }));
+// Parses the Cookie header into req.cookies so the SEP-0010 session cookie
+// (set in routes/auth.js) can be read back by middleware/auth.js's
+// extractToken and by the CSRF origin check (#780).
+app.use(cookieParser());
 
 // JSON parsing error handler
 app.use((err, req, res, next) => {

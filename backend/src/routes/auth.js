@@ -16,6 +16,7 @@ const {
   VERIFY_OPTIONS,
   extractToken,
 } = require("../middleware/auth");
+const { csrfOriginCheck } = require("../middleware/csrf");
 
 const router = express.Router();
 
@@ -110,7 +111,13 @@ router.post("/", (req, res) => {
 // expired long ago is rejected and must re-authenticate.
 const REFRESH_GRACE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-router.post("/refresh", (req, res) => {
+// CSRF defense-in-depth (#780): SameSite=strict already stops the cookie from
+// being sent on cross-site requests in modern browsers, but this middleware
+// adds an explicit Origin/Referer check for the cookie-authenticated path so
+// a browser or extension that relaxes SameSite handling doesn't silently
+// reopen the hole. Requests authenticating via `Authorization: Bearer` (the
+// non-browser / server-to-server flow) are untouched.
+router.post("/refresh", csrfOriginCheck(), (req, res) => {
   const token = extractToken(req) || req.body?.token;
   if (!token) {
     return res.status(401).json({ error: "Unauthorized: missing token" });
