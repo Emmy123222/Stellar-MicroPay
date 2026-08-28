@@ -67,6 +67,9 @@ interface I18nContextType {
 const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
+  // Detect if another provider is already mounted above this one.
+  // All hooks must run before we can conditionally throw, so store the value early.
+  const parentContext = useContext(I18nContext);
   const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
   const [isClient, setIsClient] = useState(false);
 
@@ -101,6 +104,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
   }, [locale, isClient]);
 
+  // Prevent parallel or nested translation providers.
+  if (parentContext) {
+    throw new Error('I18nProvider already exists in the tree. Translation providers must not be nested.');
+  }
+
   const value: I18nContextType = {
     locale,
     setLocale,
@@ -126,4 +134,5 @@ export function useI18n(): I18nContextType {
   return context;
 }
 
-export const useTranslation = useI18n;
+// Canonical translation hook name for use across dashboard/payment UI.
+export { useI18n as useTranslation };
