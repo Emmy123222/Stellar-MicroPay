@@ -145,6 +145,9 @@ export function getKnownAssets() {
 /** Soroban RPC server URL. Defaults to testnet. */
 export function getSorobanRpcUrl(): string {
   const config = getNetworkConfig();
+  if (config.rpcUrl?.trim()) {
+    return config.rpcUrl.trim();
+  }
   if (config.network === "mainnet") {
     return "https://soroban.stellar.org";
   } else if (config.network === "testnet") {
