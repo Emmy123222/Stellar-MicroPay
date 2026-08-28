@@ -8,6 +8,8 @@ use soroban_sdk::{
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ContractError {
     AlreadyInitialized = 1,
+    SchemaAlreadyCurrent = 2,
+    SchemaDowngrade = 3,
 }
 
 const PERSISTENT_LIFETIME_THRESHOLD: u32 = 100_000;
@@ -290,9 +292,8 @@ impl MicroPayContract {
         if amount <= 0 {
             panic!("Tip amount must be positive");
         }
-        let token = token::Client::new(&env, &token_address);
-        token.transfer(&from, &to, &amount);
 
+        // Checks-Effects: persist all state BEFORE external token transfer.
         let current_total: i128 = env
             .storage()
             .persistent()
@@ -341,6 +342,10 @@ impl MicroPayContract {
         // out before the borrow checker is done with it (#202).
         env.events()
             .publish((Symbol::new(&env, "tip"), from.clone(), to.clone()), amount);
+
+        // Interactions: external token transfer after all state is persisted.
+        let token = token::Client::new(&env, &token_address);
+        token.transfer(&from, &to, &amount);
     }
 
     pub fn get_tip_total(env: Env, recipient: Address) -> i128 {
@@ -521,15 +526,18 @@ impl MicroPayContract {
         // Only the recipient can claim.
         escrow.to.require_auth();
 
-        let token = token::Client::new(&env, &escrow.token);
-        token.transfer(&env.current_contract_address(), &escrow.to, &escrow.amount);
-
+        // Checks-Effects: persist state BEFORE external token transfer.
         escrow.status = EscrowStatus::Released;
         env.storage().persistent().set(&DataKey::Escrow(id), &escrow);
         env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
+        let to_clone = escrow.to.clone();
         env.events()
             .publish((Symbol::new(&env, "escrow_claim"), id), (escrow.to, escrow.amount));
+
+        // Interactions: external token transfer after state is persisted.
+        let token = token::Client::new(&env, &escrow.token);
+        token.transfer(&env.current_contract_address(), &to_clone, &escrow.amount);
     }
 
     pub fn cancel_escrow(env: Env, id: u32) {
@@ -543,15 +551,18 @@ impl MicroPayContract {
         // Only the creator can cancel.
         escrow.from.require_auth();
 
-        let token = token::Client::new(&env, &escrow.token);
-        token.transfer(&env.current_contract_address(), &escrow.from, &escrow.amount);
-
+        // Checks-Effects: persist state BEFORE external token transfer.
         escrow.status = EscrowStatus::Cancelled;
         env.storage().persistent().set(&DataKey::Escrow(id), &escrow);
         env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
+        let from_clone = escrow.from.clone();
         env.events()
             .publish((Symbol::new(&env, "escrow_cancel"), id), (escrow.from, escrow.amount));
+
+        // Interactions: external token transfer after state is persisted.
+        let token = token::Client::new(&env, &escrow.token);
+        token.transfer(&env.current_contract_address(), &from_clone, &escrow.amount);
     }
 
     pub fn get_escrow(env: Env, id: u32) -> Escrow {
@@ -935,7 +946,7 @@ impl MicroPayContract {
     /// rewrite the release notes call for has been applied. Returns the
     /// version migrated to. See the migration guide in the contract README
     /// for the full procedure (#562).
-    pub fn migrate(env: Env, admin: Address) -> u32 {
+    pub fn migrate(env: Env, admin: Address) -> Result<u32, ContractError> {
         admin.require_auth();
         let stored_admin: Address = env
             .storage()
@@ -952,10 +963,10 @@ impl MicroPayContract {
             .get(&DataKey::SchemaVersion)
             .unwrap_or(0);
         if from_version == SCHEMA_VERSION {
-            panic!("schema already at current version");
+            return Err(ContractError::SchemaAlreadyCurrent);
         }
         if from_version > SCHEMA_VERSION {
-            panic!("stored schema is newer than this contract");
+            return Err(ContractError::SchemaDowngrade);
         }
 
         env.storage()
@@ -971,7 +982,7 @@ impl MicroPayContract {
             (Symbol::new(&env, "migrate"),),
             (from_version, SCHEMA_VERSION),
         );
-        SCHEMA_VERSION
+        Ok(SCHEMA_VERSION)
     }
 }
 
@@ -1294,6 +1305,28 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "escrow is not pending")]
+    fn test_claim_escrow_rejected_after_release() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 500);
+        let release = env.ledger().sequence() + 10;
+        let id = client.create_escrow(&token_id, &from, &to, &500, &release);
+
+        advance_ledger(&env, release + 1);
+        client.claim_escrow(&id);
+        // Second claim must be rejected — state was persisted before transfer.
+        client.claim_escrow(&id);
+    }
+
+    #[test]
     #[should_panic(expected = "release_ledger not reached")]
     fn test_claim_escrow_rejected_before_release_ledger() {
         let env = Env::default();
@@ -1336,6 +1369,27 @@ mod tests {
         assert_eq!(token.balance(&contract_id), 0);
         assert_eq!(token.balance(&to), 0);
         assert_eq!(client.get_escrow(&id).status, EscrowStatus::Cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "escrow is not pending")]
+    fn test_cancel_escrow_rejected_after_cancellation() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let to = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 750);
+        let release = env.ledger().sequence() + 100;
+        let id = client.create_escrow(&token_id, &from, &to, &750, &release);
+
+        client.cancel_escrow(&id);
+        // Second cancel must be rejected — state was persisted before transfer.
+        client.cancel_escrow(&id);
     }
 
     #[test]
@@ -2108,7 +2162,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "schema already at current version")]
     fn test_migrate_rejects_current_version() {
         let env = Env::default();
         let contract_id = env.register_contract(None, MicroPayContract);
@@ -2117,7 +2170,28 @@ mod tests {
         client.initialize(&admin);
         env.mock_all_auths();
 
-        client.migrate(&admin);
+        let result = client.try_migrate(&admin);
+        assert_eq!(result, Err(ContractError::SchemaAlreadyCurrent));
+    }
+
+    #[test]
+    fn test_migrate_rejects_downgrade() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        // Simulate a stored schema version higher than SCHEMA_VERSION.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::SchemaVersion, &(SCHEMA_VERSION + 1));
+        });
+
+        let result = client.try_migrate(&admin);
+        assert_eq!(result, Err(ContractError::SchemaDowngrade));
     }
 
     #[test]
