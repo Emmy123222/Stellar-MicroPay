@@ -25,6 +25,9 @@ export interface Translations {
     disconnectConfirm: string;
     confirm: string;
     cancel: string;
+    openMenu: string;
+    closeMenu: string;
+    mobileNavigation: string;
   };
   common: {
     loading: string;
@@ -62,6 +65,9 @@ const en: Translations = {
     disconnectConfirm: 'Disconnect wallet?',
     confirm: 'Confirm',
     cancel: 'Cancel',
+    openMenu: 'Open menu',
+    closeMenu: 'Close menu',
+    mobileNavigation: 'Mobile navigation',
   },
   common: {
     loading: 'Loading...',
@@ -99,6 +105,9 @@ const es: Translations = {
     disconnectConfirm: '¿Desconectar billetera?',
     confirm: 'Confirmar',
     cancel: 'Cancelar',
+    openMenu: 'Abrir menú',
+    closeMenu: 'Cerrar menú',
+    mobileNavigation: 'Navegación móvil',
   },
   common: {
     loading: 'Cargando...',
