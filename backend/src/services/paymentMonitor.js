@@ -13,6 +13,10 @@ const logger = require("../utils/logger");
 const cursorStore = require("./cursorStore");
 const { deliverWebhook } = require("./webhookDelivery");
 const { getWebhooksByPublicKey, getAllWebhooks } = require("./webhookStore");
+const {
+  activeStreams: activeStreamsGauge,
+  streamErrorsTotal,
+} = require("../metrics/registry");
 
 const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -24,7 +28,12 @@ const horizonServer = new Horizon.Server(HORIZON_URL);
  * Prevents duplicate streams for the same account.
  * @type {Map<string, () => void>}
  */
-const activeStreams = new Map();
+const streams = new Map();
+
+/** Sync the Prometheus gauge with the current map size. */
+function syncStreamGauge() {
+  activeStreamsGauge.set(streams.size);
+}
 
 /**
  * Recently-handled paging tokens per public key, used to de-duplicate rows
@@ -40,7 +49,7 @@ const seenTokens = new Map();
  * @param {string} publicKey
  */
 function startMonitoring(publicKey) {
-  if (activeStreams.has(publicKey)) {
+  if (streams.has(publicKey)) {
     return; // idempotent — already monitored
   }
 
@@ -112,12 +121,15 @@ function startMonitoring(publicKey) {
           `[monitor] stream error for ${publicKey}: ${err.message ?? err}`
         );
         // Remove the dead stream so ensureMonitored can restart it next time
-        activeStreams.delete(publicKey);
+	streams.delete(publicKey);
         seenTokens.delete(publicKey);
+      	syncStreamGauge();
+        streamErrorsTotal.inc();
       },
     });
 
-  activeStreams.set(publicKey, closeStream);
+  streams.set(publicKey, closeStream);
+  syncStreamGauge();
 }
 
 /**
@@ -126,14 +138,15 @@ function startMonitoring(publicKey) {
  * @param {string} publicKey
  */
 function stopMonitoring(publicKey) {
-  const close = activeStreams.get(publicKey);
+  const close = streams.get(publicKey);
   if (close) {
     try {
       close();
     } catch (err) {
       logger.error({ publicKey, err }, "[monitor] error closing stream");
     }
-    activeStreams.delete(publicKey);
+    streams.delete(publicKey);
+    syncStreamGauge();
     logger.info({ publicKey }, "[monitor] SSE stream closed");
   }
 }

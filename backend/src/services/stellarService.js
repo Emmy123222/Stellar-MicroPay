@@ -8,6 +8,12 @@
 
 const { server } = require("../config/stellar");
 const logger = require("../utils/logger");
+const {
+  horizonCallsTotal,
+  horizonCallDuration,
+  horizonRetriesTotal,
+  horizonErrorsTotal,
+} = require("../metrics/registry");
 
 // ─── In-memory LRU cache for getAccount (5 s TTL) ────────────────────────────
 const ACCOUNT_CACHE_TTL_MS = 5_000;
@@ -42,11 +48,12 @@ function isTransientError(err) {
  * Run `fn` with a hard timeout and retry up to MAX_RETRIES times on
  * transient errors, using exponential back-off (100 ms × 2^attempt).
  */
-async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
+async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS, operation = "unknown") {
   let lastErr;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const start = process.hrtime.bigint();
 
     try {
       const result = await Promise.race([
@@ -58,11 +65,22 @@ async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
         ),
       ]);
       clearTimeout(timer);
+      const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
+      horizonCallDuration.observe({ operation }, durationSec);
+      horizonCallsTotal.inc({ operation, status: "ok" });
       return result;
     } catch (err) {
       clearTimeout(timer);
       lastErr = err;
-      if (!isTransientError(err) || attempt === MAX_RETRIES) throw err;
+      if (attempt > 0) horizonRetriesTotal.inc({ operation });
+      if (!isTransientError(err) || attempt === MAX_RETRIES) {
+        const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
+        horizonCallDuration.observe({ operation }, durationSec);
+        const status = err?.response?.status ? String(err.response.status) : "error";
+        horizonCallsTotal.inc({ operation, status });
+        horizonErrorsTotal.inc({ operation, status });
+        throw err;
+      }
       // Exponential back-off: 100 ms, 200 ms, 400 ms …
       await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
     }
@@ -110,7 +128,7 @@ async function getAccount(publicKey) {
   if (cached) return cached;
 
   try {
-    const account = await withTimeoutAndRetry(() => server.loadAccount(publicKey));
+    const account = await withTimeoutAndRetry(() => server.loadAccount(publicKey), undefined, "loadAccount");
 
     const balances = account.balances.map((b) => {
       if (b.asset_type === "native") {
@@ -173,7 +191,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     query = query.cursor(cursor);
   }
 
-  const result = await withTimeoutAndRetry(() => query.call());
+  const result = await withTimeoutAndRetry(() => query.call(), undefined, "payments");
 
   const payments = [];
 
@@ -183,7 +201,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 
     let memo;
     try {
-      const tx = await withTimeoutAndRetry(() => op.transaction());
+      const tx = await withTimeoutAndRetry(() => op.transaction(), undefined, "transaction");
       if (tx.memo_type === "text" && tx.memo) {
         memo = tx.memo;
       }
@@ -207,6 +225,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 function streamPaymentEvents(publicKey, { onPayment, onError } = {}) {
   validatePublicKey(publicKey);
 
+  horizonCallsTotal.inc({ operation: "stream", status: "started" });
   const close = server
     .payments()
     .forAccount(publicKey)

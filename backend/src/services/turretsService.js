@@ -19,6 +19,12 @@ const {
 
 const { server } = require("../config/stellar");
 const logger = require("../utils/logger");
+const {
+  turretsExecutionsTotal,
+  turretsExecutionDuration,
+  turretsDeploymentsTotal,
+  turretsActiveDeployments,
+} = require("../metrics/registry");
 
 const NETWORK_PASSPHRASE =
   process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
@@ -438,6 +444,8 @@ async function evaluateDeployment(deployment) {
 
   if (nextRunMs && now < nextRunMs) return;
 
+  const start = process.hrtime.bigint();
+
   try {
     const price = await getXlmUsdPrice();
     deployment.lastObservedPriceUsd = price;
@@ -448,6 +456,9 @@ async function evaluateDeployment(deployment) {
       deployment.lastExecutedAt = new Date().toISOString();
       deployment.nextRunAt = nextRunIso(deployment.config.intervalMinutes);
       addExecutionLog(deployment.id, "executed", "DCA txFunction generated", result);
+      const dur = Number(process.hrtime.bigint() - start) / 1e9;
+      turretsExecutionDuration.observe({ type: "dca" }, dur);
+      turretsExecutionsTotal.inc({ type: "dca", status: "executed" });
       return;
     }
 
@@ -457,8 +468,14 @@ async function evaluateDeployment(deployment) {
         deployment.lastExecutedAt = new Date().toISOString();
         deployment.nextRunAt = nextRunIso(deployment.config.cooldownMinutes);
         addExecutionLog(deployment.id, "executed", "Stop-loss condition met", result);
+        const dur = Number(process.hrtime.bigint() - start) / 1e9;
+        turretsExecutionDuration.observe({ type: "stop_loss" }, dur);
+        turretsExecutionsTotal.inc({ type: "stop_loss", status: "executed" });
       } else {
         deployment.nextRunAt = new Date(Date.now() + 60 * 1000).toISOString();
+        const dur = Number(process.hrtime.bigint() - start) / 1e9;
+        turretsExecutionDuration.observe({ type: "stop_loss" }, dur);
+        turretsExecutionsTotal.inc({ type: "stop_loss", status: "skipped" });
       }
     }
 
@@ -469,12 +486,19 @@ async function evaluateDeployment(deployment) {
         deployment.lastExecutedAt = new Date().toISOString();
         deployment.status = "completed";
         addExecutionLog(deployment.id, "executed", "Escrow time-lock expired, release triggered", result);
+        turretsActiveDeployments.dec();
       }
+      const dur = Number(process.hrtime.bigint() - start) / 1e9;
+      turretsExecutionDuration.observe({ type: "escrow_release" }, dur);
+      turretsExecutionsTotal.inc({ type: "escrow_release", status: deployment.status === "completed" ? "completed" : "pending" });
     }
   } catch (err) {
     deployment.lastError = err.message;
     deployment.lastCheckedAt = new Date().toISOString();
     addExecutionLog(deployment.id, "error", err.message);
+    const dur = Number(process.hrtime.bigint() - start) / 1e9;
+    turretsExecutionDuration.observe({ type: deployment.type }, dur);
+    turretsExecutionsTotal.inc({ type: deployment.type, status: "error" });
   }
 }
 
@@ -554,6 +578,8 @@ function deployTxFunction({ ownerPublicKey, type, config, deploymentHash, signed
 
   deployments.set(id, deployment);
   addExecutionLog(id, "created", "txFunction deployed");
+  turretsDeploymentsTotal.inc({ type });
+  turretsActiveDeployments.inc();
 
   // Audit log for deployment action
   addAuditLog("deploy", ownerPublicKey, id, {
@@ -595,6 +621,11 @@ function setDeploymentStatus(id, status, actor = null) {
   const deployment = getDeployment(id);
   const previousStatus = deployment.status;
   deployment.status = status;
+  if (status === "paused") {
+    turretsActiveDeployments.dec();
+  } else if (status === "active" && previousStatus !== "active") {
+    turretsActiveDeployments.inc();
+  }
   addExecutionLog(id, "status", `txFunction ${status}`);
 
   // Audit log for status change actions (pause/resume)

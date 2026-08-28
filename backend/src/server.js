@@ -30,6 +30,8 @@ const { resumeAllMonitors } = require("./services/paymentMonitor");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const logger = require("./utils/logger");
+const { metricsMiddleware } = require("./metrics/middleware");
+const metricsRoutes = require("./metrics/routes");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -176,6 +178,7 @@ app.use(
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 app.use(pinoHttp({ logger }));
+app.use(metricsMiddleware);
 app.use(express.json({ limit: "10kb" }));
 // Parses the Cookie header into req.cookies so the SEP-0010 session cookie
 // (set in routes/auth.js) can be read back by middleware/auth.js's
@@ -216,6 +219,7 @@ app.use(
 
 app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
+app.use("/metrics", metricsRoutes);
 
 // Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
 // discover the SEP-0002 federation endpoint for `name*domain` addresses.
