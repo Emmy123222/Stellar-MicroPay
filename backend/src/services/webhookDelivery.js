@@ -10,6 +10,11 @@ const dns = require("node:dns").promises;
 
 const logger = require("../utils/logger");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
+const {
+  webhookDeliveriesTotal,
+  webhookDeliveryDuration,
+  webhookDeliveryErrorsTotal,
+} = require("../metrics/registry");
 
 const BLOCKED_IPV4 = [
   [/^0\./, "unspecified"],
@@ -88,6 +93,7 @@ async function validateWebhookUrl(rawUrl) {
 async function deliverWebhook(webhook, payload) {
   const body = JSON.stringify(payload);
   const sig = generateWebhookSignature(body, webhook.secret);
+  const start = process.hrtime.bigint();
 
   try {
     let url = webhook.url;
@@ -109,6 +115,10 @@ async function deliverWebhook(webhook, payload) {
         continue;
       }
 
+      const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
+      webhookDeliveryDuration.observe(durationSec);
+      webhookDeliveriesTotal.inc({ status: String(res.status) });
+
       if (!res.ok) {
         logger.error(
           { webhookId: webhook.id, url, status: res.status },
@@ -118,6 +128,10 @@ async function deliverWebhook(webhook, payload) {
       break;
     }
   } catch (err) {
+    const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
+    webhookDeliveryDuration.observe(durationSec);
+    webhookDeliveriesTotal.inc({ status: "error" });
+    webhookDeliveryErrorsTotal.inc({ reason: err.name || "unknown" });
     logger.error(
       { webhookId: webhook.id, url: webhook.url, err },
       `[webhook] delivery failed for ${webhook.id}: ${err.message}`

@@ -2,6 +2,10 @@
 
 require("dotenv").config();
 const logger = require("../utils/logger");
+const {
+  scheduledTxQueueDepth,
+  scheduledTxSubmitTotal,
+} = require("../metrics/registry");
 
 const logger = require("../utils/logger");
 
@@ -9,6 +13,11 @@ const logger = require("../utils/logger");
 // In a production environment, this would be replaced with a database
 const scheduledTransactions = new Map();
 let transactionIdCounter = 1;
+
+/** Sync the Prometheus gauge with the current queue size. */
+function syncQueueGauge() {
+  scheduledTxQueueDepth.set(scheduledTransactions.size);
+}
 
 /**
  * Store a pre-signed transaction for future submission
@@ -58,6 +67,7 @@ function scheduleTransaction(signedXDR, submitAt, publicKey) {
   };
 
   scheduledTransactions.set(id, scheduledTx);
+  syncQueueGauge();
   return scheduledTx;
 }
 
@@ -109,7 +119,9 @@ function getTransactionById(id) {
  * @returns {boolean} True if cancelled, false if not found
  */
 function cancelTransaction(id) {
-  return scheduledTransactions.delete(id);
+  const result = scheduledTransactions.delete(id);
+  if (result) syncQueueGauge();
+  return result;
 }
 
 /**
@@ -151,8 +163,7 @@ function incrementAttempt(id, error = null) {
   if (tx) {
     tx.attempts += 1;
     tx.lastError = error || null;
-    // If successful, we could remove it from the queue, but for now
-    // we'll let the caller handle removal if needed
+  scheduledTxSubmitTotal.inc({ status: error ? "error" : "ok" });
   }
 }
 
@@ -162,7 +173,9 @@ function incrementAttempt(id, error = null) {
  * @returns {boolean} True if removed, false if not found
  */
 function removeTransaction(id) {
-  return scheduledTransactions.delete(id);
+  const result = scheduledTransactions.delete(id);
+  if (result) syncQueueGauge();
+  return result;
 }
 
 /**
