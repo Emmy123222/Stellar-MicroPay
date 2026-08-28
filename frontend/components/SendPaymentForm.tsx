@@ -56,7 +56,7 @@ import clsx from "clsx";
 
 import { useEffect, useRef, useState } from "react";
 import { useToastContext } from "@/lib/ToastContext";
-import { useTranslation } from "@/lib/i18n";
+import { useTranslation } from "@/contexts/I18nContext";
 
 
 interface SendPaymentFormProps {
