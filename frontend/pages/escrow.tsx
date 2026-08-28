@@ -23,6 +23,62 @@ import {
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 
+export interface RawEscrowStruct {
+  sender: string;
+  recipient: string;
+  amount: string;
+  release_ledger: number;
+  claimed: boolean;
+  cancelled: boolean;
+}
+
+export type EscrowStatus = "pending" | "claimable" | "claimed" | "cancelled";
+
+export function resolveEscrowStatus(
+  raw: Pick<RawEscrowStruct, "cancelled" | "claimed" | "release_ledger">,
+  currentLedger?: number
+): EscrowStatus {
+  if (raw.cancelled) return "cancelled";
+  if (raw.claimed) return "claimed";
+  if (currentLedger !== undefined && currentLedger >= raw.release_ledger) return "claimable";
+  return "pending";
+}
+
+export const escrowDecodingFixtures: Record<EscrowStatus, RawEscrowStruct> = {
+  pending: {
+    sender: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    recipient: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    amount: "10000000",
+    release_ledger: 2000,
+    claimed: false,
+    cancelled: false,
+  },
+  claimable: {
+    sender: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    recipient: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    amount: "10000000",
+    release_ledger: 1000,
+    claimed: false,
+    cancelled: false,
+  },
+  claimed: {
+    sender: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    recipient: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    amount: "10000000",
+    release_ledger: 1000,
+    claimed: true,
+    cancelled: false,
+  },
+  cancelled: {
+    sender: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    recipient: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    amount: "10000000",
+    release_ledger: 1000,
+    claimed: false,
+    cancelled: true,
+  },
+};
+
 type LookupState =
   | { kind: "idle" }
   | { kind: "loading" }
