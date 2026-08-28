@@ -1967,6 +1967,43 @@ export function isStellarName(value: string): boolean {
 // public key as the auth source and return a built+preflighted Transaction
 // ready to hand to signTransactionWithWallet().
 
+/** Typed escrow statuses used by the UI after ledger state resolution. */
+export type EscrowStatus = "Pending" | "Claimable" | "Claimed" | "Cancelled";
+
+/** Raw status values that can come back from the Soroban ledger state. */
+export type RawEscrowStatus = number | "Pending" | "Claimable" | "Claimed" | "Cancelled";
+
+/** Raw Soroban `get_escrow` return shape. */
+export interface RawEscrowStruct {
+  id: number;
+  from: string;
+  to: string;
+  token: string;
+  amount: number | bigint;
+  release_ledger: number;
+  status: RawEscrowStatus;
+}
+
+/** Resolve a raw ledger status value to the typed escrow status. */
+export function resolveEscrowStatus(status: RawEscrowStatus): EscrowStatus {
+  switch (status) {
+    case 0:
+    case "Pending":
+      return "Pending";
+    case 1:
+    case "Claimable":
+      return "Claimable";
+    case 2:
+    case "Claimed":
+      return "Claimed";
+    case 3:
+    case "Cancelled":
+      return "Cancelled";
+    default:
+      throw new Error(`Unknown escrow status: ${String(status)}`);
+  }
+}
+
 export interface EscrowRecord {
   id: number;
   from: string;
@@ -1974,7 +2011,7 @@ export interface EscrowRecord {
   token: string;
   amount: string; // stroops as string
   releaseLedger: number;
-  status: "Pending" | "Released" | "Cancelled";
+  status: EscrowStatus;
 }
 
 /** Build and preflight a Soroban transaction that creates a new escrow locking funds for a recipient until a release ledger. */
