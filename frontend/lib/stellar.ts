@@ -42,6 +42,14 @@ import {
 
 import { apiFetch } from "./api";
 
+import {
+  createTimeoutController,
+  classifyFetchError,
+  RequestTimeoutError,
+  RequestAbortedError,
+  OfflineError,
+} from "./request";
+
 export {
   server,
   getServer,
@@ -54,6 +62,8 @@ export {
   getNetworkPassphrase,
   NETWORK_PASSPHRASE,
 };
+
+export { RequestTimeoutError, RequestAbortedError, OfflineError };
 
 /** One XLM is divided into 10,000,000 stroops, Stellar's smallest unit. */
 export const STELLAR_STROOPS_PER_XLM = 10_000_000;
@@ -304,6 +314,46 @@ export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
 export const FRIENDBOT_URL =
   process.env.NEXT_PUBLIC_FRIENDBOT_URL || "https://friendbot.stellar.org";
 
+// ─── Operation-specific request timeout budgets ───────────────────────────
+// Horizon and Soroban RPC endpoints can remain pending during upstream
+// outages. Every raw network call carries its own budget so a slow endpoint
+// never hangs the UI indefinitely. The active network (testnet vs. mainnet)
+// is always explicit via getNetworkConfig(), matching the rest of this module.
+
+/** Budget for the Horizon `/fee_stats` endpoint used when building payments. */
+export const HORIZON_FEE_STATS_TIMEOUT_MS = 5_000;
+
+/** Budget for Friendbot funding (testnet only). */
+export const FRIENDBOT_TIMEOUT_MS = 15_000;
+
+/**
+ * Fetch a URL with an operation-specific timeout budget and classify the
+ * result so callers can distinguish timeouts, offline failures, and abort
+ * (unmount) conditions.
+ *
+ * @param url - The URL to fetch.
+ * @param timeoutMs - Timeout budget for this operation.
+ * @param externalSignal - Optional caller signal (e.g. component unmount).
+ * @throws {RequestTimeoutError} When the budget elapses before a response.
+ * @throws {OfflineError} When the browser is offline / network failed.
+ * @throws {RequestAbortedError} When the caller cancelled the request.
+ */
+export async function fetchWithTimeout(
+  url: string,
+  timeoutMs: number,
+  externalSignal?: AbortSignal | null,
+): Promise<Response> {
+  const { controller, cleanup, wasTimeout } = createTimeoutController(timeoutMs, externalSignal);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    cleanup();
+    return res;
+  } catch (err: unknown) {
+    cleanup();
+    throw classifyFetchError(err, controller.signal.aborted, wasTimeout());
+  }
+}
+
 /** Polling options for waiting until an account exists on Horizon. */
 export interface FundingPollOptions {
   intervalMs?: number;
@@ -367,8 +417,9 @@ export async function getFriendBotFunding(publicKey: string): Promise<void> {
     throw new Error("Friendbot is only available on Stellar testnet.");
   }
 
-  const res = await fetch(
-    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`
+  const res = await fetchWithTimeout(
+    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`,
+    FRIENDBOT_TIMEOUT_MS
   );
 
   if (!res.ok) {
@@ -594,7 +645,10 @@ export async function buildPaymentTransaction({
   let baseFeeStroops: string = STELLAR_BASE_FEE_STROOPS_STRING;
   try {
     const config = getNetworkConfig();
-    const feeRes = await fetch(`${config.horizonUrl}/fee_stats`);
+    const feeRes = await fetchWithTimeout(
+      `${config.horizonUrl}/fee_stats`,
+      HORIZON_FEE_STATS_TIMEOUT_MS
+    );
     if (feeRes.ok) {
       const feeData = await feeRes.json() as {
         fee_charged?: { p50?: string };
@@ -1493,7 +1547,7 @@ export async function fetchNetworkFeeStats(): Promise<NetworkFeeStats> {
   const config = getNetworkConfig();
   const url = `${config.horizonUrl}/fee_stats`;
 
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url, HORIZON_FEE_STATS_TIMEOUT_MS);
   if (!res.ok) {
     throw new Error(`Horizon fee_stats returned ${res.status}`);
   }
