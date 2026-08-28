@@ -30,6 +30,11 @@ const { resumeAllMonitors } = require("./services/paymentMonitor");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const logger = require("./utils/logger");
+const {
+  validateEnv,
+  parseAllowedOrigins,
+  logConfigurationSummary,
+} = require("./config/validateEnv");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -307,6 +312,7 @@ app.use((err, req, res, next) => {
 
 if (require.main === module) {
   validateEnv();
+  logConfigurationSummary();
   app.listen(PORT, () => {
     console.log(`
   ✨ Stellar MicroPay API
