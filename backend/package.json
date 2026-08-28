@@ -17,7 +17,7 @@
   "dependencies": {
     "@sentry/node": "^10.71.0",
     "@stellar/stellar-sdk": "^15.1.0",
-    "axios": "^1.6.8",
+    "axios": "^1.20.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
