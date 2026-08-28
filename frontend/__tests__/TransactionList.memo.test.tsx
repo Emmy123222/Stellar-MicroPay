@@ -80,7 +80,7 @@ describe("TransactionRow memoization (#605)", () => {
     const user = userEvent.setup();
     render(<ParentWithToast payment={payment} />);
 
-    expect(screen.getByRole("listitem")).toBeInTheDocument();
+    expect(screen.getByRole("row")).toBeInTheDocument();
     expect(__transactionRowRenderCount).toBe(1);
 
     await user.click(screen.getByRole("button", { name: "Show toast" }));
