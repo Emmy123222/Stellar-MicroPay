@@ -1,14 +1,19 @@
 /**
  * src/services/paymentMonitor.js
  * Monitors Stellar accounts for incoming payments via Horizon SSE streaming.
- * Fires registered webhooks using Promise.allSettled for parallel, safe delivery.
+ * Payment events are translated into webhook payloads and handed to the
+ * bounded delivery queue (#770) — no network I/O happens inside the stream
+ * callback, so slow receivers can never stall the Horizon stream.
  */
 
 "use strict";
 
 const { Horizon } = require("@stellar/stellar-sdk");
 
+
 const logger = require("../utils/logger");
+
+const { enqueueDelivery } = require("./webhookQueue");
 
 const cursorStore = require("./cursorStore");
 const { deliverWebhook } = require("./webhookDelivery");
@@ -17,7 +22,20 @@ const { getWebhooksByPublicKey, getAllWebhooks } = require("./webhookStore");
 const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
+/**
+ * Explicit network state (#770): the monitor streams from whichever Horizon
+ * instance HORIZON_URL points at. STELLAR_NETWORK must match it — this is
+ * validated at startup by config/validateEnv.js — and is logged so operators
+ * can tell testnet and mainnet traffic apart.
+ */
+const STELLAR_NETWORK = process.env.STELLAR_NETWORK || "testnet";
+
 const horizonServer = new Horizon.Server(HORIZON_URL);
+
+logger.info(
+  { network: STELLAR_NETWORK, horizonUrl: HORIZON_URL },
+  `[monitor] streaming ${STELLAR_NETWORK} payments from ${HORIZON_URL}`
+);
 
 /**
  * Map of publicKey → SSE close function.
@@ -25,6 +43,23 @@ const horizonServer = new Horizon.Server(HORIZON_URL);
  * @type {Map<string, () => void>}
  */
 const activeStreams = new Map();
+
+/**
+ * Hand a payment record off to the delivery queue for every registered
+ * webhook. Synchronous and non-blocking — safe to call from the SSE
+ * onmessage handler.
+ *
+ * @param {string} publicKey
+ * @param {import('./webhookDelivery').PaymentPayload} payload
+ */
+function dispatchPaymentEvent(publicKey, payload) {
+  const hooks = getWebhooksByPublicKey(publicKey);
+  if (hooks.length === 0) return;
+
+  for (const hook of hooks) {
+    enqueueDelivery(hook, payload);
+  }
+}
 
 /**
  * Recently-handled paging tokens per public key, used to de-duplicate rows
@@ -44,19 +79,14 @@ function startMonitoring(publicKey) {
     return; // idempotent — already monitored
   }
 
-  logger.info({ publicKey }, "[monitor] starting SSE stream");
-
-  // Resume from the last persisted paging token so payments processed during
-  // downtime or a reconnect gap are not missed. Falls back to "now" only when
-  // no cursor has been persisted yet.
-  const resumeCursor = cursorStore.get(publicKey);
+  logger.info({ publicKey, network: STELLAR_NETWORK }, "[monitor] starting SSE stream");
 
   const closeStream = horizonServer
     .payments()
     .forAccount(publicKey)
     .cursor(resumeCursor)
     .stream({
-      onmessage: async (record) => {
+      onmessage: (record) => {
         // Only handle incoming simple payments to this account
         if (record.type !== "payment" || record.to !== publicKey) return;
 
@@ -95,15 +125,9 @@ function startMonitoring(publicKey) {
           timestamp: record.created_at,
         };
 
-        const hooks = getWebhooksByPublicKey(publicKey);
-        if (hooks.length > 0) {
-          // Parallel delivery — one failed hook must not block others
-          await Promise.allSettled(hooks.map((hook) => deliverWebhook(hook, payload)));
-        }
-
-        // Advance the durable cursor even when no webhook is registered, so a
-        // payment with no endpoint is not reprocessed on the next reconnect.
-        cursorStore.set(publicKey, record.paging_token);
+        // Enqueue outside the stream callback — the HTTP POST happens in
+        // the queue's worker pool with retries, never inline (#770).
+        dispatchPaymentEvent(publicKey, payload);
       },
 
       onerror: (err) => {
@@ -154,6 +178,10 @@ function ensureMonitored(publicKey) {
  * survive server restarts.
  */
 function resumeAllMonitors() {
+  logger.info(
+    { network: STELLAR_NETWORK, horizonUrl: HORIZON_URL },
+    `[monitor] resuming monitors on ${STELLAR_NETWORK}`
+  );
   const allWebhooks = getAllWebhooks();
   const seen = new Set();
   for (const webhook of allWebhooks) {
@@ -169,4 +197,5 @@ module.exports = {
   stopMonitoring,
   ensureMonitored,
   resumeAllMonitors,
+  dispatchPaymentEvent,
 };

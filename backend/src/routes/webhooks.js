@@ -5,6 +5,8 @@
  * POST   /api/webhooks            — register a webhook + start monitoring
  * GET    /api/webhooks/:publicKey — list webhooks for an account (no secret)
  * DELETE /api/webhooks/:id        — remove a webhook (200 / { success } on success)
+ *
+ * List responses include each webhook's last delivery status (#770).
  */
 
 "use strict";
@@ -17,6 +19,7 @@ const { strictLimiter } = require("../middleware/rateLimit");
 const {
   registerWebhook,
   getWebhooksByPublicKey,
+  getDeliveryStatus,
   deleteWebhook,
 } = require("../services/webhookService");
 
@@ -24,8 +27,10 @@ const {
  * Strip the secret field before sending a webhook to the client.
  * @param {{ secret?: string, [key: string]: unknown }} webhook
  */
-function sanitizeWebhook({ secret: _secret, ...rest }) {
-  return rest;
+function sanitizeWebhook(webhook) {
+  const sanitized = { ...webhook };
+  delete sanitized.secret;
+  return sanitized;
 }
 
 /**
@@ -74,7 +79,14 @@ router.post("/", strictLimiter, (req, res) => {
 router.get("/:publicKey", strictLimiter, (req, res) => {
   const { publicKey } = req.params;
   const hooks = getWebhooksByPublicKey(publicKey);
-  return res.status(200).json({ webhooks: hooks.map(sanitizeWebhook) });
+
+  // Attach the latest delivery status from the delivery queue (#770).
+  const webhooks = hooks.map((hook) => ({
+    ...sanitizeWebhook(hook),
+    lastDelivery: getDeliveryStatus(hook.id) ?? null,
+  }));
+
+  return res.status(200).json({ webhooks });
 });
 
 /**

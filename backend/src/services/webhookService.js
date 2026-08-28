@@ -16,6 +16,16 @@ const {
   resumeAllMonitors,
 } = require("./paymentMonitor");
 const { deliverWebhook } = require("./webhookDelivery");
+const {
+  enqueueDelivery,
+  getDeliveryStatus,
+  getQueueStats,
+  getDeadLetterEntries,
+  requeueDeadLetter,
+  shutdownQueue,
+} = require("./webhookQueue");
+const store = require("./webhookStore");
+const { deliverWebhook } = require("./webhookDelivery");
 const store = require("./webhookStore");
 
 /**
@@ -72,6 +82,14 @@ module.exports = {
 
   // delivery
   deliverWebhook,
+
+  // delivery queue (#770)
+  enqueueDelivery,
+  getDeliveryStatus,
+  getQueueStats,
+  getDeadLetterEntries,
+  requeueDeadLetter,
+  shutdownQueue,
 
   // monitor
   startMonitoring,

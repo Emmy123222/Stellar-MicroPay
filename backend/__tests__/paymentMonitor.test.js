@@ -1,4 +1,197 @@
 /**
+ * Payment monitor (#770): the Horizon stream callback must enqueue webhook
+ * deliveries into the bounded queue without performing any network I/O inline.
+ */
+"use strict";
+
+let mockStreamOptions = null;
+let mockStreamCalls = 0;
+let mockCloseStreamFn = null;
+
+jest.mock("@stellar/stellar-sdk", () => ({
+  Horizon: {
+    Server: jest.fn(() => ({
+      payments: () => ({
+        forAccount: () => ({
+          cursor: () => ({
+            stream: (opts) => {
+              mockStreamCalls += 1;
+              mockStreamOptions = opts;
+              mockCloseStreamFn = jest.fn();
+              return mockCloseStreamFn;
+            },
+          }),
+        }),
+      }),
+    })),
+  },
+}));
+
+jest.mock("../src/services/webhookQueue", () => ({
+  enqueueDelivery: jest.fn(),
+}));
+
+jest.mock("../src/services/webhookDelivery", () => ({
+  deliverWebhook: jest.fn(),
+}));
+
+const ACCOUNT_A = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+const ACCOUNT_B = "GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX";
+const ACCOUNT_C = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
+let monitor;
+let enqueueDelivery;
+let deliverWebhook;
+let registerWebhook;
+
+/**
+ * Fresh module instances per test so the in-memory webhook store and the
+ * mock call counts never leak between tests.
+ */
+function loadMonitor() {
+  jest.resetModules();
+  monitor = require("../src/services/paymentMonitor");
+  ({ enqueueDelivery } = require("../src/services/webhookQueue"));
+  ({ deliverWebhook } = require("../src/services/webhookDelivery"));
+  ({ registerWebhook } = require("../src/services/webhookStore"));
+}
+
+function paymentRecord(overrides = {}) {
+  return {
+    type: "payment",
+    to: ACCOUNT_A,
+    from: ACCOUNT_B,
+    amount: "1.0000000",
+    asset_type: "native",
+    transaction_hash: "abc123",
+    ledger_attr: 42,
+    created_at: "2026-08-28T00:00:00Z",
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  mockStreamCalls = 0;
+  mockStreamOptions = null;
+  mockCloseStreamFn = null;
+  loadMonitor();
+});
+
+afterEach(() => {
+  monitor.stopMonitoring(ACCOUNT_A);
+  monitor.stopMonitoring(ACCOUNT_B);
+});
+
+describe("paymentMonitor", () => {
+  it("enqueues a delivery for each registered webhook without awaiting it", () => {
+    const hookA = registerWebhook(ACCOUNT_A, "https://x.test/a", "secret-a");
+    const hookB = registerWebhook(ACCOUNT_A, "https://x.test/b", "secret-b");
+
+    monitor.startMonitoring(ACCOUNT_A);
+    mockStreamOptions.onmessage(paymentRecord()); // synchronous — no await
+
+    expect(enqueueDelivery).toHaveBeenCalledTimes(2);
+
+    const [calledWebhook, calledPayload] = enqueueDelivery.mock.calls[0];
+    expect(calledWebhook).toMatchObject({ id: hookA.id, url: hookA.url });
+    expect(calledPayload).toEqual({
+      event: "payment_received",
+      publicKey: ACCOUNT_A,
+      amount: "1.0000000",
+      asset: "native",
+      from: ACCOUNT_B,
+      transactionHash: "abc123",
+      ledger: 42,
+      timestamp: "2026-08-28T00:00:00Z",
+    });
+    expect(enqueueDelivery.mock.calls[1][0].id).toBe(hookB.id);
+
+    // The heavy HTTP work must happen in the queue, never on the stream path
+    expect(deliverWebhook).not.toHaveBeenCalled();
+  });
+
+  it("ignores non-payment operations and payments to other accounts", () => {
+    registerWebhook(ACCOUNT_A, "https://x.test/a", "secret-a");
+    monitor.startMonitoring(ACCOUNT_A);
+
+    mockStreamOptions.onmessage(paymentRecord({ type: "create_account" }));
+    mockStreamOptions.onmessage(paymentRecord({ to: ACCOUNT_B }));
+
+    expect(enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it("maps issued assets to CODE:ISSUER in the payload", () => {
+    registerWebhook(ACCOUNT_A, "https://x.test/a", "secret-a");
+    monitor.startMonitoring(ACCOUNT_A);
+
+    mockStreamOptions.onmessage(
+      paymentRecord({
+        asset_type: "credit_alphanum4",
+        asset_code: "CODE",
+        asset_issuer: ACCOUNT_C,
+      })
+    );
+
+    expect(enqueueDelivery).toHaveBeenCalledTimes(1);
+    expect(enqueueDelivery.mock.calls[0][1].asset).toBe(`CODE:${ACCOUNT_C}`);
+  });
+
+  it("defaults the ledger to 0 when Horizon omits ledger_attr", () => {
+    registerWebhook(ACCOUNT_A, "https://x.test/a", "secret-a");
+    monitor.startMonitoring(ACCOUNT_A);
+
+    const record = paymentRecord();
+    delete record.ledger_attr;
+    mockStreamOptions.onmessage(record);
+
+    expect(enqueueDelivery).toHaveBeenCalledTimes(1);
+    expect(enqueueDelivery.mock.calls[0][1].ledger).toBe(0);
+  });
+
+  it("does not start a second stream for the same account", () => {
+    registerWebhook(ACCOUNT_A, "https://x.test/a", "secret-a");
+
+    monitor.startMonitoring(ACCOUNT_A);
+    monitor.startMonitoring(ACCOUNT_A); // idempotent
+
+    expect(mockStreamCalls).toBe(1);
+  });
+
+  it("restarts the stream after a stream error", () => {
+    registerWebhook(ACCOUNT_A, "https://x.test/a", "secret-a");
+
+    monitor.startMonitoring(ACCOUNT_A);
+    mockStreamOptions.onerror(new Error("connection reset"));
+    monitor.startMonitoring(ACCOUNT_A); // ensureMonitored can revive it
+
+    expect(mockStreamCalls).toBe(2);
+  });
+
+  it("closes the underlying stream on stopMonitoring", () => {
+    registerWebhook(ACCOUNT_A, "https://x.test/a", "secret-a");
+
+    monitor.startMonitoring(ACCOUNT_A);
+    expect(mockCloseStreamFn).not.toHaveBeenCalled();
+
+    monitor.stopMonitoring(ACCOUNT_A);
+    expect(mockCloseStreamFn).toHaveBeenCalledTimes(1);
+
+    // starting again opens a fresh stream instead of reusing the closed one
+    monitor.startMonitoring(ACCOUNT_A);
+    expect(mockStreamCalls).toBe(2);
+  });
+
+  it("resumes monitors for every distinct registered account", () => {
+    registerWebhook(ACCOUNT_A, "https://x.test/a", "secret-a");
+    registerWebhook(ACCOUNT_B, "https://x.test/b", "secret-b");
+    registerWebhook(ACCOUNT_A, "https://x.test/a2", "secret-a2"); // same account
+
+    monitor.resumeAllMonitors();
+
+    expect(mockStreamCalls).toBe(2); // ACCOUNT_A and ACCOUNT_B only
+  });
+});
+/**
  * __tests__/paymentMonitor.test.js (#773)
  * Verifies durable-cursor resume and replay de-duplication.
  */
