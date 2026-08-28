@@ -344,6 +344,31 @@ describe("TradeForm", () => {
     });
   });
 
+  // ── Accessibility ────────────────────────────────────────────────────────────
+
+  describe("accessibility", () => {
+    it("uses fieldset for mode groups", () => {
+      renderTradeForm();
+      const orderTypeGroup = screen.getByRole("group", { name: /order type/i });
+      expect(orderTypeGroup).toBeInTheDocument();
+    });
+
+    it("associates errors and help text for slippage tolerance", async () => {
+      const user = userEvent.setup();
+      renderTradeForm();
+
+      const slippageInput = screen.getByLabelText(/slippage tolerance/i);
+      expect(slippageInput).toHaveAttribute("aria-describedby", "slippage-help");
+      expect(slippageInput).toHaveAttribute("aria-invalid", "false");
+
+      await user.clear(slippageInput);
+      await user.type(slippageInput, "80"); // Invalid
+
+      expect(slippageInput).toHaveAttribute("aria-invalid", "true");
+      expect(slippageInput).toHaveAttribute("aria-describedby", "slippage-help slippage-error");
+    });
+  });
+
   it("shows Processing... while the trade is in flight", async () => {
     const user = userEvent.setup();
     renderTradeForm();

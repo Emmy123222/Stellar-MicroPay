@@ -12,6 +12,7 @@ import {
   buildCancelOfferTransaction,
   submitTransaction,
   NETWORK_PASSPHRASE,
+  NETWORK,
   USDC,
   Orderbook,
   TradeAggregation,
@@ -149,9 +150,18 @@ export default function Trade() {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold text-white mb-2">
-          Stellar DEX Trading
-        </h1>
+        <div className="flex items-center gap-3 mb-2">
+          <h1 className="font-display text-3xl font-bold text-white">
+            Stellar DEX Trading
+          </h1>
+          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+            NETWORK === "mainnet" 
+              ? "bg-emerald-500/20 text-emerald-400" 
+              : "bg-amber-500/20 text-amber-400"
+          }`}>
+            {NETWORK.toUpperCase()}
+          </span>
+        </div>
         <p className="text-slate-400">
           Trade XLM and USDC on the Stellar decentralised exchange
         </p>

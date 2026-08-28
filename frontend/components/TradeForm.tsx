@@ -218,10 +218,12 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
     <div className="card">
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Order Type Selection */}
-        <div className="flex gap-2 p-1 bg-stellar-500/10 rounded-lg">
+        <fieldset className="flex gap-2 p-1 bg-stellar-500/10 rounded-lg">
+          <legend className="sr-only">Order Type</legend>
           <button
             type="button"
             onClick={() => setOrderType("market")}
+            aria-pressed={orderType === "market"}
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
               orderType === "market"
                 ? "bg-stellar-500 text-white"
@@ -233,6 +235,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
           <button
             type="button"
             onClick={() => setOrderType("limit")}
+            aria-pressed={orderType === "limit"}
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
               orderType === "limit"
                 ? "bg-stellar-500 text-white"
@@ -241,7 +244,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
           >
             Limit Order
           </button>
-        </div>
+        </fieldset>
 
         {/* Asset Selection */}
         <div className="space-y-4">
@@ -323,7 +326,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
               >
                 Slippage tolerance
               </label>
-              <span className="text-xs text-slate-500">
+              <span id="slippage-help" className="text-xs text-slate-500">
                 Max price move you accept before the trade fails
               </span>
             </div>
@@ -354,6 +357,8 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                   value={slippage}
                   onChange={(e) => setSlippage(e.target.value)}
                   placeholder="0.5"
+                  aria-describedby={`slippage-help ${!isSlippageValid ? 'slippage-error' : ''}`.trim()}
+                  aria-invalid={!isSlippageValid}
                   className="w-full px-3 py-2 pr-7 bg-cosmos-800 border border-stellar-500/20 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-stellar-400"
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
@@ -363,45 +368,49 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
             </div>
 
             {!isSlippageValid && (
-              <p className="text-xs text-red-400">
+              <p id="slippage-error" className="text-xs text-red-400">
                 Enter a slippage tolerance between 0 and {MAX_SLIPPAGE_PERCENT}%.
               </p>
             )}
 
-            {isQuoting && <p className="text-xs text-slate-500">Fetching best price…</p>}
+            <div aria-live="polite" aria-atomic="true" aria-relevant="additions text">
+              {isQuoting && <p className="text-xs text-slate-500" aria-hidden="true">Fetching best price…</p>}
 
-            {!isQuoting && quoteError && (
-              <p className="text-xs text-amber-400">{quoteError}</p>
-            )}
+              {!isQuoting && quoteError && (
+                <p className="text-xs text-amber-400">{quoteError}</p>
+              )}
 
-            {!isQuoting && quote && (
-              <div className="rounded-lg bg-cosmos-800/60 border border-stellar-500/10 px-3 py-2 text-xs space-y-1">
-                <div className="flex justify-between text-slate-400">
-                  <span>Expected to receive</span>
-                  <span className="text-slate-200">
-                    {formatAsset(quote.destinationAmount, buyingAsset)}
-                  </span>
-                </div>
-                {minimumReceived && (
+              {!isQuoting && quote && (
+                <div className="rounded-lg bg-cosmos-800/60 border border-stellar-500/10 px-3 py-2 text-xs space-y-1">
                   <div className="flex justify-between text-slate-400">
-                    <span>Minimum received</span>
-                    <span className="text-white font-medium">
-                      {formatAsset(minimumReceived, buyingAsset)}
+                    <span>Expected to receive</span>
+                    <span className="text-slate-200">
+                      {formatAsset(quote.destinationAmount, buyingAsset)}
                     </span>
                   </div>
-                )}
-              </div>
-            )}
+                  {minimumReceived && (
+                    <div className="flex justify-between text-slate-400">
+                      <span>Minimum received</span>
+                      <span className="text-white font-medium">
+                        {formatAsset(minimumReceived, buyingAsset)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* Limit Order Specific Options */}
         {orderType === "limit" && (
-          <div className="space-y-4">
+          <fieldset className="space-y-4">
+            <legend className="sr-only">Order Side</legend>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setSide("buy")}
+                aria-pressed={side === "buy"}
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
                   side === "buy"
                     ? "bg-emerald-500 text-white"
@@ -413,6 +422,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
               <button
                 type="button"
                 onClick={() => setSide("sell")}
+                aria-pressed={side === "sell"}
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
                   side === "sell"
                     ? "bg-red-500 text-white"
@@ -422,7 +432,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                 Sell Order
               </button>
             </div>
-          </div>
+          </fieldset>
         )}
 
         {/* Submit Button */}
