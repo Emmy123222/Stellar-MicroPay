@@ -127,6 +127,54 @@ function validatePublicKey(publicKey) {
   }
 }
 
+/**
+ * Create an isolated username service for a request scope or test.
+ * The default exports below retain the legacy process-wide service API.
+ */
+function createUsernameService(store = new Map()) {
+  return {
+    registerUsername(username, publicKey) {
+      validateUsername(username);
+      validatePublicKey(publicKey);
+      if (store.has(username)) {
+        const error = new Error("Username already registered");
+        error.status = 409;
+        throw error;
+      }
+      for (const existingPublicKey of store.values()) {
+        if (existingPublicKey === publicKey) {
+          const error = new Error("Public key already registered to another username");
+          error.status = 409;
+          throw error;
+        }
+      }
+      store.set(username, publicKey);
+      return { username, publicKey };
+    },
+    resolveUsername(username) {
+      validateUsername(username);
+      const publicKey = store.get(username);
+      if (!publicKey) {
+        const error = new Error("Username not found");
+        error.status = 404;
+        throw error;
+      }
+      return { username, publicKey };
+    },
+    getAllUsernames: () => Array.from(store.entries()).map(([username, publicKey]) => ({ username, publicKey })),
+    removeUsername(username) {
+      validateUsername(username);
+      if (!store.delete(username)) {
+        const error = new Error("Username not found");
+        error.status = 404;
+        throw error;
+      }
+      return { username };
+    },
+    store,
+  };
+}
+
 module.exports = {
   registerUsername,
   resolveUsername,
@@ -135,4 +183,5 @@ module.exports = {
   validateUsername,
   validatePublicKey,
   usernameMap,
+  createUsernameService,
 };
