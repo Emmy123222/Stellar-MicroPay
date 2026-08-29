@@ -12,17 +12,64 @@ const stellarService = require("./stellarService");
 // ─── Cache Configuration ──────────────────────────────────────────────────────
 
 const CACHE_TTL = 60 * 1000; // 60 seconds in milliseconds
-const cache = new Map();
+const CACHE_MAX_SIZE = 100; // bounded LRU size
 
-// Periodically clean up expired cache entries to prevent memory leaks
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, value] of cache.entries()) {
-    if (now - value.timestamp >= CACHE_TTL) {
-      cache.delete(key);
-    }
+/**
+ * Bounded LRU cache with TTL support.
+ * Evicts least-recently-used entries when capacity is exceeded.
+ */
+class LRUCache {
+  constructor(maxSize, ttl) {
+    this.maxSize = maxSize;
+    this.ttl = ttl;
+    this.store = new Map();
   }
-}, Math.max(CACHE_TTL, 60000)).unref();
+
+  get(key) {
+    const entry = this.store.get(key);
+    if (!entry) return undefined;
+
+    // Check TTL
+    if (Date.now() - entry.timestamp >= this.ttl) {
+      this.store.delete(key);
+      return undefined;
+    }
+
+    // Refresh recency: delete and re-set to move to end (most recent)
+    this.store.delete(key);
+    this.store.set(key, entry);
+    return entry.data;
+  }
+
+  set(key, data) {
+    // If key exists, delete first to update position
+    if (this.store.has(key)) {
+      this.store.delete(key);
+    }
+
+    // Evict LRU entry if at capacity
+    if (this.store.size >= this.maxSize) {
+      const oldestKey = this.store.keys().next().value;
+      this.store.delete(oldestKey);
+    }
+
+    this.store.set(key, { data, timestamp: Date.now() });
+  }
+
+  delete(key) {
+    return this.store.delete(key);
+  }
+
+  keys() {
+    return this.store.keys();
+  }
+
+  size() {
+    return this.store.size;
+  }
+}
+
+const cache = new LRUCache(CACHE_MAX_SIZE, CACHE_TTL);
 
 /**
  * Cache wrapper function.
@@ -33,15 +80,15 @@ async function withCache(key, fn) {
   const cached = cache.get(key);
 
   // Return cached data if still fresh
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data;
+  if (cached !== undefined) {
+    return cached;
   }
 
   // Fetch fresh data
   const data = await fn();
 
   // Update cache
-  cache.set(key, { data, timestamp: Date.now() });
+  cache.set(key, data);
 
   return data;
 }
@@ -537,21 +584,19 @@ async function triggerEmailExport(publicKey) {
  * Useful for manual cache invalidation if needed.
  */
 function clearCache(publicKey) {
+  const prefixes = [
+    `summary:${publicKey}`,
+    `top-recipients:${publicKey}`,
+    `activity:${publicKey}`,
+    `cohorts:${publicKey}`,
+  ];
+
   for (const key of cache.keys()) {
-    if (key.startsWith(`summary:${publicKey}`)) {
-      cache.delete(key);
-      continue;
-    }
-    if (key.startsWith(`top-recipients:${publicKey}`)) {
-      cache.delete(key);
-      continue;
-    }
-    if (key.startsWith(`activity:${publicKey}`)) {
-      cache.delete(key);
-      continue;
-    }
-    if (key.startsWith(`cohorts:${publicKey}`)) {
-      cache.delete(key);
+    for (const prefix of prefixes) {
+      if (key.startsWith(prefix)) {
+        cache.delete(key);
+        break;
+      }
     }
   }
 }

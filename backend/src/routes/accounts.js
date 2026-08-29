@@ -48,6 +48,6 @@ router.get("/:publicKey/balance", sensitiveLimiter, verifyJWT, sanitizePublicKey
  * POST /api/accounts/register
  * Register a new username with a public key.
  */
-router.post("/register", strictLimiter, accountController.registerUsername);
+router.post("/register", strictLimiter, verifyJWT, accountController.registerUsername);
 
 module.exports = router;

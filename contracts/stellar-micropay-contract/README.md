@@ -382,6 +382,7 @@ deployments; `migrate` advances it after an upgrade.
 | `0` | Pre-versioning instances (deployed before `SchemaVersion` existed): admin, tips, receipts, escrows. |
 | `1` | Adds `Stream`, `DataKey::Stream`, `DataKey::StreamCount` and `DataKey::SchemaVersion`. |
 | `2` | `Stream.recipient: Address` and `Stream.claimed: i128` replaced by `Stream.recipients: Vec<StreamRecipient>`, splitting payout across weighted recipients (#559). |
+| `3` | Adds `EscrowSenderCount`, `EscrowSenderIndex`, `EscrowRecipientCount`, and `EscrowRecipientIndex` for account-oriented escrow discovery (#796). |
 
 `get_schema_version()` returns `0` for any instance that has never been
 stamped, which is how a pre-versioning deployment is detected.

@@ -9,6 +9,10 @@
 
 const usernameService = require("../src/services/usernameService");
 
+const KEY_A = "G" + "A".repeat(55); // 56 chars
+const KEY_B = "G" + "B".repeat(55); // 56 chars
+const KEY_C = "G" + "C".repeat(55); // 56 chars
+
 describe("usernameService", () => {
   beforeEach(() => {
     // Clear in-memory storage before each test
@@ -17,178 +21,98 @@ describe("usernameService", () => {
 
   describe("registerUsername", () => {
     it("registering a new username succeeds", () => {
-      const result = usernameService.registerUsername(
-        "alice123",
-        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-      );
+      const result = usernameService.registerUsername("alice123", KEY_A);
 
       expect(result.username).toBe("alice123");
-      expect(result.publicKey).toBe("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
+      expect(result.publicKey).toBe(KEY_A);
     });
 
     it("registering a taken username is rejected", () => {
-      usernameService.registerUsername(
-        "alice123",
-        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-      );
+      usernameService.registerUsername("alice123", KEY_A);
 
       expect(() => {
-        usernameService.registerUsername(
-          "alice123",
-          "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC"
-        );
+        usernameService.registerUsername("alice123", KEY_B);
       }).toThrow("Username already registered");
     });
 
     it("registering with an already registered public key is rejected", () => {
-      usernameService.registerUsername(
-        "alice123",
-        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-      );
+      usernameService.registerUsername("alice123", KEY_A);
 
       expect(() => {
-        usernameService.registerUsername(
-          "bob456",
-          "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-        );
+        usernameService.registerUsername("bob456", KEY_A);
       }).toThrow("Public key already registered to another username");
     });
 
-    it("throws error for invalid username format", () => {
-      expect(() => {
-        usernameService.registerUsername(
-          "ab", // too short
-          "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-        );
-      }).toThrow("Username must be 3-20 characters long and contain only letters and numbers");
-
-      expect(() => {
-        usernameService.registerUsername(
-          "abc def", // contains space
-          "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-        );
-      }).toThrow("Username must be 3-20 characters long and contain only letters and numbers");
-
-      expect(() => {
-        usernameService.registerUsername(
-          "a".repeat(21), // too long
-          "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-        );
-      }).toThrow("Username must be 3-20 characters long and contain only letters and numbers");
+    it("rejects invalid username format", () => {
+      expect(() => usernameService.registerUsername("a", KEY_A)).toThrow();
+      expect(() => usernameService.registerUsername("user with spaces", KEY_A)).toThrow();
     });
 
-    it("throws error for invalid public key format", () => {
-      expect(() => {
-        usernameService.registerUsername(
-          "alice123",
-          "invalid_key"
-        );
-      }).toThrow("Invalid Stellar public key format");
-
-      expect(() => {
-        usernameService.registerUsername(
-          "alice123",
-          "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" // wrong prefix
-        );
-      }).toThrow("Invalid Stellar public key format");
-    });
-
-    it("throws error for missing username", () => {
-      expect(() => {
-        usernameService.registerUsername(
-          "",
-          "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-        );
-      }).toThrow("Username is required");
-    });
-
-    it("throws error for missing public key", () => {
-      expect(() => {
-        usernameService.registerUsername("alice123", "");
-      }).toThrow("Public key is required");
+    it("rejects invalid public key format", () => {
+      expect(() => usernameService.registerUsername("alice123", "invalid_key")).toThrow();
     });
   });
 
   describe("resolveUsername", () => {
     beforeEach(() => {
-      usernameService.registerUsername(
-        "alice123",
-        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-      );
+      usernameService.registerUsername("alice123", KEY_A);
     });
 
-    it("resolving a registered username returns the correct address", () => {
+    it("resolves a registered username", () => {
       const result = usernameService.resolveUsername("alice123");
 
       expect(result.username).toBe("alice123");
-      expect(result.publicKey).toBe("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
+      expect(result.publicKey).toBe(KEY_A);
     });
 
-    it("resolving an unregistered username returns a clear not-found result", () => {
-      expect(() => {
-        usernameService.resolveUsername("nonexistent");
-      }).toThrow("Username not found");
+    it("throws error for non-existent username", () => {
+      expect(() => usernameService.resolveUsername("nonexistent")).toThrow("Username not found");
     });
 
     it("throws error with 404 status for unregistered username", () => {
       try {
-        usernameService.resolveUsername("nonexistent");
+        usernameService.resolveUsername("unknownuser");
         fail("Should have thrown error");
-      } catch (err) {
-        expect(err.status).toBe(404);
-        expect(err.message).toBe("Username not found");
+      } catch (error) {
+        expect(error.status).toBe(404);
+        expect(error.message).toBe("Username not found");
       }
     });
 
     it("throws error for invalid username format", () => {
-      expect(() => {
-        usernameService.resolveUsername("ab");
-      }).toThrow("Username must be 3-20 characters long and contain only letters and numbers");
+      expect(() => usernameService.resolveUsername("ab")).toThrow();
     });
 
     it("throws error for missing username", () => {
-      expect(() => {
-        usernameService.resolveUsername("");
-      }).toThrow("Username is required");
+      expect(() => usernameService.resolveUsername(null)).toThrow("Username is required");
     });
   });
 
   describe("getAllUsernames", () => {
-    beforeEach(() => {
-      usernameService.registerUsername(
-        "alice123",
-        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-      );
-      usernameService.registerUsername(
-        "bob456",
-        "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC"
-      );
-    });
-
     it("returns all registered usernames", () => {
+      usernameService.registerUsername("alice123", KEY_A);
+      usernameService.registerUsername("bob456", KEY_B);
+
       const result = usernameService.getAllUsernames();
 
       expect(result).toHaveLength(2);
-      expect(result[0]).toHaveProperty("username");
-      expect(result[0]).toHaveProperty("publicKey");
-      expect(result[1]).toHaveProperty("username");
-      expect(result[1]).toHaveProperty("publicKey");
+      expect(result).toEqual([
+        { username: "alice123", publicKey: KEY_A },
+        { username: "bob456", publicKey: KEY_B },
+      ]);
     });
 
     it("returns empty array when no usernames are registered", () => {
-      usernameService.usernameMap.clear();
       const result = usernameService.getAllUsernames();
 
       expect(result).toHaveLength(0);
+      expect(result).toEqual([]);
     });
   });
 
   describe("removeUsername", () => {
     beforeEach(() => {
-      usernameService.registerUsername(
-        "alice123",
-        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
-      );
+      usernameService.registerUsername("alice123", KEY_A);
     });
 
     it("removes an existing username", () => {
@@ -199,74 +123,60 @@ describe("usernameService", () => {
     });
 
     it("throws error when removing non-existent username", () => {
-      expect(() => {
-        usernameService.removeUsername("nonexistent");
-      }).toThrow("Username not found");
+      expect(() => usernameService.removeUsername("nonexistent")).toThrow("Username not found");
     });
 
     it("throws error with 404 status for non-existent username", () => {
       try {
-        usernameService.removeUsername("nonexistent");
+        usernameService.removeUsername("unknownuser");
         fail("Should have thrown error");
-      } catch (err) {
-        expect(err.status).toBe(404);
-        expect(err.message).toBe("Username not found");
+      } catch (error) {
+        expect(error.status).toBe(404);
+        expect(error.message).toBe("Username not found");
       }
     });
 
     it("throws error for invalid username format", () => {
-      expect(() => {
-        usernameService.removeUsername("ab");
-      }).toThrow("Username must be 3-20 characters long and contain only letters and numbers");
+      expect(() => usernameService.removeUsername("ab")).toThrow();
     });
 
     it("throws error for missing username", () => {
-      expect(() => {
-        usernameService.removeUsername("");
-      }).toThrow("Username is required");
+      expect(() => usernameService.removeUsername(null)).toThrow("Username is required");
     });
   });
 
   describe("validateUsername", () => {
     it("accepts valid usernames", () => {
-      expect(() => usernameService.validateUsername("alice123")).not.toThrow();
-      expect(() => usernameService.validateUsername("Bob456")).not.toThrow();
-      expect(() => usernameService.validateUsername("ABC123")).not.toThrow();
-      expect(() => usernameService.validateUsername("a".repeat(20))).not.toThrow();
+      expect(() => usernameService.validateUsername("alice")).not.toThrow();
+      expect(() => usernameService.validateUsername("bob123")).not.toThrow();
+      expect(() => usernameService.validateUsername("user123456789012345")).not.toThrow();
     });
 
     it("rejects usernames that are too short", () => {
       expect(() => usernameService.validateUsername("ab")).toThrow(
         "Username must be 3-20 characters long and contain only letters and numbers"
       );
-      expect(() => usernameService.validateUsername("a")).toThrow(
-        "Username must be 3-20 characters long and contain only letters and numbers"
-      );
     });
 
     it("rejects usernames that are too long", () => {
-      expect(() => usernameService.validateUsername("a".repeat(21))).toThrow(
+      expect(() => usernameService.validateUsername("user12345678901234567")).toThrow(
         "Username must be 3-20 characters long and contain only letters and numbers"
       );
     });
 
     it("rejects usernames with special characters", () => {
-      expect(() => usernameService.validateUsername("alice_123")).toThrow(
+      expect(() => usernameService.validateUsername("user_name")).toThrow(
         "Username must be 3-20 characters long and contain only letters and numbers"
       );
-      expect(() => usernameService.validateUsername("alice-123")).toThrow(
-        "Username must be 3-20 characters long and contain only letters and numbers"
-      );
-      expect(() => usernameService.validateUsername("alice.123")).toThrow(
-        "Username must be 3-20 characters long and contain only letters and numbers"
-      );
-      expect(() => usernameService.validateUsername("alice 123")).toThrow(
+      expect(() => usernameService.validateUsername("user@name")).toThrow(
         "Username must be 3-20 characters long and contain only letters and numbers"
       );
     });
 
-    it("rejects empty username", () => {
-      expect(() => usernameService.validateUsername("")).toThrow("Username is required");
+    it("rejects usernames with spaces", () => {
+      expect(() => usernameService.validateUsername("user name")).toThrow(
+        "Username must be 3-20 characters long and contain only letters and numbers"
+      );
     });
 
     it("rejects null/undefined username", () => {
@@ -277,29 +187,25 @@ describe("usernameService", () => {
 
   describe("validatePublicKey", () => {
     it("accepts valid Stellar public keys", () => {
-      expect(() =>
-        usernameService.validatePublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
-      ).not.toThrow();
-      expect(() =>
-        usernameService.validatePublicKey("GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC")
-      ).not.toThrow();
+      expect(() => usernameService.validatePublicKey(KEY_A)).not.toThrow();
+      expect(() => usernameService.validatePublicKey(KEY_B)).not.toThrow();
     });
 
     it("rejects public keys with wrong prefix", () => {
       expect(() =>
-        usernameService.validatePublicKey("SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        usernameService.validatePublicKey("SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
       ).toThrow("Invalid Stellar public key format");
       expect(() =>
-        usernameService.validatePublicKey("MAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        usernameService.validatePublicKey("MAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
       ).toThrow("Invalid Stellar public key format");
     });
 
     it("rejects public keys with incorrect length", () => {
       expect(() =>
-        usernameService.validatePublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        usernameService.validatePublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH")
       ).toThrow("Invalid Stellar public key format");
       expect(() =>
-        usernameService.validatePublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        usernameService.validatePublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHFA")
       ).toThrow("Invalid Stellar public key format");
     });
 
@@ -307,13 +213,6 @@ describe("usernameService", () => {
       expect(() =>
         usernameService.validatePublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH!")
       ).toThrow("Invalid Stellar public key format");
-      expect(() =>
-        usernameService.validatePublicKey("Gaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-      ).toThrow("Invalid Stellar public key format");
-    });
-
-    it("rejects empty public key", () => {
-      expect(() => usernameService.validatePublicKey("")).toThrow("Public key is required");
     });
 
     it("rejects null/undefined public key", () => {

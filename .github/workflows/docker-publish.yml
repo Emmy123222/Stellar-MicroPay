@@ -1,7 +1,8 @@
 name: Publish Docker images
 
 # Build and push backend + frontend images to GitHub Container Registry on every
-# semver tag (e.g. v1.2.3). (#255)
+# semver tag (e.g. v1.2.3). Generates SBOMs and signed provenance attestations
+# for container images and contract WASM (#817).
 on:
   push:
     tags:
@@ -10,12 +11,76 @@ on:
 env:
   REGISTRY: ghcr.io
 
+permissions:
+  contents: read
+
 jobs:
+  contract-release:
+    name: Contract WASM, SBOM, and provenance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build contract WASM
+        working-directory: contracts/stellar-micropay-contract
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate CycloneDX SBOM for contract
+        run: |
+          syft scan dir:contracts/stellar-micropay-contract \
+            -o cyclonedx-json=contract-sbom.cyclonedx.json
+          syft scan dir:contracts/stellar-micropay-contract \
+            -o spdx-json=contract-sbom.spdx.json
+
+      - name: Verify release artifacts exist
+        run: |
+          test -f target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
+          test -s contract-sbom.cyclonedx.json
+          test -s contract-sbom.spdx.json
+
+      - name: Upload WASM and SBOMs to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
+            contract-sbom.cyclonedx.json
+            contract-sbom.spdx.json
+
+      - name: Attest WASM provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
+
   publish:
+    needs: contract-release
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         include:
@@ -43,13 +108,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
-          # Produces a tag matching the semver release plus a moving "latest".
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
       - name: Build and push ${{ matrix.name }}
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -57,3 +122,20 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify image attestation and SBOM before publish completes
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+        run: |
+          test -n "$DIGEST"
+          echo "Published ${IMAGE}@${DIGEST} with SBOM and provenance attestation"
+
+      - name: Attest container image provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

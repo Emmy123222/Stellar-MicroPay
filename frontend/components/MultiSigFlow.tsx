@@ -19,7 +19,7 @@
  *  https://developers.stellar.org/docs/learn/encyclopedia/security/signatures-multisig
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef, useId } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
 import clsx from "clsx";
 import {
@@ -42,6 +42,23 @@ const REMINDER_DELAY_MS = parseInt(process.env.NEXT_PUBLIC_MULTISIG_REMINDER_DEL
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Step = "build" | "sign" | "share" | "collect" | "submit" | "success";
+
+/** Ordered wizard steps exposed for tests and Storybook (#825). */
+export const MULTISIG_FLOW_STEPS = ["build", "sign", "share", "collect", "submit"] as const;
+export type MultiSigFlowStep = (typeof MULTISIG_FLOW_STEPS)[number];
+
+const STEP_LABELS: Record<MultiSigFlowStep, string> = {
+  build: "Build",
+  sign: "Sign",
+  share: "Share",
+  collect: "Collect",
+  submit: "Submit",
+};
+
+function activeStepIndex(step: Step): number {
+  const active = step === "success" ? "submit" : step;
+  return MULTISIG_FLOW_STEPS.indexOf(active as MultiSigFlowStep);
+}
 
 interface MultiSigFlowProps {
   publicKey: string;
@@ -115,6 +132,10 @@ export default function MultiSigFlow({
   const [xdrCopied, setXdrCopied] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [reminderScheduled, setReminderScheduled] = useState(false);
+  const [liveMessage, setLiveMessage] = useState("");
+  const stepPanelRef = useRef<HTMLDivElement>(null);
+  const stepHeadingId = useId();
+  const previousStepRef = useRef<Step>(defaultStep);
 
   const balance = parseFloat(xlmBalance);
   const amountNum = parseFloat(amount);
@@ -128,6 +149,35 @@ export default function MultiSigFlow({
     : cosignerXDRs;
   const signaturesCollected = allSignedXDRs.length;
   const thresholdMet = signaturesCollected >= threshold;
+  const stepIndex = activeStepIndex(step);
+
+  const announce = useCallback((message: string) => {
+    setLiveMessage(message);
+  }, []);
+
+  useEffect(() => {
+    if (previousStepRef.current === step) {
+      return;
+    }
+    previousStepRef.current = step;
+    const label = step === "success" ? "Complete" : STEP_LABELS[step as MultiSigFlowStep];
+    announce(`Step ${stepIndex + 1} of ${MULTISIG_FLOW_STEPS.length}: ${label}`);
+    stepPanelRef.current?.focus();
+  }, [announce, step, stepIndex]);
+
+  useEffect(() => {
+    announce(`Signatures collected: ${signaturesCollected} of ${threshold}`);
+  }, [announce, signaturesCollected, threshold]);
+
+  useEffect(() => {
+    if (!canBuild && (destination || amount)) {
+      if (!isValidDest) {
+        announce("Recipient address is invalid.");
+      } else if (!isValidAmt) {
+        announce("Amount is invalid or exceeds your balance.");
+      }
+    }
+  }, [announce, amount, canBuild, destination, isValidAmt, isValidDest]);
 
   // ── Step 1: Build ──────────────────────────────────────────────────────────
 
@@ -272,18 +322,6 @@ export default function MultiSigFlow({
     }
   };
 
-  const STEPS: Step[] = ["build", "sign", "share", "collect", "submit"];
-  const stepIndex = STEPS.indexOf(step === "success" ? "submit" : step);
-
-  const stepLabels: Record<Step, string> = {
-    build: "Build",
-    sign: "Sign",
-    share: "Share",
-    collect: "Collect",
-    submit: "Submit",
-    success: "Submit",
-  };
-
   // ── Local reminder tracking (client-side simulation) ────────────────────────
   
   const reminderTimers = new Map<string, NodeJS.Timeout>();
@@ -338,41 +376,63 @@ export default function MultiSigFlow({
         )}
       </p>
 
-      {/* Step indicator */}
-      <div className="flex items-center mb-6 overflow-x-auto pb-1">
-        {STEPS.map((s, i) => (
-          <div key={s} className="flex items-center flex-shrink-0">
-            <div
-              className={clsx(
-                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
-                i < stepIndex
-                  ? "bg-stellar-500 text-black"
-                  : i === stepIndex
-                  ? "bg-stellar-400 text-black ring-2 ring-stellar-400/30"
-                  : "bg-white/10 text-slate-500"
-              )}
-            >
-              {i < stepIndex ? <CheckSmallIcon className="w-3.5 h-3.5" /> : i + 1}
-            </div>
-            <span
-              className={clsx(
-                "ml-1 text-xs hidden sm:block",
-                i === stepIndex ? "text-stellar-300" : "text-slate-500"
-              )}
-            >
-              {stepLabels[s]}
-            </span>
-            {i < STEPS.length - 1 && (
-              <div
-                className={clsx(
-                  "w-6 h-px mx-2",
-                  i < stepIndex ? "bg-stellar-500" : "bg-white/10"
+      {/* Accessible step indicator (#825) */}
+      <nav aria-label="Multi-signature payment progress" className="mb-6 overflow-x-auto pb-1">
+        <ol className="flex items-center list-none m-0 p-0">
+          {MULTISIG_FLOW_STEPS.map((flowStep, i) => {
+            const isComplete = i < stepIndex;
+            const isCurrent = i === stepIndex;
+            return (
+              <li
+                key={flowStep}
+                className="flex items-center flex-shrink-0"
+                aria-current={isCurrent ? "step" : undefined}
+              >
+                <div
+                  className={clsx(
+                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
+                    isComplete
+                      ? "bg-stellar-500 text-black"
+                      : isCurrent
+                      ? "bg-stellar-400 text-black ring-2 ring-stellar-400/30"
+                      : "bg-white/10 text-slate-500"
+                  )}
+                  aria-hidden="true"
+                >
+                  {isComplete ? <CheckSmallIcon className="w-3.5 h-3.5" /> : i + 1}
+                </div>
+                <span
+                  className={clsx(
+                    "ml-1 text-xs hidden sm:block",
+                    isCurrent ? "text-stellar-300" : "text-slate-500"
+                  )}
+                >
+                  {STEP_LABELS[flowStep]}
+                </span>
+                {i < MULTISIG_FLOW_STEPS.length - 1 && (
+                  <div
+                    className={clsx(
+                      "w-6 h-px mx-2",
+                      isComplete ? "bg-stellar-500" : "bg-white/10"
+                    )}
+                    aria-hidden="true"
+                  />
                 )}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+
+      <div
+        ref={stepPanelRef}
+        tabIndex={-1}
+        aria-labelledby={stepHeadingId}
+        className="outline-none"
+      >
+        <h3 id={stepHeadingId} className="sr-only">
+          {step === "success" ? "Complete" : STEP_LABELS[step as MultiSigFlowStep]}
+        </h3>
 
       {/* ── Step: Build ── */}
       {step === "build" && (
@@ -607,6 +667,12 @@ export default function MultiSigFlow({
           </button>
         </div>
       )}
+
+      </div>
+
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveMessage}
+      </p>
 
       {error && (
         <p className="text-red-400 text-sm mt-4 flex items-start gap-1.5">

@@ -2,6 +2,9 @@
   "scripts": {
     "clean": "rm -rf frontend/.next backend/dist contracts/target && echo 'Clean complete: removed .next, dist, and target directories'",
     "load-test": "node scripts/load-test.js",
+    "smoke-test": "node scripts/smoke-test.js",
+    "validate:compose": "node scripts/validate-compose.js",
+    "generate:openapi": "node scripts/generate-openapi.js",
     "prepare": "husky install"
   },
   "dependencies": {

@@ -52,8 +52,6 @@ import {
 import clsx from "clsx";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import { useEffect, useRef, useState } from "react";
 import { useToastContext } from "@/lib/ToastContext";
 import { useTranslation } from "@/lib/i18n";
 
@@ -180,7 +178,6 @@ function SendPaymentForm({
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
-  const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
