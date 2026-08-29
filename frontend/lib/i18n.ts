@@ -9,6 +9,13 @@ export type Locale = 'en' | 'es';
 export const DEFAULT_LOCALE: Locale = 'en';
 export const SUPPORTED_LOCALES: Locale[] = ['en', 'es'];
 
+/**
+ * Locales that should render right-to-left.
+ * All currently supported locales (en, es) are LTR, but future RTL locales
+ * must be added to this list (alongside the Locale union and translations).
+ */
+export const RTL_LOCALES: readonly string[] = ['ar', 'he', 'fa', 'ur'];
+
 const LOCALE_STORAGE_KEY = 'stellar-micropay:locale';
 
 // Translation type definitions
@@ -32,6 +39,7 @@ export interface Translations {
     success: string;
     copy: string;
     copied: string;
+    selectLanguage: string;
   };
   dashboard: {
     title: string;
@@ -69,6 +77,7 @@ const en: Translations = {
     success: 'Success',
     copy: 'Copy',
     copied: 'Copied!',
+    selectLanguage: 'Select language',
   },
   dashboard: {
     title: 'Dashboard',
@@ -106,6 +115,7 @@ const es: Translations = {
     success: 'Éxito',
     copy: 'Copiar',
     copied: '¡Copiado!',
+    selectLanguage: 'Seleccionar idioma',
   },
   dashboard: {
     title: 'Panel',
@@ -174,12 +184,11 @@ export function getLocaleDisplayName(locale: Locale): string {
 }
 
 /**
- * Check if locale is RTL right-to-left)
- * Currently all supported locales are LTR, but this prepares for future RTL support
+ * Check if locale is RTL (right-to-left)
+ * The canonical RTL locale list is RTL_LOCALES; new RTL locales must be added there.
  */
 export function isRTL(locale: Locale): boolean {
-  const rtlLocales: Locale[] = [];
-  return rtlLocales.includes(locale);
+  return RTL_LOCALES.includes(locale);
 }
 
 // Re-export the canonical translation hook from the I18n context

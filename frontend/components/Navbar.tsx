@@ -3,24 +3,28 @@
  * Top navigation bar with theme toggle, network status, and wallet controls.
  */
 
+import { useEffect, useState } from "react";
+
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+
 import clsx from "clsx";
+
+import { NavStarIcon, MoonIcon, SunIcon } from "@/components/icons";
+import { useI18n } from "@/contexts/I18nContext";
+import { getLocaleDisplayName, type Locale } from "@/lib/i18n";
 import {
   shortenAddress,
   getNetworkConfig,
   fetchNetworkFeeStats,
   type FeeLevel,
 } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 import {
   connectWallet as requestWalletConnection,
   performSEP0010Auth,
 } from "@/lib/wallet";
-import { useWallet } from "@/lib/useWallet";
 import { useTheme } from "@/pages/_app";
-import { useI18n } from "@/contexts/I18nContext";
-import { NavStarIcon, MoonIcon, SunIcon } from "@/components/icons";
 
 
 export default function Navbar() {
@@ -214,13 +218,13 @@ export default function Navbar() {
           <div className="relative">
             <select
               value={locale}
-              onChange={(e) => setLocale(e.target.value as any)}
+              onChange={(e) => setLocale(e.target.value as Locale)}
               className="h-9 rounded-lg border border-slate-300/30 bg-white/90 px-3 py-1 text-sm font-medium text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-100 dark:border-slate-700/50 dark:bg-cosmos-800/80 dark:text-slate-100 dark:hover:bg-cosmos-700/90"
-              aria-label="Select language"
+              aria-label={t.common.selectLanguage}
             >
               {supportedLocales.map((loc) => (
                 <option key={loc} value={loc}>
-                  {loc.toUpperCase()}
+                  {getLocaleDisplayName(loc)}
                 </option>
               ))}
             </select>
