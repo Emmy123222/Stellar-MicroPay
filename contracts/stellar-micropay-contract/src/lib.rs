@@ -20,7 +20,7 @@ const PERSISTENT_BUMP_AMOUNT: u32 = 500_000;
 /// Bump this whenever a stored struct (`Stream`, `Escrow`, …) or a `DataKey`
 /// variant changes shape, and add the corresponding step to the migration
 /// table in the contract README (#562).
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Smallest deposit `open_stream` accepts, in stroops (0.001 XLM against the
 /// native SAC).
@@ -80,6 +80,14 @@ pub enum DataKey {
     EscrowRecipientCount(Address),
     /// Maps `(recipient, index)` → global escrow id (#796).
     EscrowRecipientIndex(Address, u32),
+    /// Number of streams indexed for `Address` as sender.
+    StreamSenderCount(Address),
+    /// Maps `(sender, index)` → global stream id.
+    StreamSenderIndex(Address, u32),
+    /// Number of streams indexed for `Address` as recipient.
+    StreamRecipientCount(Address),
+    /// Maps `(recipient, index)` → global stream id.
+    StreamRecipientIndex(Address, u32),
 }
 
 #[contracttype]
@@ -281,6 +289,47 @@ fn index_escrow_accounts(env: &Env, from: &Address, to: &Address, escrow_id: u32
     append_escrow_recipient_index(env, to, escrow_id);
 }
 
+const MAX_STREAM_PAGE_SIZE: u32 = 50;
+
+fn append_stream_sender_index(env: &Env, sender: &Address, stream_id: u32) {
+    let count_key = DataKey::StreamSenderCount(sender.clone());
+    let count: u32 = env
+        .storage()
+        .persistent()
+        .get(&count_key)
+        .unwrap_or(0);
+    let index_key = DataKey::StreamSenderIndex(sender.clone(), count);
+    env.storage().persistent().set(&index_key, &stream_id);
+    extend_persistent_ttl(env, &index_key);
+    env.storage()
+        .persistent()
+        .set(&count_key, &(count + 1));
+    extend_persistent_ttl(env, &count_key);
+}
+
+fn append_stream_recipient_index(env: &Env, recipient: &Address, stream_id: u32) {
+    let count_key = DataKey::StreamRecipientCount(recipient.clone());
+    let count: u32 = env
+        .storage()
+        .persistent()
+        .get(&count_key)
+        .unwrap_or(0);
+    let index_key = DataKey::StreamRecipientIndex(recipient.clone(), count);
+    env.storage().persistent().set(&index_key, &stream_id);
+    extend_persistent_ttl(env, &index_key);
+    env.storage()
+        .persistent()
+        .set(&count_key, &(count + 1));
+    extend_persistent_ttl(env, &count_key);
+}
+
+fn index_stream_accounts(env: &Env, payer: &Address, recipients: &soroban_sdk::Vec<StreamRecipient>, stream_id: u32) {
+    append_stream_sender_index(env, payer, stream_id);
+    for i in 0..recipients.len() {
+        append_stream_recipient_index(env, &recipients.get(i).unwrap().recipient, stream_id);
+    }
+}
+
 fn list_escrow_ids_for_role(
     env: &Env,
     total: u32,
@@ -308,6 +357,39 @@ fn list_escrow_ids_for_role(
             .persistent()
             .get(&key)
             .expect("escrow index entry missing");
+        extend_persistent_ttl(env, &key);
+        ids.push_back(id);
+    }
+    ids
+}
+
+fn list_stream_ids_for_role(
+    env: &Env,
+    total: u32,
+    offset: u32,
+    limit: u32,
+    sender: Option<Address>,
+    recipient: Option<Address>,
+) -> soroban_sdk::Vec<u32> {
+    let limit = if limit == 0 {
+        MAX_STREAM_PAGE_SIZE
+    } else {
+        limit.min(MAX_STREAM_PAGE_SIZE)
+    };
+    let mut ids = soroban_sdk::Vec::new(env);
+    let start = offset.min(total);
+    let end = offset.saturating_add(limit).min(total);
+    for idx in start..end {
+        let key = match (&sender, &recipient) {
+            (Some(account), None) => DataKey::StreamSenderIndex(account.clone(), idx),
+            (None, Some(account)) => DataKey::StreamRecipientIndex(account.clone(), idx),
+            _ => panic!("exactly one role must be set"),
+        };
+        let id: u32 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("stream index entry missing");
         extend_persistent_ttl(env, &key);
         ids.push_back(id);
     }
@@ -872,6 +954,8 @@ impl MicroPayContract {
             PERSISTENT_BUMP_AMOUNT,
         );
 
+        index_stream_accounts(&env, &payer, &stream_recipients, stream_id);
+
         env.events().publish(
             (Symbol::new(&env, "stream_open"), stream_id),
             (payer, recipients, weights, rate_per_ledger, deposit),
@@ -1061,6 +1145,46 @@ impl MicroPayContract {
             .unwrap_or(0)
     }
 
+    /// Streams created by `sender`, paginated by offset.
+    pub fn list_stream_ids_for_sender(
+        env: Env,
+        sender: Address,
+        offset: u32,
+        limit: u32,
+    ) -> soroban_sdk::Vec<u32> {
+        let total = Self::get_stream_sender_count(env.clone(), sender.clone());
+        list_stream_ids_for_role(&env, total, offset, limit, Some(sender), None)
+    }
+
+    /// Streams payable to `recipient`, paginated by offset.
+    pub fn list_stream_ids_for_recipient(
+        env: Env,
+        recipient: Address,
+        offset: u32,
+        limit: u32,
+    ) -> soroban_sdk::Vec<u32> {
+        let total = Self::get_stream_recipient_count(env.clone(), recipient.clone());
+        list_stream_ids_for_role(&env, total, offset, limit, None, Some(recipient))
+    }
+
+    pub fn get_stream_sender_count(env: Env, sender: Address) -> u32 {
+        let key = DataKey::StreamSenderCount(sender);
+        let val = env.storage().persistent().get(&key).unwrap_or(0);
+        if env.storage().persistent().has(&key) {
+            extend_persistent_ttl(&env, &key);
+        }
+        val
+    }
+
+    pub fn get_stream_recipient_count(env: Env, recipient: Address) -> u32 {
+        let key = DataKey::StreamRecipientCount(recipient);
+        let val = env.storage().persistent().get(&key).unwrap_or(0);
+        if env.storage().persistent().has(&key) {
+            extend_persistent_ttl(&env, &key);
+        }
+        val
+    }
+
     // ─── Schema versioning ──────────────────────────────────────────────────
 
     /// Storage schema version this instance's data is laid out for.
@@ -1118,6 +1242,23 @@ impl MicroPayContract {
                     .get(&DataKey::Escrow(id))
                     .expect("escrow missing during index backfill");
                 index_escrow_accounts(&env, &escrow.from, &escrow.to, id);
+            }
+        }
+
+        // Backfill sender/recipient stream indexes for streams created before v4.
+        if from_version < 4 {
+            let stream_count: u32 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::StreamCount)
+                .unwrap_or(0);
+            for id in 0..stream_count {
+                let stream: Stream = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::Stream(id))
+                    .expect("stream missing during index backfill");
+                index_stream_accounts(&env, &stream.payer, &stream.recipients, id);
             }
         }
 
@@ -2621,5 +2762,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_stream_indexes() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let payer = Address::generate(&env);
+        let rec1 = Address::generate(&env);
+        let rec2 = Address::generate(&env);
+
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &payer, 10_000_000);
+
+        // stream 0: payer -> rec1
+        let id0 = client.open_stream(
+            &token_id,
+            &payer,
+            &soroban_sdk::vec![&env, rec1.clone()],
+            &soroban_sdk::vec![&env, 1],
+            &100,
+            &20_000,
+        );
+
+        // stream 1: payer -> rec1, rec2
+        let id1 = client.open_stream(
+            &token_id,
+            &payer,
+            &soroban_sdk::vec![&env, rec1.clone(), rec2.clone()],
+            &soroban_sdk::vec![&env, 1, 1],
+            &100,
+            &20_000,
+        );
+
+        assert_eq!(client.get_stream_sender_count(&payer), 2);
+        assert_eq!(client.list_stream_ids_for_sender(&payer, &0, &10), soroban_sdk::vec![&env, id0, id1]);
+
+        assert_eq!(client.get_stream_recipient_count(&rec1), 2);
+        assert_eq!(client.list_stream_ids_for_recipient(&rec1, &0, &10), soroban_sdk::vec![&env, id0, id1]);
+
+        assert_eq!(client.get_stream_recipient_count(&rec2), 1);
+        assert_eq!(client.list_stream_ids_for_recipient(&rec2, &0, &10), soroban_sdk::vec![&env, id1]);
     }
 }
