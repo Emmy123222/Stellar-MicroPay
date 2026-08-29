@@ -17,10 +17,8 @@ const KEY_E = "G" + "E".repeat(55); // 56 chars
 
 describe("tipsService", () => {
   beforeEach(() => {
-    // Clear in-memory storage before each test
-    tipsService.tipsByCreator?.clear?.();
-    // Reset tip ID counter
-    tipsService.tipIdCounter = 1;
+    // Clear in-memory storage and counter before each test
+    tipsService._resetState();
   });
 
   describe("recordTip", () => {

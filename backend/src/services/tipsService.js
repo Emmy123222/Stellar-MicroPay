@@ -242,6 +242,14 @@ function getTopTippers(creatorPublicKey, limit = 5) {
   return result;
 }
 
+/**
+ * Resets the in-memory storage (for testing).
+ */
+function _resetState() {
+  tipsByCreator.clear();
+  tipIdCounter = 1;
+}
+
 module.exports = {
   recordTip,
   getTipsReceived,
@@ -250,4 +258,5 @@ module.exports = {
   validateTipInput,
   getTopTippers,
   tipsByCreator,
+  _resetState,
 };
