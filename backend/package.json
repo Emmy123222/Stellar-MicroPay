@@ -30,6 +30,7 @@
     "nodemailer": "^9.0.3",
     "pino": "^9.0.0",
     "pino-http": "^10.3.0",
+    "sqlite3": "^5.1.7",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1"
   },
