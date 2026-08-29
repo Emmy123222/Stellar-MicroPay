@@ -1748,6 +1748,14 @@ mod tests {
         stream.recipients.get(0).unwrap().claimed
     }
 
+    /// The `claimed` amount tracked for `addr` on `stream` (#723). Claims are
+    /// stored per recipient as `StreamRecipient.claimed`, so assertions read
+    /// the recipient's own entry instead of any removed aggregate field.
+    fn claimed_by(stream: &Stream, addr: &Address) -> i128 {
+        let idx = find_recipient(&stream.recipients, addr).expect("recipient not on stream");
+        stream.recipients.get(idx).unwrap().claimed
+    }
+
     #[test]
     fn test_open_stream() {
         let env = Env::default();
@@ -1862,6 +1870,10 @@ mod tests {
     /// must not retroactively change what was already claimable, and after a
     /// second claim later on, claimed + whatever remains locked in the
     /// contract must reconcile exactly against the total ever deposited.
+    ///
+    /// #723 — claims are tracked per recipient, so this asserts each
+    /// recipient's own `claimed` field rather than any removed aggregate
+    /// `Stream.claimed`, and covers a top-up followed by multiple claims.
     #[test]
     fn test_claim_and_top_up_same_ledger() {
         let env = Env::default();
@@ -1870,14 +1882,20 @@ mod tests {
         let recipient2 = Address::generate(&env);
         let token = token::Client::new(&env, &token_id);
 
-        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+        // Two recipients at equal weight — each claims its own share.
+        let id = client.open_stream(
+            &token_id,
+            &payer,
+            &soroban_sdk::vec![&env, recipient1.clone(), recipient2.clone()],
+            &soroban_sdk::vec![&env, 1u32, 1u32],
+            &RATE,
+            &DEPOSIT,
+        );
 
-        // Accrue some balance, then partially claim it.
+        // Accrue some balance, then each recipient claims their half.
         advance_by(&env, 10);
-        let first_claim1 = client.claim_stream(&id, &recipient1);
-        let first_claim2 = client.claim_stream(&id, &recipient2);
-        assert_eq!(first_claim1, (RATE * 10) / 2);
-        assert_eq!(first_claim2, (RATE * 10) / 2);
+        assert_eq!(client.claim_stream(&id, &recipient1), (RATE * 10) / 2);
+        assert_eq!(client.claim_stream(&id, &recipient2), (RATE * 10) / 2);
 
         // top_up_stream happens in the very same ledger as the claim above —
         // no advance_by call between them.
@@ -1885,27 +1903,39 @@ mod tests {
 
         let after_topup = client.get_stream(&id);
         assert_eq!(after_topup.deposited, DEPOSIT * 2);
-        assert_eq!(claimed_of(&after_topup), RATE * 10);
+
+        // Each recipient's claimed is tracked separately.
+        let after_topup_claimed1 = claimed_by(&after_topup, &recipient1);
+        let after_topup_claimed2 = claimed_by(&after_topup, &recipient2);
+        assert_eq!(after_topup_claimed1, (RATE * 10) / 2);
+        assert_eq!(after_topup_claimed2, (RATE * 10) / 2);
+        assert_eq!(after_topup_claimed1 + after_topup_claimed2, RATE * 10);
+
         // The top-up must not change what's claimable right now — the
         // extended runway only shows up as ledgers advance.
-        assert_eq!(client.get_claimable(&id, &recipient), 0);
+        assert_eq!(client.get_claimable(&id, &recipient1), 0);
+        assert_eq!(client.get_claimable(&id, &recipient2), 0);
 
         advance_by(&env, 5);
-        let second_claim1 = client.claim_stream(&id, &recipient1);
-        let second_claim2 = client.claim_stream(&id, &recipient2);
-        assert_eq!(second_claim1, (RATE * 5) / 2);
-        assert_eq!(second_claim2, (RATE * 5) / 2);
+        assert_eq!(client.claim_stream(&id, &recipient1), (RATE * 5) / 2);
+        assert_eq!(client.claim_stream(&id, &recipient2), (RATE * 5) / 2);
 
         let final_stream = client.get_stream(&id);
-        assert_eq!(claimed_of(&final_stream), RATE * 15);
-        assert_eq!(token.balance(&recipient), claimed_of(&final_stream));
+        let final_claimed1 = claimed_by(&final_stream, &recipient1);
+        let final_claimed2 = claimed_by(&final_stream, &recipient2);
+        let total_final_claimed = final_claimed1 + final_claimed2;
+        assert_eq!(final_claimed1, (RATE * 15) / 2);
+        assert_eq!(final_claimed2, (RATE * 15) / 2);
+        assert_eq!(total_final_claimed, RATE * 15);
+        assert_eq!(token.balance(&recipient1), final_claimed1);
+        assert_eq!(token.balance(&recipient2), final_claimed2);
 
-        // Reconciliation: claimed + whatever remains locked in the contract
-        // for this stream equals the total ever deposited, exactly.
+        // Deposit conservation: the sum of per-recipient claimed plus whatever
+        // remains locked in the contract equals the total ever deposited.
         let remaining_in_contract = token.balance(&contract_id);
         assert_eq!(
-            claimed_of(&final_stream) + remaining_in_contract,
-            after_topup.deposited
+            total_final_claimed + remaining_in_contract,
+            after_topup.deposited,
         );
     }
 
