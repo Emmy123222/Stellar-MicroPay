@@ -1,12 +1,19 @@
 // playwright/e2e/fixtures.ts
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 
 type WalletState = 'authenticated' | 'empty_balance' | 'insufficient_funds';
 
 export const test = base.extend<{
   walletState: WalletState;
+  authenticatedPage: Page;
 }>({
   walletState: ['authenticated', { option: true }],
+
+  // Keep authenticatedPage as a typed alias for the already-configured page.
+  // This avoids nested test declarations and gives specs an explicit fixture.
+  authenticatedPage: async ({ page }, use) => {
+    await use(page);
+  },
 
   page: async ({ page, walletState }, use) => {
     // --- Freighter wallet mock ---

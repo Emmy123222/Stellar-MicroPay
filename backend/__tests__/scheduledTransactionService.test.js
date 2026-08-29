@@ -11,6 +11,7 @@ const {
   reconcileByHash,
   reconcileBySequence,
   getUnreconciledTransactions,
+  getSignedXDRForSubmission,
 } = require("../src/services/scheduledTransactionService");
 
 describe("Scheduled Transaction Service", () => {
@@ -41,7 +42,7 @@ describe("Scheduled Transaction Service", () => {
 
       expect(scheduledTx).toBeDefined();
       expect(scheduledTx.id).toBeDefined();
-      expect(scheduledTx.signedXDR).toBe(validXDR);
+      expect(scheduledTx.signedXDR).toBeUndefined();
       expect(scheduledTx.publicKey).toBe(validPublicKey);
       expect(scheduledTx.submitAt).toBe(submitAt.getTime());
       expect(scheduledTx.attempts).toBe(0);
@@ -50,6 +51,7 @@ describe("Scheduled Transaction Service", () => {
 
       const fetchedTx = getTransactionById(scheduledTx.id);
       expect(fetchedTx).toEqual(scheduledTx);
+      expect(getSignedXDRForSubmission(scheduledTx.id)).toBe(validXDR);
     });
 
     it("throws an error for invalid public key", () => {

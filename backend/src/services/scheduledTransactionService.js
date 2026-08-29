@@ -2,6 +2,7 @@
 
 require("dotenv").config();
 const logger = require("../utils/logger");
+const { encrypt, decrypt } = require("./scheduledTransactionCrypto");
 
 const logger = require("../utils/logger");
 
@@ -41,7 +42,7 @@ function scheduleTransaction(signedXDR, submitAt, publicKey) {
   const id = transactionIdCounter++;
   const scheduledTx = {
     id,
-    signedXDR,
+    signedXDREncrypted: encrypt(signedXDR),
     submitAt: submitAt.getTime(), // Store as timestamp for easier comparison
     publicKey,
     attempts: 0,
@@ -58,7 +59,13 @@ function scheduleTransaction(signedXDR, submitAt, publicKey) {
   };
 
   scheduledTransactions.set(id, scheduledTx);
-  return scheduledTx;
+  return redactTransaction(scheduledTx);
+}
+
+function redactTransaction(tx) {
+  if (!tx) return null;
+  const { signedXDREncrypted: _encrypted, signedXDR: _legacy, ...safe } = tx;
+  return safe;
 }
 
 /**
@@ -100,7 +107,13 @@ function getPendingTransactions(publicKey) {
  * @returns {Object|null} The transaction or null if not found
  */
 function getTransactionById(id) {
-  return scheduledTransactions.get(id) || null;
+  return redactTransaction(scheduledTransactions.get(id));
+}
+
+/** Return the XDR only to the internal scheduler, never to an API serializer. */
+function getSignedXDRForSubmission(id) {
+  const tx = scheduledTransactions.get(id);
+  return tx ? decrypt(tx.signedXDREncrypted) : null;
 }
 
 /**
@@ -133,7 +146,7 @@ function getDueTransactions() {
       tx.submissionState !== "confirmed" &&
       tx.submissionState !== "unknown"
     ) {
-      due.push(tx);
+      due.push(redactTransaction(tx));
     }
   }
 
@@ -306,6 +319,7 @@ module.exports = {
   scheduleTransaction,
   getPendingTransactions,
   getTransactionById,
+  getSignedXDRForSubmission,
   cancelTransaction,
   getDueTransactions,
   incrementAttempt,
