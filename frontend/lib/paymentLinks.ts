@@ -11,6 +11,58 @@
 
 const STORAGE_KEY = "micropay.paymentLinks.v1";
 
+function getActiveNetworkName(): string {
+  if (typeof window === "undefined") return "testnet";
+
+  try {
+    const stored = window.localStorage.getItem("stellar-micropay:network");
+    if (!stored) return "testnet";
+    const parsed = JSON.parse(stored) as { network?: string };
+    return parsed?.network === "mainnet" ? "mainnet" : "testnet";
+  } catch {
+    return "testnet";
+  }
+}
+
+function getActivePublicKey(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const value = window.localStorage.getItem("stellar-micropay:last-public-key");
+    return value && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function getScopedStorageKey(
+  publicKey: string | null = getActivePublicKey(),
+  networkName: string = getActiveNetworkName(),
+): string {
+  const key = (publicKey ?? "anonymous").trim() || "anonymous";
+  return `${STORAGE_KEY}:${networkName}:${key}`;
+}
+
+function migrateLegacyPaymentLinks(): Record<string, PaymentLinkRecord> {
+  if (typeof window === "undefined") return {};
+
+  const scopedKey = getScopedStorageKey();
+  const current = readAllFromKey(scopedKey);
+  if (Object.keys(current).length > 0) return current;
+
+  const legacy = readAllFromKey(STORAGE_KEY);
+  if (Object.keys(legacy).length === 0) return {};
+
+  try {
+    window.localStorage.setItem(scopedKey, JSON.stringify(legacy));
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore storage failures (private browsing, full quota, etc.).
+  }
+
+  return legacy;
+}
+
 export type PaymentLinkStatus = "pending" | "redeemed" | "expired";
 
 export interface PaymentLinkPayload {
@@ -168,10 +220,10 @@ export function paymentLinkId(payload: PaymentLinkPayload): string {
   return `pl_${hash.toString(16).padStart(8, "0")}`;
 }
 
-function readAll(): Record<string, PaymentLinkRecord> {
+function readAllFromKey(key: string): Record<string, PaymentLinkRecord> {
   if (typeof window === "undefined") return {};
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, PaymentLinkRecord>;
     return parsed && typeof parsed === "object" ? parsed : {};
@@ -180,10 +232,18 @@ function readAll(): Record<string, PaymentLinkRecord> {
   }
 }
 
+function readAll(): Record<string, PaymentLinkRecord> {
+  const scopedKey = getScopedStorageKey();
+  const current = readAllFromKey(scopedKey);
+  if (Object.keys(current).length > 0) return current;
+  return migrateLegacyPaymentLinks();
+}
+
 function writeAll(records: Record<string, PaymentLinkRecord>): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    const scopedKey = getScopedStorageKey();
+    window.localStorage.setItem(scopedKey, JSON.stringify(records));
   } catch {
     // Quota exceeded or storage disabled — silently drop. UI still works.
   }
@@ -299,10 +359,11 @@ export function canRedeemPaymentLink(
   return { ok: true };
 }
 
-/** Test/dev helper — wipes the local store. */
+/** Test/dev helper — wipes the current scoped store and the legacy global store. */
 export function clearPaymentLinkStore(): void {
   if (typeof window === "undefined") return;
   try {
+    window.localStorage.removeItem(getScopedStorageKey());
     window.localStorage.removeItem(STORAGE_KEY);
   } catch {
     // ignore

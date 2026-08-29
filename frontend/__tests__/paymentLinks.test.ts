@@ -156,6 +156,38 @@ describe("payment link store", () => {
     expect(after?.redeemedTxHash).toBe("tx-1");
   });
 
+  it("scopes payment link history by account and network", () => {
+    const accountA = "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV";
+    const accountB = "GCFVV3BKTNNXJ46CY2TLAGRYFSP23HKEMP5CJFQU3EBACWSGYRQB5LEE";
+
+    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" }));
+    localStorage.setItem("stellar-micropay:last-public-key", accountA);
+    rememberPaymentLink(PAYLOAD, "https://example.com/link-a");
+
+    localStorage.setItem("stellar-micropay:last-public-key", accountB);
+    expect(listPaymentLinks()).toHaveLength(0);
+
+    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "mainnet", horizonUrl: "https://horizon.stellar.org" }));
+    expect(listPaymentLinks()).toHaveLength(0);
+
+    localStorage.setItem("stellar-micropay:last-public-key", accountA);
+    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" }));
+    expect(listPaymentLinks()).toHaveLength(1);
+  });
+
+  it("migrates legacy payment links once into the namespaced store", () => {
+    const account = "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV";
+
+    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" }));
+    localStorage.setItem("stellar-micropay:last-public-key", account);
+    localStorage.setItem("micropay.paymentLinks.v1", JSON.stringify({ pl_legacy: { id: "pl_legacy", payload: PAYLOAD, url: "https://example.com/legacy", status: "pending", createdAt: Date.now() } }));
+
+    const record = listPaymentLinks();
+    expect(record).toHaveLength(1);
+    expect(record[0].url).toContain("legacy");
+    expect(localStorage.getItem("micropay.paymentLinks.v1")).toBeNull();
+  });
+
   it("blocks reuse after redemption", () => {
     rememberPaymentLink(PAYLOAD, "url");
     markPaymentLinkRedeemed(PAYLOAD, "tx-1");

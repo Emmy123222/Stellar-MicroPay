@@ -15,6 +15,17 @@ import {
   type AddressBookContact,
 } from '../lib/addressBook';
 
+const VALID_ADDRESS_A = 'G' + 'A'.repeat(55);
+const VALID_ADDRESS_B = 'G' + 'B'.repeat(55);
+const VALID_ADDRESS_C = 'G' + 'C'.repeat(55);
+const VALID_ADDRESS_D = 'G' + 'D'.repeat(55);
+const VALID_ADDRESS_E = 'G' + 'E'.repeat(55);
+const VALID_ADDRESS_F = 'G' + 'F'.repeat(55);
+const VALID_ADDRESS_G = 'G' + 'G'.repeat(55);
+const VALID_ADDRESS_H = 'G' + 'H'.repeat(55);
+const VALID_ADDRESS_I = 'G' + 'I'.repeat(55);
+const VALID_ADDRESS_J = 'G' + 'J'.repeat(55);
+
 // Mock isValidStellarAddress
 jest.mock('../lib/stellar', () => ({
   isValidStellarAddress: (address: string) => {
@@ -59,7 +70,7 @@ describe('addressBook', () => {
     it('adds a new contact to storage', () => {
       const contact = {
         nickname: 'Alice',
-        address: 'GABC123456789012345678901234567890123456789012345678',
+        address: VALID_ADDRESS_A,
       };
 
       upsertAddressBookContact(contact);
@@ -73,7 +84,7 @@ describe('addressBook', () => {
     it('persists contact to localStorage', () => {
       const contact = {
         nickname: 'Bob',
-        address: 'GDEF456789012345678901234567890123456789012345678901',
+        address: VALID_ADDRESS_B,
       };
 
       upsertAddressBookContact(contact);
@@ -90,7 +101,7 @@ describe('addressBook', () => {
     it('new contact appears in list() immediately', () => {
       upsertAddressBookContact({
         nickname: 'Charlie',
-        address: 'GHIJ789012345678901234567890123456789012345678901234',
+        address: VALID_ADDRESS_C,
       });
 
       const contacts = loadAddressBookContacts();
@@ -100,7 +111,7 @@ describe('addressBook', () => {
     it('adds contact with optional fields', () => {
       upsertAddressBookContact({
         nickname: 'David',
-        address: 'GKLM901234567890123456789012345678901234567890123456',
+        address: VALID_ADDRESS_D,
         favourite: true,
         tags: ['friend', 'work'],
       });
@@ -116,12 +127,47 @@ describe('addressBook', () => {
     it('dispatches custom event when contact is added', () => {
       upsertAddressBookContact({
         nickname: 'Eve',
-        address: 'GNOP012345678901234567890123456789012345678901234567',
+        address: VALID_ADDRESS_E,
       });
 
       expect(mockDispatchEvent).toHaveBeenCalled();
       const event = mockDispatchEvent.mock.calls[0][0];
       expect(event.type).toBe('stellar-micropay:contacts-updated');
+    });
+
+    it('scopes contacts by active wallet and network', () => {
+      const alice = 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV';
+      const bob = 'GCFVV3BKTNNXJ46CY2TLAGRYFSP23HKEMP5CJFQU3EBACWSGYRQB5LEE';
+
+      localStorage.setItem('stellar-micropay:network', JSON.stringify({ network: 'testnet', horizonUrl: 'https://horizon-testnet.stellar.org' }));
+      localStorage.setItem('stellar-micropay:last-public-key', alice);
+
+      upsertAddressBookContact({ nickname: 'Alice', address: alice });
+      localStorage.setItem('stellar-micropay:last-public-key', bob);
+      upsertAddressBookContact({ nickname: 'Bob', address: bob });
+
+      expect(loadAddressBookContacts()).toHaveLength(1);
+      expect(loadAddressBookContacts().map((c) => c.nickname)).toEqual(['Bob']);
+
+      localStorage.setItem('stellar-micropay:last-public-key', alice);
+      localStorage.setItem('stellar-micropay:network', JSON.stringify({ network: 'mainnet', horizonUrl: 'https://horizon.stellar.org' }));
+      expect(loadAddressBookContacts()).toHaveLength(0);
+    });
+
+    it('migrates legacy contacts once into the namespaced key', () => {
+      const legacyAddress = 'GCFVV3BKTNNXJ46CY2TLAGRYFSP23HKEMP5CJFQU3EBACWSGYRQB5LEE';
+
+      localStorage.setItem('stellar-micropay:network', JSON.stringify({ network: 'testnet', horizonUrl: 'https://horizon-testnet.stellar.org' }));
+      localStorage.setItem('stellar-micropay:last-public-key', 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV');
+      localStorage.setItem('stellar-micropay:contacts', JSON.stringify([
+        { id: 'legacy-1', nickname: 'Legacy', address: legacyAddress, createdAt: Date.now(), updatedAt: Date.now() },
+      ]));
+
+      const migrated = loadAddressBookContacts();
+      expect(migrated).toHaveLength(1);
+      expect(migrated[0].nickname).toBe('Legacy');
+      expect(localStorage.getItem('stellar-micropay:contacts')).toBeNull();
+      expect(JSON.parse(localStorage.getItem(getAddressBookStorageKey())!)[0].nickname).toBe('Legacy');
     });
   });
 
@@ -129,7 +175,7 @@ describe('addressBook', () => {
     it('removes contact by id', () => {
       upsertAddressBookContact({
         nickname: 'Frank',
-        address: 'GQRS345678901234567890123456789012345678901234567890',
+        address: VALID_ADDRESS_F,
       });
 
       const contacts = loadAddressBookContacts();
@@ -145,7 +191,7 @@ describe('addressBook', () => {
     it('removes contact from localStorage', () => {
       upsertAddressBookContact({
         nickname: 'Grace',
-        address: 'GTUV678901234567890123456789012345678901234567890123',
+        address: VALID_ADDRESS_G,
       });
 
       let contacts = loadAddressBookContacts();
@@ -163,7 +209,7 @@ describe('addressBook', () => {
     it('handles removing non-existent contact gracefully', () => {
       upsertAddressBookContact({
         nickname: 'Henry',
-        address: 'GWXY901234567890123456789012345678901234567890123456',
+        address: VALID_ADDRESS_H,
       });
 
       const initialCount = loadAddressBookContacts().length;
@@ -177,7 +223,7 @@ describe('addressBook', () => {
 
   describe('Duplicate address is not added twice', () => {
     it('updates existing contact instead of adding duplicate', () => {
-      const address = 'GABC123456789012345678901234567890123456789012345678';
+      const address = VALID_ADDRESS_A;
 
       upsertAddressBookContact({
         nickname: 'Original Name',
@@ -198,7 +244,7 @@ describe('addressBook', () => {
     });
 
     it('preserves contact ID when updating', () => {
-      const address = 'GDEF456789012345678901234567890123456789012345678901';
+      const address = VALID_ADDRESS_B;
 
       upsertAddressBookContact({
         nickname: 'First',
@@ -218,18 +264,19 @@ describe('addressBook', () => {
 
     it('deduplicates contacts loaded from storage', () => {
       const storageKey = getAddressBookStorageKey();
+      const duplicateAddress = VALID_ADDRESS_I;
       const duplicateData = [
         {
           id: '1',
           nickname: 'Dup1',
-          address: 'GHIJ789012345678901234567890123456789012345678901234',
+          address: duplicateAddress,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
         {
           id: '2',
           nickname: 'Dup2',
-          address: 'GHIJ789012345678901234567890123456789012345678901234',
+          address: duplicateAddress,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -247,7 +294,7 @@ describe('addressBook', () => {
       expect(() => {
         upsertAddressBookContact({
           nickname: '   ',
-          address: 'GKLM901234567890123456789012345678901234567890123456',
+          address: VALID_ADDRESS_I,
         });
       }).toThrow('Enter a nickname');
     });
@@ -264,12 +311,12 @@ describe('addressBook', () => {
     it('trims whitespace from nickname and address', () => {
       upsertAddressBookContact({
         nickname: '  Trimmed  ',
-        address: '  GNOP012345678901234567890123456789012345678901234567  ',
+        address: `  ${VALID_ADDRESS_J}  `,
       });
 
       const contacts = loadAddressBookContacts();
       expect(contacts[0].nickname).toBe('Trimmed');
-      expect(contacts[0].address).toBe('GNOP012345678901234567890123456789012345678901234567');
+      expect(contacts[0].address).toBe(VALID_ADDRESS_J);
     });
   });
 
@@ -277,7 +324,7 @@ describe('addressBook', () => {
     it('toggles favourite status', () => {
       upsertAddressBookContact({
         nickname: 'Fav Test',
-        address: 'GQRS345678901234567890123456789012345678901234567890',
+        address: VALID_ADDRESS_F,
         favourite: false,
       });
 
@@ -294,7 +341,7 @@ describe('addressBook', () => {
     it('updates contact tags', () => {
       upsertAddressBookContact({
         nickname: 'Tag Test',
-        address: 'GTUV678901234567890123456789012345678901234567890123',
+        address: VALID_ADDRESS_G,
       });
 
       const contacts1 = loadAddressBookContacts();
@@ -309,13 +356,13 @@ describe('addressBook', () => {
     it('collects all unique tags', () => {
       upsertAddressBookContact({
         nickname: 'User1',
-        address: 'GWXY901234567890123456789012345678901234567890123456',
+        address: VALID_ADDRESS_H,
         tags: ['work', 'client'],
       });
 
       upsertAddressBookContact({
         nickname: 'User2',
-        address: 'GZAB234567890123456789012345678901234567890123456789',
+        address: 'G' + 'Z'.repeat(55),
         tags: ['friend', 'work'],
       });
 

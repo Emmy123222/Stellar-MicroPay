@@ -17,6 +17,65 @@ const LEGACY_CONTACTS_STORAGE_KEY = "stellar-micropay-contacts";
 const LEGACY_FAVOURITES_STORAGE_KEY = "stellar-micropay:favourites";
 const CONTACTS_UPDATED_EVENT = "stellar-micropay:contacts-updated";
 
+function getActiveNetworkName(): string {
+  if (typeof window === "undefined") return "testnet";
+
+  try {
+    const stored = window.localStorage.getItem("stellar-micropay:network");
+    if (!stored) return "testnet";
+    const parsed = JSON.parse(stored) as { network?: string };
+    return parsed?.network === "mainnet" ? "mainnet" : "testnet";
+  } catch {
+    return "testnet";
+  }
+}
+
+function getActivePublicKey(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const value = window.localStorage.getItem("stellar-micropay:last-public-key");
+    return value && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function getScopedKeyForContext(
+  publicKey: string | null = getActivePublicKey(),
+  networkName: string = getActiveNetworkName(),
+): string {
+  const key = (publicKey ?? "anonymous").trim() || "anonymous";
+  return `${ADDRESS_BOOK_STORAGE_KEY}:${networkName}:${key}`;
+}
+
+function migrateLegacyAddressBookRecords(): AddressBookContact[] {
+  if (typeof window === "undefined") return [];
+
+  const scopedKey = getScopedKeyForContext();
+  const current = readContactsFromKey(scopedKey);
+  if (current.length > 0) return current;
+
+  const migrated = dedupeContacts([
+    ...readContactsFromKey(ADDRESS_BOOK_STORAGE_KEY),
+    ...readContactsFromKey(LEGACY_CONTACTS_STORAGE_KEY),
+    ...readContactsFromKey(LEGACY_FAVOURITES_STORAGE_KEY),
+  ]);
+
+  if (migrated.length > 0) {
+    try {
+      window.localStorage.setItem(scopedKey, JSON.stringify(migrated));
+      window.localStorage.removeItem(ADDRESS_BOOK_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_CONTACTS_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_FAVOURITES_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures (private browsing, full quota, etc.).
+    }
+  }
+
+  return migrated;
+}
+
 interface LegacyContact {
   id?: string;
   name?: string;
@@ -63,7 +122,9 @@ function readContactsFromKey(key: string): AddressBookContact[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as LegacyContact[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.map(makeContact).filter((contact): contact is AddressBookContact => Boolean(contact));
+    return dedupeContacts(
+      parsed.map(makeContact).filter((contact): contact is AddressBookContact => Boolean(contact))
+    );
   } catch {
     return [];
   }
@@ -78,12 +139,14 @@ function dedupeContacts(contacts: AddressBookContact[]) {
   });
 }
 
-/** Load and merge all stored contacts (current and legacy storage keys), deduplicated by address. */
+/** Load the address book for the currently active wallet/network, migrating any legacy unscoped data once. */
 export function loadAddressBookContacts(): AddressBookContact[] {
-  const primaryContacts = readContactsFromKey(ADDRESS_BOOK_STORAGE_KEY);
-  const legacyContacts = readContactsFromKey(LEGACY_CONTACTS_STORAGE_KEY);
-  const legacyFavourites = readContactsFromKey(LEGACY_FAVOURITES_STORAGE_KEY);
-  return dedupeContacts([...primaryContacts, ...legacyContacts, ...legacyFavourites]);
+  const scopedKey = getScopedKeyForContext();
+  const scopedContacts = readContactsFromKey(scopedKey);
+  if (scopedContacts.length > 0) return scopedContacts;
+
+  const migrated = migrateLegacyAddressBookRecords();
+  return dedupeContacts(migrated.length > 0 ? migrated : scopedContacts);
 }
 
 /** Persist the given contacts to local storage and notify listeners via a custom event. */
@@ -91,8 +154,10 @@ export function saveAddressBookContacts(contacts: AddressBookContact[]) {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.setItem(ADDRESS_BOOK_STORAGE_KEY, JSON.stringify(contacts));
-    window.dispatchEvent(new CustomEvent(CONTACTS_UPDATED_EVENT, { detail: contacts }));
+    const scopedKey = getScopedKeyForContext();
+    const dedupedContacts = dedupeContacts(contacts);
+    window.localStorage.setItem(scopedKey, JSON.stringify(dedupedContacts));
+    window.dispatchEvent(new CustomEvent(CONTACTS_UPDATED_EVENT, { detail: dedupedContacts }));
   } catch {
     // Ignore storage failures (private browsing, full quota, etc.).
   }
@@ -197,7 +262,8 @@ export function subscribeToAddressBookContacts(callback: (contacts: AddressBookC
     if (
       event.key === ADDRESS_BOOK_STORAGE_KEY ||
       event.key === LEGACY_CONTACTS_STORAGE_KEY ||
-      event.key === LEGACY_FAVOURITES_STORAGE_KEY
+      event.key === LEGACY_FAVOURITES_STORAGE_KEY ||
+      event.key === getScopedKeyForContext()
     ) {
       callback(loadAddressBookContacts());
     }
@@ -212,7 +278,10 @@ export function subscribeToAddressBookContacts(callback: (contacts: AddressBookC
   };
 }
 
-/** Returns the local storage key used for the primary address book contacts. */
-export function getAddressBookStorageKey() {
-  return ADDRESS_BOOK_STORAGE_KEY;
+/** Returns the local storage key used for the active account/network. */
+export function getAddressBookStorageKey(
+  publicKey: string | null = getActivePublicKey(),
+  networkName: string = getActiveNetworkName(),
+) {
+  return getScopedKeyForContext(publicKey, networkName);
 }

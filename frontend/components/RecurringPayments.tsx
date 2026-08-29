@@ -16,18 +16,73 @@ export interface RecurringSchedule {
 
 const STORAGE_KEY = "stellar-micropay:recurring-schedules";
 
-function loadSchedules(): RecurringSchedule[] {
+function getActiveNetworkName(): string {
+  if (typeof window === "undefined") return "testnet";
+
+  try {
+    const stored = window.localStorage.getItem("stellar-micropay:network");
+    if (!stored) return "testnet";
+    const parsed = JSON.parse(stored) as { network?: string };
+    return parsed?.network === "mainnet" ? "mainnet" : "testnet";
+  } catch {
+    return "testnet";
+  }
+}
+
+function getActivePublicKey(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const value = window.localStorage.getItem("stellar-micropay:last-public-key");
+    return value && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function getSchedulesStorageKey(publicKey: string | null = getActivePublicKey(), networkName: string = getActiveNetworkName()): string {
+  const key = (publicKey ?? "anonymous").trim() || "anonymous";
+  return `${STORAGE_KEY}:${networkName}:${key}`;
+}
+
+function migrateLegacySchedules(): RecurringSchedule[] {
+  if (typeof window === "undefined") return [];
+
+  const key = getSchedulesStorageKey();
+  const current = readSchedulesFromKey(key);
+  if (current.length > 0) return current;
+
+  const legacy = readSchedulesFromKey(STORAGE_KEY);
+  if (legacy.length === 0) return [];
+
+  try {
+    localStorage.setItem(key, JSON.stringify(legacy));
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+
+  return legacy;
+}
+
+function readSchedulesFromKey(key: string): RecurringSchedule[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
+    return JSON.parse(localStorage.getItem(key) ?? "[]");
   } catch {
     return [];
   }
 }
 
+function loadSchedules(): RecurringSchedule[] {
+  const key = getSchedulesStorageKey();
+  const current = readSchedulesFromKey(key);
+  return current.length > 0 ? current : migrateLegacySchedules();
+}
+
 function saveSchedules(schedules: RecurringSchedule[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules));
+  localStorage.setItem(getSchedulesStorageKey(), JSON.stringify(schedules));
 }
 
 // Serialize a Date to a YYYY-MM-DD string using its *local* components.

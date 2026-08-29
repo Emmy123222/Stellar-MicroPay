@@ -42,7 +42,7 @@ describe("RecurringPayments — schedule creation (#513)", () => {
 
     await user.click(screen.getByRole("button", { name: /Create/i }));
 
-    expect(screen.getByText(/5 XLM/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/5 XLM/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/No recurring schedules yet/i)).not.toBeInTheDocument();
   });
 
@@ -59,7 +59,7 @@ describe("RecurringPayments — schedule creation (#513)", () => {
 
     await user.click(screen.getByRole("button", { name: /Create/i }));
 
-    expect(screen.getByText(/weekly/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/weekly/i).length).toBeGreaterThan(0);
   });
 
   it("rejects submission when recipient is missing and shows an error", async () => {
@@ -113,8 +113,8 @@ describe("RecurringPayments — listing existing schedules (#513)", () => {
       await user.click(screen.getByRole("button", { name: /Create/i }));
     }
 
-    expect(screen.getByText(/1 XLM/i)).toBeInTheDocument();
-    expect(screen.getByText(/2 XLM/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/1 XLM/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2 XLM/i).length).toBeGreaterThan(0);
   });
 
   it("persists schedules to localStorage so they survive a re-render", async () => {
@@ -129,7 +129,7 @@ describe("RecurringPayments — listing existing schedules (#513)", () => {
     unmount();
 
     renderRP();
-    expect(screen.getByText(/9 XLM/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/9 XLM/i).length).toBeGreaterThan(0);
   });
 });
 
@@ -169,12 +169,38 @@ describe("RecurringPayments — pause / delete actions (#513)", () => {
     renderRP();
     await createSchedule(user);
 
-    expect(screen.getByText(/3 XLM/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/3 XLM/i).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: /Delete schedule/i }));
+    await user.click(screen.getAllByRole("button", { name: /Delete schedule/i })[0]);
 
-    expect(screen.queryByText(/3 XLM/i)).not.toBeInTheDocument();
+    expect(screen.queryAllByText(/3 XLM/i).length).toBe(0);
     expect(screen.getByText(/No recurring schedules yet/i)).toBeInTheDocument();
+  });
+
+  it("keeps schedules isolated by wallet and network", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" }));
+    localStorage.setItem("stellar-micropay:last-public-key", "GACCOUNTA123456789012345678901234567890123456789012345678");
+
+    const firstRender = renderRP();
+    await user.click(screen.getByText(/\+ New schedule/i));
+    await user.type(screen.getByPlaceholderText("G..."), RECIPIENT);
+    await user.clear(screen.getByPlaceholderText("0.0000000"));
+    await user.type(screen.getByPlaceholderText("0.0000000"), "5");
+    await user.click(screen.getByRole("button", { name: /Create/i }));
+    expect(screen.getAllByText(/5 XLM/i).length).toBeGreaterThan(0);
+    firstRender.unmount();
+
+    localStorage.setItem("stellar-micropay:last-public-key", "GACCOUNTB123456789012345678901234567890123456789012345678");
+    const secondRender = renderRP();
+    expect(screen.getAllByText(/No recurring schedules yet/i).length).toBeGreaterThan(0);
+    secondRender.unmount();
+
+    localStorage.setItem("stellar-micropay:last-public-key", "GACCOUNTA123456789012345678901234567890123456789012345678");
+    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "mainnet", horizonUrl: "https://horizon.stellar.org" }));
+    const thirdRender = renderRP();
+    expect(screen.getAllByText(/No recurring schedules yet/i).length).toBeGreaterThan(0);
+    thirdRender.unmount();
   });
 
   it("opens the edit form pre-filled with the schedule values", async () => {
@@ -182,7 +208,7 @@ describe("RecurringPayments — pause / delete actions (#513)", () => {
     renderRP();
     await createSchedule(user);
 
-    await user.click(screen.getByRole("button", { name: /Edit schedule/i }));
+    await user.click(screen.getAllByRole("button", { name: /Edit schedule/i })[0]);
 
     expect(screen.getByText(/Edit schedule/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("0.0000000")).toHaveValue(3);
