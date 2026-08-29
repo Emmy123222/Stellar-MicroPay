@@ -186,6 +186,8 @@ function SendPaymentForm({
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destinationValidationRequestRef = useRef<number>(0);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
@@ -413,24 +415,24 @@ function SendPaymentForm({
     // Only trigger for SNS/federation names — raw addresses and usernames are
     // handled elsewhere.
     if (!isStellarName(trimmed)) {
-      setSnsResolvedAddress(null);
+      setSnsResolved(null);
       setSnsResolving(false);
       return;
     }
 
     setSnsResolving(true);
-    setSnsResolvedAddress(null);
+    setSnsResolved(null);
     setDestinationResolutionError(null);
 
     snsDebounceRef.current = setTimeout(async () => {
       try {
         const resolved = await resolveStellarName(trimmed);
-        setSnsResolvedAddress(resolved);
+        setSnsResolved(resolved);
         setDestinationResolutionError(null);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not resolve name";
         setDestinationResolutionError(message);
-        setSnsResolvedAddress(null);
+        setSnsResolved(null);
       } finally {
         setSnsResolving(false);
       }
@@ -578,8 +580,8 @@ function SendPaymentForm({
 
     // If we already resolved a SNS name in the debounced effect, use that
     // result directly — never submit the raw name string.
-    if (isStellarName(trimmedDestination) && snsResolvedAddress) {
-      return snsResolvedAddress;
+    if (isStellarName(trimmedDestination) && snsResolved) {
+      return snsResolved;
     }
 
     setIsResolvingDestination(true);
@@ -628,7 +630,7 @@ function SendPaymentForm({
     setDestination(address);
     setDestinationResolutionError(null);
     setResolvedPaymentDestination(null);
-    setSnsResolvedAddress(null);
+    setSnsResolved(null);
     setIsContactsDropdownOpen(false);
   };
 
@@ -1018,7 +1020,7 @@ function SendPaymentForm({
                 setDestination(val);
                 setDestinationResolutionError(null);
                 setResolvedPaymentDestination(null);
-                setSnsResolvedAddress(null);
+                setSnsResolved(null);
                 setDestAccountWarning(null);
                 setIsContactsDropdownOpen(true);
               }}
@@ -1038,26 +1040,13 @@ function SendPaymentForm({
 
             {/* SNS resolution feedback */}
             {snsResolving && (
-              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-400">
+              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-400" aria-label="Resolving name" role="status">
                 <div className="w-3 h-3 border border-stellar-400 border-t-transparent rounded-full animate-spin" />
                 Resolving…
               </div>
             )}
             {destinationResolutionError && (
               <p className="mt-2 text-xs text-red-400">{destinationResolutionError}</p>
-            )}
-
-            {/* SNS resolution feedback */}
-            {snsResolving && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-slate-400" aria-live="polite" aria-label="Resolving name">
-                <div className="h-3 w-3 animate-spin rounded-full border border-stellar-400 border-t-transparent" />
-                <span>Resolving name…</span>
-              </div>
-            )}
-            {!snsResolving && snsResolvedAddress && (
-              <p className="mt-2 text-xs text-emerald-400" aria-live="polite">
-                Resolves to: <span className="font-mono">{snsResolvedAddress}</span>
-              </p>
             )}
 
             {/* Destination account existence warning (#294) */}

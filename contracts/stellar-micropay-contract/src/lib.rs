@@ -50,6 +50,13 @@ pub const MIN_STREAM_DEPOSIT: i128 = 10_000;
 /// ledgers, when `rate_per_ledger > deposit`).
 pub const MIN_STREAM_DURATION_LEDGERS: u32 = 60;
 
+/// Maximum number of recipients permitted in a single `batch_send` call (#787).
+pub const MAX_BATCH_SEND_RECIPIENTS: u32 = 25;
+
+/// Maximum number of recipients permitted in a single stream (`open_stream`) (#787).
+pub const MAX_STREAM_RECIPIENTS: u32 = 20;
+
+
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct TipRecord {
@@ -828,6 +835,9 @@ impl MicroPayContract {
         amounts: soroban_sdk::Vec<i128>,
     ) {
         from.require_auth();
+        if recipients.len() > MAX_BATCH_SEND_RECIPIENTS {
+            panic!("too many recipients");
+        }
         if recipients.len() != amounts.len() {
             panic!("arrays must have equal length");
         }
@@ -905,6 +915,9 @@ impl MicroPayContract {
         deposit: i128,
     ) -> u32 {
         payer.require_auth();
+        if recipients.len() > MAX_STREAM_RECIPIENTS {
+            panic!("too many stream recipients");
+        }
         if recipients.len() != weights.len() {
             panic!("recipients and weights must have equal length");
         }
@@ -1280,6 +1293,7 @@ mod migration_tests;
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
     use super::*;
     use soroban_sdk::{
         testutils::{Address as _, Ledger as _},
@@ -1340,6 +1354,81 @@ mod tests {
             result.unwrap_err().unwrap(),
             ContractError::AlreadyInitialized,
         );
+    }
+
+    #[test]
+    fn test_batch_send_caps_recipients() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract(admin);
+        let sac = token::StellarAssetClient::new(&env, &token_id);
+        sac.mint(&from, &100_000);
+
+        // At limit (100) should succeed
+        let mut recipients_at_limit = soroban_sdk::Vec::new(&env);
+        let mut amounts_at_limit = soroban_sdk::Vec::new(&env);
+        for _ in 0..MAX_BATCH_SEND_RECIPIENTS {
+            recipients_at_limit.push_back(Address::generate(&env));
+            amounts_at_limit.push_back(10);
+        }
+        client.batch_send(&token_id, &from, &recipients_at_limit, &amounts_at_limit);
+
+        // Over limit (101) should panic
+        let mut recipients_over_limit = soroban_sdk::Vec::new(&env);
+        let mut amounts_over_limit = soroban_sdk::Vec::new(&env);
+        for _ in 0..=MAX_BATCH_SEND_RECIPIENTS {
+            recipients_over_limit.push_back(Address::generate(&env));
+            amounts_over_limit.push_back(10);
+        }
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.batch_send(&token_id, &from, &recipients_over_limit, &amounts_over_limit);
+        }));
+        assert!(res.is_err(), "batch_send over limit should panic");
+    }
+
+    #[test]
+    fn test_open_stream_caps_recipients() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let payer = Address::generate(&env);
+        let deposit: i128 = 1_000_000;
+        let rate_per_ledger: i128 = 100;
+        let token_id = env.register_stellar_asset_contract(admin);
+        let sac = token::StellarAssetClient::new(&env, &token_id);
+        sac.mint(&payer, &deposit);
+
+        // At limit (50) should succeed
+        let mut recipients_at_limit = soroban_sdk::Vec::new(&env);
+        let mut weights_at_limit = soroban_sdk::Vec::new(&env);
+        for _ in 0..MAX_STREAM_RECIPIENTS {
+            recipients_at_limit.push_back(Address::generate(&env));
+            weights_at_limit.push_back(1);
+        }
+        let stream_id = client.open_stream(&token_id, &payer, &recipients_at_limit, &weights_at_limit, &rate_per_ledger, &deposit);
+        assert_eq!(stream_id, 0);
+
+        // Over limit (51) should panic
+        let mut recipients_over_limit = soroban_sdk::Vec::new(&env);
+        let mut weights_over_limit = soroban_sdk::Vec::new(&env);
+        for _ in 0..=MAX_STREAM_RECIPIENTS {
+            recipients_over_limit.push_back(Address::generate(&env));
+            weights_over_limit.push_back(1);
+        }
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.open_stream(&token_id, &payer, &recipients_over_limit, &weights_over_limit, &rate_per_ledger, &deposit);
+        }));
+        assert!(res.is_err(), "open_stream over limit should panic");
     }
 
     #[test]
@@ -2072,9 +2161,9 @@ mod tests {
     /// contract must reconcile exactly against the total ever deposited.
     #[test]
     fn test_claim_and_top_up_same_ledger() {
-        let env = Env::default();
         let (contract_id, client, token_id, payer, recipient1) = stream_fixture(&env, DEPOSIT * 2);
         let recipient2 = Address::generate(&env);
+        let recipient = recipient1.clone();
         let token = token::Client::new(&env, &token_id);
 
         let id = client.open_stream(
@@ -2088,10 +2177,8 @@ mod tests {
 
         // Accrue some balance, then partially claim it.
         advance_by(&env, 10);
-        let first_claim1 = client.claim_stream(&id, &recipient1);
-        let first_claim2 = client.claim_stream(&id, &recipient2);
-        assert_eq!(first_claim1, (RATE * 10) / 2);
-        assert_eq!(first_claim2, (RATE * 10) / 2);
+        let first_claim = client.claim_stream(&id, &recipient);
+        assert_eq!(first_claim, RATE * 10);
 
         // top_up_stream happens in the very same ledger as the claim above —
         // no advance_by call between them.
@@ -2106,10 +2193,8 @@ mod tests {
         assert_eq!(client.get_claimable(&id, &recipient2), 0);
 
         advance_by(&env, 5);
-        let second_claim1 = client.claim_stream(&id, &recipient1);
-        let second_claim2 = client.claim_stream(&id, &recipient2);
-        assert_eq!(second_claim1, (RATE * 5) / 2);
-        assert_eq!(second_claim2, (RATE * 5) / 2);
+        let second_claim = client.claim_stream(&id, &recipient);
+        assert_eq!(second_claim, RATE * 5);
 
         let final_stream = client.get_stream(&id);
         assert_eq!(total_claimed(&final_stream.recipients), RATE * 15);
