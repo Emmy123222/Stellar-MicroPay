@@ -51,6 +51,24 @@ describe("usernameService", () => {
     it("rejects invalid public key format", () => {
       expect(() => usernameService.registerUsername("alice123", "invalid_key")).toThrow();
     });
+
+    it("canonicalizes username casing to lowercase on registration", () => {
+      const result = usernameService.registerUsername("AliceXYZ", KEY_A);
+
+      expect(result.username).toBe("alicexyz");
+    });
+
+    it("rejects a case-variant of an already registered username", () => {
+      usernameService.registerUsername("alice123", KEY_A);
+
+      expect(() => {
+        usernameService.registerUsername("Alice123", KEY_B);
+      }).toThrow("Username already registered");
+
+      expect(() => {
+        usernameService.registerUsername("ALICE123", KEY_B);
+      }).toThrow("Username already registered");
+    });
   });
 
   describe("resolveUsername", () => {
@@ -86,6 +104,20 @@ describe("usernameService", () => {
     it("throws error for missing username", () => {
       expect(() => usernameService.resolveUsername(null)).toThrow("Username is required");
     });
+
+    it("resolves a username regardless of the casing used to register it", () => {
+      const result = usernameService.resolveUsername("ALICE123");
+
+      expect(result.username).toBe("alice123");
+      expect(result.publicKey).toBe(KEY_A);
+    });
+
+    it("resolves case-variants of the same username to an identical canonical result", () => {
+      const lower = usernameService.resolveUsername("alice123");
+      const mixed = usernameService.resolveUsername("AlIcE123");
+
+      expect(lower).toEqual(mixed);
+    });
   });
 
   describe("getAllUsernames", () => {
@@ -107,6 +139,22 @@ describe("usernameService", () => {
 
       expect(result).toHaveLength(0);
       expect(result).toEqual([]);
+    });
+
+    it("stores usernames in their canonical (lowercase) form", () => {
+      usernameService.registerUsername("AliceXYZ", KEY_A);
+
+      const result = usernameService.getAllUsernames();
+
+      expect(result).toEqual([{ username: "alicexyz", publicKey: KEY_A }]);
+    });
+  });
+
+  describe("canonicalizeUsername", () => {
+    it("lowercases a username", () => {
+      expect(usernameService.canonicalizeUsername("AliceXYZ")).toBe("alicexyz");
+      expect(usernameService.canonicalizeUsername("BOB456")).toBe("bob456");
+      expect(usernameService.canonicalizeUsername("already_lower")).toBe("already_lower");
     });
   });
 
@@ -142,6 +190,25 @@ describe("usernameService", () => {
 
     it("throws error for missing username", () => {
       expect(() => usernameService.removeUsername(null)).toThrow("Username is required");
+    });
+
+    it("removes a registered username using a different casing", () => {
+      const result = usernameService.removeUsername("ALICE123");
+
+      expect(result.username).toBe("alice123");
+      expect(() => usernameService.resolveUsername("alice123")).toThrow("Username not found");
+    });
+
+    it("frees the username for re-registration with different casing after removal", () => {
+      usernameService.removeUsername("Alice123");
+
+      const result = usernameService.registerUsername("aliceNew", KEY_B);
+      expect(result.username).toBe("alicenew");
+
+      // The old canonical name is gone and can be re-registered by anyone.
+      const reRegistered = usernameService.registerUsername("Alice123", KEY_C);
+      expect(reRegistered.username).toBe("alice123");
+      expect(reRegistered.publicKey).toBe(KEY_C);
     });
   });
 

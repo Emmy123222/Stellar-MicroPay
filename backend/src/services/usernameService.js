@@ -3,12 +3,29 @@
  * src/services/usernameService.js
  * Business logic for username-to-public-key mapping and resolution.
  * Uses in-memory storage for v1 (can be migrated to database later).
+ *
+ * Canonical form: usernames are case-insensitive. The Map is keyed by the
+ * lowercased ("canonical") form of the username so that "Alice123",
+ * "alice123", and "ALICE123" all refer to the same registration — this
+ * prevents case-based aliasing where two callers could otherwise register
+ * what looks like the same handle with different casing. The canonical
+ * (lowercased) form is also what's returned to callers, so display layers
+ * should treat it as the source of truth for the registered username.
  */
 
 "use strict";
 
-// In-memory storage for username → publicKey mapping
+// In-memory storage for canonicalUsername → publicKey mapping
 const usernameMap = new Map();
+
+/**
+ * Canonicalize a username to its case-insensitive storage/lookup form.
+ * @param {string} username - The username to canonicalize
+ * @returns {string} The canonical (lowercased) form of the username
+ */
+function canonicalizeUsername(username) {
+  return username.toLowerCase();
+}
 
 /**
  * Register a new username with a public key.
@@ -19,8 +36,10 @@ function registerUsername(username, publicKey) {
   validateUsername(username);
   validatePublicKey(publicKey);
 
-  // Check if username already exists
-  if (usernameMap.has(username)) {
+  const canonicalUsername = canonicalizeUsername(username);
+
+  // Check if username already exists (case-insensitive)
+  if (usernameMap.has(canonicalUsername)) {
     const error = new Error("Username already registered");
     error.status = 409;
     throw error;
@@ -37,8 +56,8 @@ function registerUsername(username, publicKey) {
   }
   /* eslint-enable no-unused-vars */
 
-  usernameMap.set(username, publicKey);
-  return { username, publicKey };
+  usernameMap.set(canonicalUsername, publicKey);
+  return { username: canonicalUsername, publicKey };
 }
 
 /**
@@ -49,14 +68,15 @@ function registerUsername(username, publicKey) {
 function resolveUsername(username) {
   validateUsername(username);
 
-  const publicKey = usernameMap.get(username);
+  const canonicalUsername = canonicalizeUsername(username);
+  const publicKey = usernameMap.get(canonicalUsername);
   if (!publicKey) {
     const error = new Error("Username not found");
     error.status = 404;
     throw error;
   }
 
-  return { username, publicKey };
+  return { username: canonicalUsername, publicKey };
 }
 
 /**
@@ -77,14 +97,16 @@ function getAllUsernames() {
 function removeUsername(username) {
   validateUsername(username);
 
-  if (!usernameMap.has(username)) {
+  const canonicalUsername = canonicalizeUsername(username);
+
+  if (!usernameMap.has(canonicalUsername)) {
     const error = new Error("Username not found");
     error.status = 404;
     throw error;
   }
 
-  usernameMap.delete(username);
-  return { username };
+  usernameMap.delete(canonicalUsername);
+  return { username: canonicalUsername };
 }
 
 /**
@@ -134,5 +156,6 @@ module.exports = {
   removeUsername,
   validateUsername,
   validatePublicKey,
+  canonicalizeUsername,
   usernameMap,
 };
