@@ -3,6 +3,23 @@ version: "3.9"
 services:
   nginx:
     image: nginx:alpine
+    # Non-root ingress proxy: nginx alpine uid/gid. The official entrypoint
+    # rewrites /etc/nginx/conf.d, so it is bypassed and nginx launched directly.
+    user: "101:101"
+    entrypoint: ["/usr/sbin/nginx"]
+    command: ["-g", "daemon off;"]
+    read_only: true
+    tmpfs:
+      - /tmp:exec
+      - /var/cache/nginx:exec
+      - /var/run
+      - /var/log/nginx
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     ports:
       - "80:80"
       - "443:443"
@@ -27,8 +44,20 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
+    read_only: true
+    tmpfs:
+      - /tmp:exec
+      - /var/cache/nginx:exec
+      - /var/run
+      - /var/log/nginx
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     volumes:
-      - frontend_static:/usr/share/nginx/html
+      - frontend_static:/usr/share/nginx/html:ro
     environment:
       - NEXT_PUBLIC_STELLAR_NETWORK=mainnet
       - NEXT_PUBLIC_HORIZON_URL=https://horizon.stellar.org
@@ -47,6 +76,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
+    read_only: true
+    tmpfs:
+      - /tmp:exec
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       - PORT=4000
       - NODE_ENV=production

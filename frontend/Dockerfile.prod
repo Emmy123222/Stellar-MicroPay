@@ -7,17 +7,30 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Copy source code and build
+# Copy source code and build (static export -> /app/out)
 COPY . .
 RUN npm run build
 
 # Stage 2: Serve stage
 FROM nginx:alpine
 
-# Copy built static files from build stage
-COPY --from=builder /app/out /usr/share/nginx/html
+# Copy built static files from the build stage, owned by the non-root nginx user
+COPY --chown=nginx:nginx --from=builder /app/out /usr/share/nginx/html
 
-# Expose port 80
+# Drop root: serve as the unprivileged `nginx` user.
+# The container rootfs is read-only at runtime (see docker-compose.prod.yml);
+# writable paths are mounted as tmpfs (/tmp, /var/cache/nginx, /var/run, /var/log/nginx).
+USER nginx
+
+# The official entrypoint rewrites /etc/nginx/conf.d, which is read-only when the
+# rootfs is mounted read-only — launch nginx directly instead.
+ENTRYPOINT ["nginx", "-g", "daemon off;"]
+CMD []
+
+# Port 80 requires NET_BIND_SERVICE, which is re-added in docker-compose.prod.yml
+# after dropping all capabilities.
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+# Health probe (busybox wget) — writes nothing to disk.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1
