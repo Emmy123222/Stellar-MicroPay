@@ -2,6 +2,7 @@
 
 require("dotenv").config();
 const logger = require("../utils/logger");
+
 const { encrypt, decrypt } = require("./scheduledTransactionCrypto");
 
 const logger = require("../utils/logger");
@@ -144,7 +145,8 @@ function getDueTransactions() {
       tx.attempts < 3 &&
       !tx.paused &&
       tx.submissionState !== "confirmed" &&
-      tx.submissionState !== "unknown"
+      tx.submissionState !== "unknown" &&
+      tx.submissionState !== "failed"
     ) {
       due.push(redactTransaction(tx));
     }
