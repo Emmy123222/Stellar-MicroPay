@@ -6,6 +6,7 @@
 "use strict";
 
 const axios = require("axios");
+
 const usernameService = require("../services/usernameService");
 
 /**

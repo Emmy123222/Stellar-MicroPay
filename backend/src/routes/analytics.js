@@ -6,11 +6,14 @@
 "use strict";
 
 const express = require("express");
+
 const router = express.Router();
 const analyticsController = require("../controllers/analyticsController");
 const { strictLimiter } = require("../middleware/rateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
+ perf/sse-connection-limits
 const { sseConnectionLimiter } = require("../middleware/sseGuard");
+
 
 /**
  * GET /api/analytics/:publicKey/summary
