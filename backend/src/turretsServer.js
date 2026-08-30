@@ -12,6 +12,10 @@ const morgan = require("morgan");
 
 const turretsRoutes = require("./routes/turrets");
 const { startRunner } = require("./services/turretsService");
+const { sanitizeAccessLogLine } = require("./utils/sanitizeLogToken");
+
+const TURRETS_LOG_FORMAT =
+  ":remote-addr - :method :url :status :res[content-length] - :response-time ms";
 
 const TURRETS_PORT = Number(process.env.TURRETS_PORT || 4100);
 
@@ -37,7 +41,15 @@ function createTurretsApp() {
       },
     })
   );
-  app.use(morgan("tiny"));
+  app.use(
+    morgan(TURRETS_LOG_FORMAT, {
+      stream: {
+        write(message) {
+          process.stdout.write(sanitizeAccessLogLine(message));
+        },
+      },
+    })
+  );
   app.use(express.json({ limit: "10kb" }));
   app.use(cors());
 
