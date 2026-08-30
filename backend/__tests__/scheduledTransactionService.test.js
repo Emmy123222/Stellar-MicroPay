@@ -6,12 +6,12 @@ const {
   getDueTransactions,
   incrementAttempt,
   removeTransaction,
+  getSignedXDRForSubmission,
   markSubmitted,
   reconcileTransaction,
   reconcileByHash,
   reconcileBySequence,
   getUnreconciledTransactions,
-  getSignedXDRForSubmission,
 } = require("../src/services/scheduledTransactionService");
 
 describe("Scheduled Transaction Service", () => {
