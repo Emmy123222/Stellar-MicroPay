@@ -2023,16 +2023,7 @@ const SNS_CACHE_TTL_MS = 600_000;
  */
 export const resolvedNameCache = new Map<string, { address: string; expiry: number }>();
 
-/** Clear all entries from the resolved name cache. */
-export function clearNameCache(): void {
-  resolvedNameCache.clear();
-}
-
-/**
- * Clear the module-level Stellar name resolution cache.
- * Exported for tests — use `clearNameCache()` to reset cached
- * resolutions between test cases or on logout.
- */
+/** Clears all cached name resolutions, forcing the next resolveStellarName call to hit the network. */
 export function clearNameCache(): void {
   resolvedNameCache.clear();
 }
