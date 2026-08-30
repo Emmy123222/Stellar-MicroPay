@@ -47,6 +47,14 @@ jest.mock("@/lib/wallet", () => ({
   signTransactionWithWallet: jest.fn().mockResolvedValue({ signedXDR: "signed-xdr" }),
 }));
 
+jest.mock("@/lib/i18n", () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+jest.mock("@/lib/ToastContext", () => ({
+  useToastContext: () => ({ addToast: jest.fn() }),
+}));
+
 jest.mock("@/utils/format", () => ({
   formatXLM: jest.fn((n: number) => `${n} XLM`),
   shortenAddress: jest.fn((a: string) => a?.slice(0, 8) + "..."),
@@ -163,7 +171,7 @@ describe("SendPaymentForm — SNS integration", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
       const input = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
       await user.type(input, "alice.xlm");
       await user.type(amountInput, "5");
 
@@ -183,7 +191,7 @@ describe("SendPaymentForm — SNS integration", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
       const input = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
       await user.type(input, "bad.xlm");
       await user.type(amountInput, "5");
 
@@ -232,6 +240,83 @@ describe("SendPaymentForm — SNS integration", () => {
     });
   });
 
+  describe("out-of-order response protection", () => {
+    beforeEach(() => {
+      mockIsStellarName.mockImplementation((v: string) =>
+        v.trim().toLowerCase().endsWith(".xlm") || v.includes("*")
+      );
+    });
+
+    it("ignores a stale slow response when the input has already changed", async () => {
+      // First call (alice.xlm) is slow; second call (bob.xlm) resolves first
+      let resolveAlice!: (v: string) => void;
+      const ALICE_ADDRESS = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNN";
+      const BOB_ADDRESS   = "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZZZ";
+
+      mockResolveStellarName
+        .mockImplementationOnce(() => new Promise<string>((res) => { resolveAlice = res; }))
+        .mockResolvedValueOnce(BOB_ADDRESS);
+
+      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const input = screen.getByPlaceholderText(/G\.\.\./);
+
+      // Type "alice.xlm" — debounce fires, slow request in-flight
+      await user.type(input, "alice.xlm");
+      act(() => { jest.advanceTimersByTime(500); });
+
+      // Clear and type "bob.xlm" before alice resolves — debounce fires, fast request
+      await user.clear(input);
+      await user.type(input, "bob.xlm");
+      act(() => { jest.advanceTimersByTime(500); });
+
+      // bob.xlm resolves first
+      await waitFor(() => {
+        expect(screen.getByText(new RegExp(BOB_ADDRESS))).toBeInTheDocument();
+      });
+
+      // Now the stale alice response arrives — should be ignored
+      act(() => { resolveAlice(ALICE_ADDRESS); });
+
+      // Alice's address must NOT appear; bob's must remain
+      await waitFor(() => {
+        expect(screen.queryByText(new RegExp(ALICE_ADDRESS))).not.toBeInTheDocument();
+        expect(screen.getByText(new RegExp(BOB_ADDRESS))).toBeInTheDocument();
+      });
+    });
+
+    it("rapid valid→invalid→valid sequence shows final state correctly", async () => {
+      const FINAL_ADDRESS = "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZZZ";
+
+      mockResolveStellarName
+        .mockResolvedValueOnce("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNN") // alice
+        .mockRejectedValueOnce(new Error('Could not resolve "bad.xlm"'))                      // bad
+        .mockResolvedValueOnce(FINAL_ADDRESS);                                                 // carol
+
+      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+      render(<SendPaymentForm {...defaultProps} />);
+
+      const input = screen.getByPlaceholderText(/G\.\.\./);
+
+      await user.type(input, "alice.xlm");
+      act(() => { jest.advanceTimersByTime(500); });
+
+      await user.clear(input);
+      await user.type(input, "bad.xlm");
+      act(() => { jest.advanceTimersByTime(500); });
+
+      await user.clear(input);
+      await user.type(input, "carol.xlm");
+      act(() => { jest.advanceTimersByTime(500); });
+
+      await waitFor(() => {
+        expect(screen.getByText(new RegExp(FINAL_ADDRESS))).toBeInTheDocument();
+        expect(screen.queryByText(/Could not resolve/i)).not.toBeInTheDocument();
+      });
+    });
+  });
+
   describe("submission uses resolved address", () => {
     it("passes the resolved address (not the typed name) to buildPaymentTransaction", async () => {
       mockIsStellarName.mockImplementation((v: string) =>
@@ -245,7 +330,7 @@ describe("SendPaymentForm — SNS integration", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
       const input = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(input, "alice.xlm");
       act(() => { jest.advanceTimersByTime(500); });
@@ -263,7 +348,7 @@ describe("SendPaymentForm — SNS integration", () => {
 
       await user.click(screen.getByRole("button", { name: /Send/i }));
 
-      const confirmButton = await screen.findByRole("button", { name: /Confirm & Sign/i });
+      const confirmButton = await screen.findByRole("button", { name: /confirm_sign|Confirm & Sign/i });
       await user.click(confirmButton);
 
       await waitFor(() => {
