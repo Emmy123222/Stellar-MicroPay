@@ -9,13 +9,13 @@
 
 "use strict";
 
+const { deliverWebhook } = require("./webhookDelivery");
 const {
   startMonitoring,
   stopMonitoring,
   ensureMonitored,
   resumeAllMonitors,
 } = require("./paymentMonitor");
-const { deliverWebhook } = require("./webhookDelivery");
 const store = require("./webhookStore");
 
 /**

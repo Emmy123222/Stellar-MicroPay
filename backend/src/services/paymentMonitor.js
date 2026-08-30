@@ -9,13 +9,14 @@
 const { Horizon } = require("@stellar/stellar-sdk");
 
 const logger = require("../utils/logger");
+
+const { deliverWebhook } = require("./webhookDelivery");
 const {
   getWebhooksByPublicKey,
   getAllWebhooks,
   saveMonitorCursor,
   getMonitorCursor,
 } = require("./webhookStore");
-const { deliverWebhook } = require("./webhookDelivery");
 
 const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";

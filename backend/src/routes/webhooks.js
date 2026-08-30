@@ -11,7 +11,6 @@
 
 const { StrKey } = require("@stellar/stellar-sdk");
 const express = require("express");
-const router = express.Router();
 
 const { strictLimiter } = require("../middleware/rateLimit");
 const {
@@ -19,6 +18,8 @@ const {
   getWebhooksByPublicKey,
   deleteWebhook,
 } = require("../services/webhookService");
+
+const router = express.Router();
 
 /**
  * Strip the secret field before sending a webhook to the client.
