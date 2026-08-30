@@ -19,6 +19,7 @@ backend/data/
 
 # ─── Rust / Cargo ─────────────────────────────────────────────────────────────
 target/
+test_snapshots/
 # Cargo.lock is committed on purpose: the contract is a deployable artifact, so
 # every build — CI, local, release — must resolve the same dependency graph.
 # Leaving it unpinned is what broke the contracts CI job (soroban-sdk's

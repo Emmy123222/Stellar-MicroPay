@@ -23,7 +23,7 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Add WASM target
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 
 # Install Stellar CLI
 cargo install --locked stellar-cli
@@ -32,10 +32,10 @@ cargo install --locked stellar-cli
 ## Build
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 ```
 
-Output: `target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm`
+Output: `target/wasm32v1-none/release/stellar_micropay_contract.wasm`
 
 ## Test
 
@@ -68,7 +68,7 @@ stellar keys fund alice --network testnet
 
 # Deploy
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm \
+  --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
   --source alice \
   --network testnet
 ```
@@ -445,7 +445,7 @@ value yet.
 3. **Publish the new WASM.**
    ```bash
    stellar contract upload \
-     --wasm target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm \
+     --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
      --source admin \
      --network testnet
    ```
@@ -498,7 +498,7 @@ redeploy a build whose `SCHEMA_VERSION` matches what is on-chain.
 
 The CLI commands above only work if the contract compiles. The merge residue
 that used to block `cargo build` is gone — `cargo check`, `cargo test` and
-`cargo build --target wasm32-unknown-unknown --release` are all green — but
+`cargo build --target wasm32v1-none --release` are all green — but
 two build-level pitfalls remain worth knowing about:
 
 - **Dependency drift.** `Cargo.lock` is committed on purpose. Deleting it (or
@@ -509,7 +509,7 @@ two build-level pitfalls remain worth knowing about:
   `stellar-xdr`, are both this. Restore the lockfile with
   `git checkout Cargo.lock` rather than chasing the errors upstream.
 - **Missing WASM target.** `error[E0463]: can't find crate for 'core'` means
-  the target is not installed: `rustup target add wasm32-unknown-unknown`.
+  the target is not installed: `rustup target add wasm32v1-none`.
 
 If a build error points inside `src/lib.rs` instead, check `git blame` around
 the offending line first — historically most of the breakage here has been

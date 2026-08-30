@@ -33,7 +33,7 @@ storybook:
 # ── Contracts ────────────────────────────────────────────────────────────────
 
 contracts-build:
-	cd contracts/stellar-micropay-contract && cargo build --target wasm32-unknown-unknown --release
+	cd contracts/stellar-micropay-contract && cargo build --target wasm32v1-none --release
 
 contracts-test:
 	cd contracts/stellar-micropay-contract && cargo test
