@@ -15,21 +15,15 @@ import {
   type AddressBookContact,
 } from '../lib/addressBook';
 
-const VALID_ADDRESS_A = 'G' + 'A'.repeat(55);
-const VALID_ADDRESS_B = 'G' + 'B'.repeat(55);
-const VALID_ADDRESS_C = 'G' + 'C'.repeat(55);
-const VALID_ADDRESS_D = 'G' + 'D'.repeat(55);
-const VALID_ADDRESS_E = 'G' + 'E'.repeat(55);
-const VALID_ADDRESS_F = 'G' + 'F'.repeat(55);
-const VALID_ADDRESS_G = 'G' + 'G'.repeat(55);
-const VALID_ADDRESS_H = 'G' + 'H'.repeat(55);
-const VALID_ADDRESS_I = 'G' + 'I'.repeat(55);
-const VALID_ADDRESS_J = 'G' + 'J'.repeat(55);
-
-// Mock isValidStellarAddress
-jest.mock('../lib/stellar', () => ({
+// Mock isValidStellarAddress using the same module path the app imports.
+jest.mock('@/lib/stellar', () => ({
   isValidStellarAddress: (address: string) => {
-    return typeof address === 'string' && address.startsWith('G') && address.length === 56;
+    return (
+      typeof address === 'string' &&
+      address.startsWith('G') &&
+      address.length >= 52 &&
+      address.length <= 56
+    );
   },
 }));
 

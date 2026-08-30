@@ -45,7 +45,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     setLocaleState(newLocale);
     setStoredLocale(newLocale);
     
-    // Update document direction for RTL support
+    // Update document direction for RTP support
     if (typeof document !== 'undefined') {
       document.documentElement.dir = isRTL(newLocale) ? 'rtl' : 'ltr';
       document.documentElement.lang = newLocale;
@@ -78,3 +78,5 @@ export function useI18n(): I18nContextType {
   }
   return context;
 }
+
+export const useTranslation = useI18n;

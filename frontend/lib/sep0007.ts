@@ -89,6 +89,18 @@ export function parseStellarURI(uri: string): URIParseResult {
       : undefined;
     const msg = params.get('msg') || undefined;
     const networkPassphrase = params.get('network_passphrase') || undefined;
+
+    if (networkPassphrase) {
+      if (
+        networkPassphrase !== 'Public Global Stellar Network ; September 2015' &&
+        networkPassphrase !== 'Test SDF Network ; September 2015'
+      ) {
+        return {
+          success: false,
+          error: 'Unsupported network passphrase'
+        };
+      }
+    }
     const originDomain = params.get('origin_domain') || undefined;
     const signature = params.get('signature') || undefined;
     const callback = params.get('callback') || undefined;
@@ -112,11 +124,17 @@ export function parseStellarURI(uri: string): URIParseResult {
       }
     }
 
-    // Validate asset issuer if asset code is present but not XLM
+    // Validate asset issuer and asset code together
     if (assetCode && assetCode !== 'XLM' && !assetIssuer) {
       return {
         success: false,
         error: 'asset_issuer is required when asset_code is not XLM'
+      };
+    }
+    if (assetIssuer && (!assetCode || assetCode === 'XLM')) {
+      return {
+        success: false,
+        error: 'asset_code is required and cannot be XLM when asset_issuer is provided'
       };
     }
 
@@ -185,6 +203,9 @@ export function uriToPrefillData(parsed: ParsedStellarURI) {
   return {
     destination: parsed.destination,
     amount: parsed.amount || '',
-    memo: parsed.memo || ''
+    memo: parsed.memo || '',
+    assetCode: parsed.assetCode,
+    assetIssuer: parsed.assetIssuer,
+    networkPassphrase: parsed.networkPassphrase
   };
 }

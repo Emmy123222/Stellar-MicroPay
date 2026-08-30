@@ -8,6 +8,7 @@ import { Horizon, Networks } from "@stellar/stellar-sdk";
 export interface NetworkConfig {
   network: "testnet" | "mainnet" | "custom";
   horizonUrl: string;
+  rpcUrl?: string;
 }
 
 export const DEFAULT_CONFIGS: Record<"testnet" | "mainnet", NetworkConfig> = {

@@ -8,13 +8,17 @@
 //! contract API so we can write the old layout), call `migrate`, and then
 //! verify every retained record through the public getters.
 
+extern crate std;
+
 use soroban_sdk::{
-    contracttype,
-    testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, Symbol,
+    testutils::{Address as _, Events as _},
+    vec, Address, Env, IntoVal, String, Symbol,
 };
 
-use crate::{DataKey, Escrow, EscrowStatus, MicroPayContract, ReceiptMetadata, TipRecord, SCHEMA_VERSION};
+use crate::{
+    DataKey, Escrow, EscrowStatus, LegacyReceiptMetadata, MicroPayContract,
+    MicroPayContractClient, TipRecord, SCHEMA_VERSION,
+};
 
 // ── v1 snapshot fixture builder ──────────────────────────────────────────────
 
@@ -88,12 +92,12 @@ fn build_v1_snapshot(env: &Env, contract_id: &Address) -> (Address, Address, Add
         );
 
         // ── Receipts (1 record for payer) ───────────────────────────────
-        let receipt = ReceiptMetadata {
+        let receipt = LegacyReceiptMetadata {
             from: payer.clone(),
             to: tip_recipient.clone(),
             amount: 3_000,
             timestamp: 1_700_000_000,
-            memo: Symbol::new(env, "invoice-42"),
+            memo: Symbol::new(env, "invoice_42"),
             ledger: 200,
         };
         env.storage().persistent().set(
@@ -160,9 +164,9 @@ fn build_v1_snapshot(env: &Env, contract_id: &Address) -> (Address, Address, Add
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-/// Build a v1 snapshot, migrate to v2, and validate every retained record.
+/// Build a v1 snapshot, migrate to the current schema, and validate every retained record.
 #[test]
-fn test_migrate_v1_to_v2_preserves_all_records() {
+fn test_migrate_v1_to_current_preserves_all_records() {
     let env = Env::default();
     let contract_id = env.register_contract(None, MicroPayContract);
     let client = MicroPayContractClient::new(&env, &contract_id);
@@ -187,11 +191,11 @@ fn test_migrate_v1_to_v2_preserves_all_records() {
 
     // Receipts
     assert_eq!(client.get_receipt_count(&payer), 1);
-    let r0 = client.get_receipt(&payer, &0);
+    let r0 = client.get_legacy_receipt(&payer, &0);
     assert_eq!(r0.from, payer);
     assert_eq!(r0.to, tip_recipient);
     assert_eq!(r0.amount, 3_000);
-    assert_eq!(r0.memo, Symbol::new(&env, "invoice-42"));
+    assert_eq!(r0.memo, Symbol::new(&env, "invoice_42"));
     assert_eq!(r0.ledger, 200);
 
     // Escrow
@@ -224,9 +228,9 @@ fn test_migrate_v1_to_v2_preserves_all_records() {
 
     // Receipts survived
     assert_eq!(client.get_receipt_count(&payer), 1);
-    let r0 = client.get_receipt(&payer, &0);
+    let r0 = client.get_legacy_receipt(&payer, &0);
     assert_eq!(r0.amount, 3_000);
-    assert_eq!(r0.memo, Symbol::new(&env, "invoice-42"));
+    assert_eq!(r0.memo, Symbol::new(&env, "invoice_42"));
 
     // Escrow survived
     assert_eq!(client.get_escrow_count(), 1);
@@ -250,24 +254,17 @@ fn test_migrate_v1_emits_correct_event() {
     env.mock_all_auths();
     client.migrate(&admin);
 
-    let events = env.events().all();
-    let migrate_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
-            e.in_contract_class_id(&contract_id)
-                && match &e.topics[0] {
-                    soroban_sdk::Val::Symbol(s) => *s == Symbol::new(&env, "migrate"),
-                    _ => false,
-                }
-        })
-        .collect();
-
-    assert_eq!(migrate_events.len(), 1);
-    // The event data is (from_version: u32, to_version: u32)
-    // Verify via the raw event data
-    let event = &migrate_events[0];
-    // Event data is a tuple; we check the topics carried the "migrate" symbol
-    assert!(event.in_contract_class_id(&contract_id));
+    assert_eq!(
+        env.events().all().filter_by_contract(&contract_id),
+        vec![
+            &env,
+            (
+                contract_id,
+                (Symbol::new(&env, "migrate"),).into_val(&env),
+                (crate::EVENT_SCHEMA_VERSION, 1u32, SCHEMA_VERSION).into_val(&env),
+            ),
+        ]
+    );
 }
 
 /// Post-migration, new operations work correctly on the migrated state.
@@ -284,8 +281,8 @@ fn test_new_operations_after_v1_migration() {
     client.migrate(&admin);
 
     // Send a new tip after migration
-    let token_client = soroban_sdk::token::Client::new(&env, &token);
-    token_client.mint(&payer, &100_000);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+    token_admin.mint(&payer, &100_000);
     client.send_tip(&token, &payer, &tip_recipient, &8_000);
 
     // Verify the new tip was appended correctly
@@ -294,6 +291,17 @@ fn test_new_operations_after_v1_migration() {
     let tip2 = client.get_tip_record(&tip_recipient, &2);
     assert_eq!(tip2.amount, 8_000);
     assert_eq!(tip2.from, payer);
+
+    // A v4 UTF-8 receipt can be appended without rewriting or hiding the
+    // legacy Symbol receipt at index 0.
+    let memo = String::from_str(&env, "Lunch 🍜");
+    let receipt_id = client.mint_receipt(&payer, &tip_recipient, &4_000, &memo);
+    assert_eq!(receipt_id, 1);
+    assert_eq!(client.get_receipt(&payer, &1).memo, memo);
+    assert_eq!(
+        client.get_legacy_receipt(&payer, &0).memo,
+        Symbol::new(&env, "invoice_42")
+    );
 }
 
 /// Migrating an already-current instance panics.

@@ -166,6 +166,35 @@ describe("tipsService", () => {
     it("throws error when creatorPublicKey is missing", () => {
       expect(() => tipsService.getTipsStats()).toThrow("creatorPublicKey is required");
     });
+
+    it("provides per-asset averages", () => {
+      const stats = tipsService.getTipsStats(KEY_B);
+      // XLM: 10 + 5 = 15, count 2 → average 7.5
+      expect(stats.totalByAsset.XLM.average).toBe("7.5");
+      // USDC: 15, count 1 → average 15
+      expect(stats.totalByAsset.USDC.average).toBe("15");
+    });
+
+    it("handles fractional stroop boundaries without rounding errors", () => {
+      tipsService.tipsByCreator.clear();
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000001", asset: "XLM" });
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000002", asset: "XLM" });
+
+      const stats = tipsService.getTipsStats(KEY_B);
+      expect(stats.totalByAsset.XLM.amount).toBe("0.0000003");
+      expect(stats.totalByAsset.XLM.count).toBe(2);
+      // average: 0.00000015 stroops — 3 is not divisible by 2 in integer math, truncates
+      expect(stats.totalByAsset.XLM.average).toBe("0.0000001");
+    });
+
+    it("handles large totals without floating-point loss", () => {
+      tipsService.tipsByCreator.clear();
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "999999999.9999999", asset: "XLM" });
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000001", asset: "XLM" });
+
+      const stats = tipsService.getTipsStats(KEY_B);
+      expect(stats.totalByAsset.XLM.amount).toBe("1000000000");
+    });
   });
 
   describe("getTipsSent", () => {
