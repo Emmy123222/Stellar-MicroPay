@@ -5,6 +5,10 @@
 *
 * @see {@link https://developers.stellar.org/docs/data/horizon | Stellar Horizon Docs}
 * @see {@link https://stellar.github.io/js-stellar-sdk/ | stellar-sdk Reference}
+*
+* Dependency note (#809): the app stays on `@stellar/stellar-sdk` 15.x for Node 20
+* compatibility and pins a patched axios release through npm overrides. Network
+* selection remains explicit via `stellarConfig` (testnet/mainnet/custom).
 */
 
 import {
