@@ -3,3 +3,4 @@ node_modules/
 .env
 secrets/*.txt
 !secrets/.gitkeep
+backend/data/
