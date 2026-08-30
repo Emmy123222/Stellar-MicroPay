@@ -158,6 +158,13 @@ describe("turrets API helpers", () => {
       expect(result).toEqual([]);
     });
 
+    it("handles null or non-array responses gracefully by returning empty array", async () => {
+      mockApiFetch.mockResolvedValueOnce(null as unknown as TurretsDeployment[]);
+
+      const result = await listTurretsFunctions("GABC");
+      expect(result).toEqual([]);
+    });
+
     it("surfaces API errors", async () => {
       mockApiFetch.mockRejectedValueOnce(new Error("500 Internal Server Error"));
       await expect(listTurretsFunctions("GABC")).rejects.toThrow("500 Internal Server Error");

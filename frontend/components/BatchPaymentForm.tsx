@@ -12,15 +12,17 @@ import { formatXLMPrecise, parseBatchRecipientsCSV } from "@/utils/format";
 
 const MAX_RECIPIENTS = 10;
 
-type RecipientStatus = "idle" | "pending" | "success" | "failed";
+export type RecipientStatus = "idle" | "pending" | "success" | "failed";
+export type ColumnErrorKey = "address" | "amount" | "memo";
 
-type BatchRecipient = {
+export type BatchRecipient = {
   id: string;
   address: string;
   amount: string;
   memo: string;
   status: RecipientStatus;
   error?: string;
+  fieldErrors?: Partial<Record<ColumnErrorKey, string>>;
   transactionHash?: string;
 };
 
@@ -61,6 +63,7 @@ export default function BatchPaymentForm({
   const [isProcessing, setIsProcessing] = useState(false);
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [showInvalidOnly, setShowInvalidOnly] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const xlmBalanceValue = parseFloat(xlmBalance || "0");
@@ -78,9 +81,13 @@ export default function BatchPaymentForm({
     [recipients]
   );
 
-  const hasFailed = recipients.some((recipient) => recipient.status === "failed");
+  const invalidRecipients = recipients.filter(
+    (recipient) => recipient.status === "failed" || Boolean(recipient.error)
+  );
+  const hasFailed = invalidRecipients.length > 0;
   const hasPending = recipients.some((recipient) => recipient.status === "pending");
   const hasSuccess = recipients.some((recipient) => recipient.status === "success");
+
   const canSubmit =
     !isProcessing &&
     recipients.some(
@@ -96,9 +103,36 @@ export default function BatchPaymentForm({
     update: Partial<BatchRecipient>
   ) => {
     setRecipients((current) =>
-      current.map((recipient) =>
-        recipient.id === id ? { ...recipient, ...update } : recipient
-      )
+      current.map((recipient) => {
+        if (recipient.id !== id) return recipient;
+        const updated = { ...recipient, ...update };
+
+        // If user edited a field with errors, clear that field error to keep valid edits intact (#744)
+        if (updated.fieldErrors) {
+          const nextFieldErrors = { ...updated.fieldErrors };
+          if ("address" in update) delete nextFieldErrors.address;
+          if ("amount" in update) delete nextFieldErrors.amount;
+          if ("memo" in update) delete nextFieldErrors.memo;
+
+          const remainingKeys = Object.keys(nextFieldErrors) as ColumnErrorKey[];
+          if (remainingKeys.length === 0) {
+            updated.fieldErrors = undefined;
+            updated.error = undefined;
+            if (updated.status === "failed") updated.status = "idle";
+          } else {
+            updated.fieldErrors = nextFieldErrors;
+            updated.error =
+              nextFieldErrors.address ||
+              nextFieldErrors.amount ||
+              nextFieldErrors.memo;
+          }
+        } else if (updated.status === "failed") {
+          updated.status = "idle";
+          updated.error = undefined;
+        }
+
+        return updated;
+      })
     );
   };
 
@@ -125,13 +159,24 @@ export default function BatchPaymentForm({
     const skipped = rows.length - accepted.length;
 
     const imported = accepted.map((row) => {
-      const error =
-        row.error ??
-        (!isValidStellarAddress(row.address)
-          ? "Invalid Stellar address."
-          : row.address === publicKey
-            ? "Recipient address cannot be the same as your wallet."
-            : null);
+      const fieldErrors: Partial<Record<ColumnErrorKey, string>> = {};
+      let error = row.error ?? null;
+
+      if (!isValidStellarAddress(row.address)) {
+        fieldErrors.address = "Invalid Stellar address.";
+        if (!error) error = "Invalid Stellar address.";
+      } else if (row.address === publicKey) {
+        fieldErrors.address = "Recipient address cannot be the same as your wallet.";
+        if (!error) error = "Recipient address cannot be the same as your wallet.";
+      }
+
+      const parsedAmount = parseFloat(row.amount);
+      if (!row.amount || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        fieldErrors.amount = row.error?.includes("Amount")
+          ? row.error
+          : "Amount must be a number greater than 0.";
+        if (!error) error = fieldErrors.amount;
+      }
 
       return createRecipient({
         address: row.address,
@@ -139,6 +184,7 @@ export default function BatchPaymentForm({
         memo: truncateMemoText(row.memo),
         status: error ? "failed" : "idle",
         error: error ?? undefined,
+        fieldErrors: Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined,
       });
     });
 
@@ -177,17 +223,36 @@ export default function BatchPaymentForm({
   };
 
   const validateRecipient = (recipient: BatchRecipient) => {
+    const fieldErrors: Partial<Record<ColumnErrorKey, string>> = {};
     const amount = parseFloat(recipient.amount);
-    if (!isValidStellarAddress(recipient.address)) {
-      return "Invalid Stellar address.";
+
+    if (!recipient.address.trim()) {
+      fieldErrors.address = "Recipient address is required.";
+    } else if (!isValidStellarAddress(recipient.address)) {
+      fieldErrors.address = "Invalid Stellar address.";
+    } else if (recipient.address === publicKey) {
+      fieldErrors.address = "Recipient address cannot be the same as your wallet.";
     }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return "Amount must be greater than 0.";
+
+    if (!recipient.amount.trim() || !Number.isFinite(amount) || amount <= 0) {
+      fieldErrors.amount = "Amount must be greater than 0.";
     }
-    if (recipient.address === publicKey) {
-      return "Recipient address cannot be the same as your wallet.";
+
+    if (recipient.memo) {
+      const encoded = new TextEncoder().encode(recipient.memo);
+      if (encoded.length > STELLAR_MEMO_TEXT_MAX_BYTES) {
+        fieldErrors.memo = `Memo exceeds maximum ${STELLAR_MEMO_TEXT_MAX_BYTES} bytes.`;
+      }
     }
-    return null;
+
+    const primaryError =
+      fieldErrors.address || fieldErrors.amount || fieldErrors.memo || null;
+
+    return {
+      isValid: !primaryError,
+      error: primaryError,
+      fieldErrors,
+    };
   };
 
   const processRows = async (retryOnlyFailed = false) => {
@@ -197,272 +262,382 @@ export default function BatchPaymentForm({
     let nextRecipients = recipients.map((recipient) => ({ ...recipient }));
     setRecipients(nextRecipients);
 
-    let successCount = 0;
-    let failCount = 0;
-
-    for (let i = 0; i < nextRecipients.length; i++) {
-      const recipient = nextRecipients[i];
+    for (const recipient of nextRecipients) {
       if (recipient.status === "success") {
-        successCount++;
         continue;
       }
-      if (retryOnlyFailed && recipient.status !== "failed") {
+      if (retryOnlyFailed && recipient.status !== "failed" && !recipient.error) {
         continue;
       }
 
-      const validationError = validateRecipient(recipient);
-      if (validationError) {
-        nextRecipients[i] = {
-          ...recipient,
-          status: "failed",
-          error: validationError,
-        };
+      const { isValid, error, fieldErrors } = validateRecipient(recipient);
+      if (!isValid) {
+        recipient.status = "failed";
+        recipient.error = error || undefined;
+        recipient.fieldErrors = fieldErrors;
         setRecipients([...nextRecipients]);
-        failCount++;
         continue;
       }
 
-      nextRecipients[i] = { ...recipient, status: "pending", error: undefined };
+      recipient.status = "pending";
+      recipient.error = undefined;
+      recipient.fieldErrors = undefined;
       setRecipients([...nextRecipients]);
 
       try {
         const tx = await buildPaymentTransaction({
-          sourcePublicKey: publicKey,
-          destinationPublicKey: recipient.address,
-          amount: recipient.amount,
-          memo: recipient.memo || undefined,
+          fromPublicKey: publicKey,
+          toPublicKey: recipient.address,
+          amount: parseFloat(recipient.amount).toFixed(7),
+          memo: recipient.memo.trim() || undefined,
         });
 
-        const signResult = await signTransactionWithWallet(tx.toXDR(), publicKey);
-        if (signResult.error || !signResult.signedXDR) {
-          throw new Error(signResult.error || "Failed to sign transaction with wallet.");
+        const { signedXDR, error: signError } =
+          await signTransactionWithWallet(tx.toXDR());
+
+        if (signError || !signedXDR) {
+          recipient.status = "failed";
+          recipient.error = signError || "Transaction signing was rejected.";
+          setRecipients([...nextRecipients]);
+          continue;
         }
 
-        const submitResult = await submitTransaction(signResult.signedXDR);
-        nextRecipients[i] = {
-          ...nextRecipients[i],
-          status: "success",
-          transactionHash: submitResult.hash,
-          error: undefined,
-        };
-        successCount++;
-      } catch (err: unknown) {
-        nextRecipients[i] = {
-          ...nextRecipients[i],
-          status: "failed",
-          error: err instanceof Error ? err.message : "Transaction failed.",
-        };
-        failCount++;
-      }
+        const result = await submitTransaction(signedXDR);
 
-      setRecipients([...nextRecipients]);
+        recipient.status = "success";
+        recipient.error = undefined;
+        recipient.fieldErrors = undefined;
+        recipient.transactionHash = result.hash;
+        setRecipients([...nextRecipients]);
+
+        onBatchSuccess?.();
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Batch payment failed.";
+        recipient.status = "failed";
+        recipient.error = message;
+        setRecipients([...nextRecipients]);
+      }
     }
 
     setIsProcessing(false);
+    const failedRows = nextRecipients.some((recipient) => recipient.status === "failed");
+    const successRows = nextRecipients.some((recipient) => recipient.status === "success");
 
-    if (failCount === 0 && successCount > 0) {
-      setBatchMessage(`Successfully sent batch to ${successCount} recipient${successCount === 1 ? "" : "s"}!`);
-      onBatchSuccess?.();
-    } else if (failCount > 0 && successCount > 0) {
-      setBatchMessage(`Partial batch result: ${successCount} succeeded, ${failCount} failed. Fix errors and retry failed operations.`);
-    } else if (failCount > 0) {
-      setBatchMessage(`Batch failed for ${failCount} recipient${failCount === 1 ? "" : "s"}. Please review errors and retry.`);
+    if (!failedRows) {
+      setBatchMessage("Batch payment complete.");
+    } else if (successRows) {
+      setBatchMessage(
+        "Batch completed with some failures. Retry individual failed payments below."
+      );
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    processRows(false);
+  const handleSendBatch = async () => {
+    await processRows(false);
   };
 
-  const handleRetryFailed = () => {
-    processRows(true);
+  const handleRetryFailed = async () => {
+    if (!hasFailed) return;
+    await processRows(true);
   };
+
+  const recipientCount = recipients.length;
+  const displayedRecipients = showInvalidOnly ? invalidRecipients : recipients;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="card animate-fade-in border-stellar-400/20">
+      <div className="flex items-center justify-between mb-6 gap-3">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Batch Payments</h2>
-          <p className="text-sm text-gray-500">
-            Send Stellar native payments to up to {MAX_RECIPIENTS} recipients in sequence.
+          <h2 className="font-display text-lg font-semibold text-white">
+            Batch Send
+          </h2>
+          <p className="text-sm text-slate-400">
+            Send XLM to up to {MAX_RECIPIENTS} recipients sequentially.
           </p>
         </div>
-        <div className="text-right">
-          <span className="text-sm font-medium text-gray-700">
-            {recipients.length} / {MAX_RECIPIENTS}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessing}
+            className="btn-secondary px-3 py-1.5 text-xs disabled:opacity-50"
+          >
+            Import CSV
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            onChange={handleImportFile}
+            disabled={isProcessing}
+            aria-label="Import recipients from CSV"
+            className="hidden"
+          />
+          <div className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-300">
+            {recipientCount} / {MAX_RECIPIENTS}
+          </div>
+        </div>
+      </div>
+
+      <p className="-mt-4 mb-4 text-xs text-slate-500">
+        CSV columns: address, amount, memo (header row optional).
+      </p>
+
+      {/* Row Filtering Controls (#744) */}
+      {hasFailed && (
+        <div className="mb-4 flex items-center justify-between p-3 rounded-2xl bg-white/5 border border-white/10">
+          <span className="text-xs text-slate-300 font-medium">
+            Filter rows:
           </span>
-        </div>
-      </div>
-
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleImportFile}
-          accept=".csv,text/csv"
-          className="hidden"
-          id="csv-file-input"
-          aria-label="Import recipients from CSV"
-        />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isProcessing}
-          className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-300 disabled:opacity-50"
-        >
-          Import CSV
-        </button>
-        {importMessage && (
-          <p className="text-xs text-gray-600 flex-1" role="status">
-            {importMessage}
-          </p>
-        )}
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {recipients.map((recipient, index) => {
-          const isSuccess = recipient.status === "success";
-          const isPending = recipient.status === "pending";
-          const isFailed = recipient.status === "failed";
-
-          return (
-            <div
-              key={recipient.id}
-              className={`p-4 rounded-xl border transition-colors ${
-                isSuccess
-                  ? "bg-green-50/50 border-green-200"
-                  : isFailed
-                    ? "bg-red-50/50 border-red-200"
-                    : "bg-gray-50/50 border-gray-200"
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowInvalidOnly(false)}
+              className={`px-3 py-1 text-xs rounded-full font-medium transition ${
+                !showInvalidOnly
+                  ? "bg-stellar-500 text-white"
+                  : "bg-white/5 text-slate-300 hover:bg-white/10"
               }`}
+              aria-pressed={!showInvalidOnly}
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Recipient #{index + 1}
-                </span>
-                <div className="flex items-center gap-2">
-                  {isSuccess && (
-                    <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded">
-                      Confirmed {recipient.transactionHash ? `(${recipient.transactionHash.slice(0, 6)}...)` : ""}
-                    </span>
-                  )}
-                  {isPending && (
-                    <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded animate-pulse">
-                      Processing...
-                    </span>
-                  )}
-                  {isFailed && (
-                    <span className="text-xs font-medium text-red-700 bg-red-100 px-2 py-0.5 rounded">
-                      Failed
-                    </span>
-                  )}
-                  {recipients.length > 1 && !isProcessing && !isPending && !isSuccess && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRecipient(recipient.id)}
-                      className="text-xs text-red-600 hover:text-red-800 font-medium"
+              All ({recipients.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowInvalidOnly(true)}
+              className={`px-3 py-1 text-xs rounded-full font-medium transition ${
+                showInvalidOnly
+                  ? "bg-rose-500 text-white"
+                  : "bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/20"
+              }`}
+              aria-pressed={showInvalidOnly}
+              aria-label="Filter to invalid rows"
+            >
+              Invalid only ({invalidRecipients.length})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {importMessage && (
+        <div className="mb-4 rounded-2xl border border-slate-700 bg-slate-800/70 px-4 py-3 text-sm text-slate-200">
+          {importMessage}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {showInvalidOnly && displayedRecipients.length === 0 ? (
+          <div className="p-6 text-center rounded-3xl border border-white/10 bg-white/5 text-sm text-slate-300">
+            All invalid rows have been resolved!
+            <button
+              type="button"
+              onClick={() => setShowInvalidOnly(false)}
+              className="ml-2 text-stellar-400 hover:underline font-medium"
+            >
+              Show all rows ({recipients.length})
+            </button>
+          </div>
+        ) : (
+          displayedRecipients.map((recipient) => {
+            const rowIndex = recipients.findIndex((r) => r.id === recipient.id);
+            const rowNumber = rowIndex + 1;
+
+            return (
+              <div
+                key={recipient.id}
+                data-testid={`recipient-row-${rowNumber}`}
+                className={`rounded-3xl border p-4 transition ${
+                  recipient.status === "failed" || recipient.error
+                    ? "border-rose-500/30 bg-rose-500/5"
+                    : "border-white/10 bg-white/5"
+                }`}
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between text-xs text-slate-400 font-medium">
+                    <span>Row #{rowNumber}</span>
+                    {recipient.status === "failed" && (
+                      <span className="text-rose-400">Needs attention</span>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="label">Recipient address</span>
+                      <input
+                        type="text"
+                        value={recipient.address}
+                        onChange={(event) =>
+                          updateRecipient(recipient.id, {
+                            address: event.target.value,
+                          })
+                        }
+                        disabled={isProcessing}
+                        aria-invalid={Boolean(recipient.fieldErrors?.address)}
+                        aria-label={`Row ${rowNumber} Recipient address`}
+                        className={`input-field w-full ${
+                          recipient.fieldErrors?.address ? "border-rose-500/50" : ""
+                        }`}
+                        placeholder="G..."
+                      />
+                      {recipient.fieldErrors?.address && (
+                        <p
+                          role="alert"
+                          data-testid={`row-${rowNumber}-address-error`}
+                          className="mt-1 text-xs text-rose-400"
+                        >
+                          Row {rowNumber} (Address): {recipient.fieldErrors.address}
+                        </p>
+                      )}
+                    </label>
+                    <label className="block">
+                      <span className="label">Amount (XLM)</span>
+                      <input
+                        type="number"
+                        step="0.0000001"
+                        min="0"
+                        value={recipient.amount}
+                        onChange={(event) =>
+                          updateRecipient(recipient.id, {
+                            amount: event.target.value,
+                          })
+                        }
+                        disabled={isProcessing}
+                        aria-invalid={Boolean(recipient.fieldErrors?.amount)}
+                        aria-label={`Row ${rowNumber} Amount (XLM)`}
+                        className={`input-field w-full ${
+                          recipient.fieldErrors?.amount ? "border-rose-500/50" : ""
+                        }`}
+                        placeholder="0.5"
+                      />
+                      {recipient.fieldErrors?.amount && (
+                        <p
+                          role="alert"
+                          data-testid={`row-${rowNumber}-amount-error`}
+                          className="mt-1 text-xs text-rose-400"
+                        >
+                          Row {rowNumber} (Amount): {recipient.fieldErrors.amount}
+                        </p>
+                      )}
+                    </label>
+                  </div>
+
+                  <label className="block">
+                    <span className="label">Memo (optional)</span>
+                    <input
+                      type="text"
+                      value={recipient.memo}
+                      onChange={(event) =>
+                        updateRecipient(recipient.id, {
+                          memo: truncateMemoText(event.target.value),
+                        })
+                      }
+                      disabled={isProcessing}
+                      aria-invalid={Boolean(recipient.fieldErrors?.memo)}
+                      aria-label={`Row ${rowNumber} Memo`}
+                      className={`input-field w-full ${
+                        recipient.fieldErrors?.memo ? "border-rose-500/50" : ""
+                      }`}
+                      placeholder="Payment note"
+                      maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
+                    />
+                    {recipient.fieldErrors?.memo && (
+                      <p
+                        role="alert"
+                        data-testid={`row-${rowNumber}-memo-error`}
+                        className="mt-1 text-xs text-rose-400"
+                      >
+                        Row {rowNumber} (Memo): {recipient.fieldErrors.memo}
+                      </p>
+                    )}
+                  </label>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm text-slate-300">
+                      Status:{" "}
+                      {recipient.status === "idle" && (
+                        <span className="text-slate-400">Waiting</span>
+                      )}
+                      {recipient.status === "pending" && (
+                        <span className="text-amber-300">Processing</span>
+                      )}
+                      {recipient.status === "success" && (
+                        <span className="text-emerald-400">Sent ✓</span>
+                      )}
+                      {recipient.status === "failed" && (
+                        <span className="text-rose-400">Failed</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRecipient(recipient.id)}
+                        disabled={isProcessing || recipients.length <= 1}
+                        className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {recipient.error && (
+                    <div
+                      role="alert"
+                      className="rounded-2xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-sm text-rose-100"
                     >
-                      Remove
-                    </button>
+                      {recipient.error}
+                    </div>
                   )}
                 </div>
               </div>
+            );
+          })
+        )}
 
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                <div className="md:col-span-6">
-                  <input
-                    type="text"
-                    placeholder="G..."
-                    value={recipient.address}
-                    disabled={isProcessing || isSuccess}
-                    onChange={(e) => updateRecipient(recipient.id, { address: e.target.value.trim(), status: "idle", error: undefined })}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                  />
-                </div>
-                <div className="md:col-span-3">
-                  <input
-                    type="number"
-                    step="0.0000001"
-                    min="0"
-                    placeholder="0.5"
-                    value={recipient.amount}
-                    disabled={isProcessing || isSuccess}
-                    onChange={(e) => updateRecipient(recipient.id, { amount: e.target.value, status: "idle", error: undefined })}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                  />
-                </div>
-                <div className="md:col-span-3">
-                  <input
-                    type="text"
-                    placeholder="Memo (opt)"
-                    maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
-                    value={recipient.memo}
-                    disabled={isProcessing || isSuccess}
-                    onChange={(e) => updateRecipient(recipient.id, { memo: truncateMemoText(e.target.value), status: "idle", error: undefined })}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                  />
-                </div>
-              </div>
-
-              {recipient.error && (
-                <p className="mt-2 text-xs text-red-600 font-medium" role="alert">
-                  {recipient.error}
-                </p>
-              )}
-            </div>
-          );
-        })}
-
-        <div className="flex items-center justify-between pt-2">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-center">
           <button
             type="button"
             onClick={handleAddRecipient}
             disabled={isProcessing || recipients.length >= MAX_RECIPIENTS}
-            className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 disabled:opacity-50"
+            className="btn-secondary w-full py-2.5"
           >
-            + Add recipient
+            Add recipient
           </button>
-
-          <div className="text-right">
-            <span className="text-sm text-gray-600 mr-4">
-              Total: <strong className="text-gray-900">{formatXLMPrecise(totalXLM)} XLM</strong>
-            </span>
+          <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            Total: <span className="font-semibold text-white">{formatXLMPrecise(totalXLM)}</span>
           </div>
         </div>
 
-        {exceedsBalance && (
-          <p className="text-xs text-red-600 font-medium" role="alert">
-            Total batch amount exceeds available balance ({formatXLMPrecise(availableXLM)} XLM).
-          </p>
-        )}
+        {exceedsBalance ? (
+          <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-100">
+            Total exceeds your available XLM balance after reserve.
+          </div>
+        ) : null}
 
         {batchMessage && (
-          <div className={`p-3 rounded-lg text-sm ${hasFailed && hasSuccess ? "bg-amber-50 text-amber-800 border border-amber-200" : hasFailed ? "bg-red-50 text-red-800 border border-red-200" : "bg-green-50 text-green-800 border border-green-200"}`} role="status">
+          <div className="rounded-2xl bg-slate-800/70 border border-slate-700 px-4 py-3 text-sm text-slate-200">
             {batchMessage}
           </div>
         )}
 
-        <div className="flex gap-3 pt-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
-            type="submit"
-            disabled={!canSubmit || exceedsBalance || isProcessing}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-4 rounded-xl transition-colors disabled:opacity-50"
+            type="button"
+            onClick={handleSendBatch}
+            disabled={!canSubmit || isProcessing || exceedsBalance}
+            className="btn-primary w-full sm:w-auto py-2.5"
           >
-            {isProcessing ? "Processing Batch..." : "Send batch"}
+            {isProcessing ? "Sending batch..." : "Send batch"}
           </button>
-
-          {hasFailed && !isProcessing && (
-            <button
-              type="button"
-              onClick={handleRetryFailed}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-medium py-2.5 px-4 rounded-xl transition-colors"
-            >
-              Retry failed only
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleRetryFailed}
+            disabled={!hasFailed || isProcessing}
+            className="btn-outline w-full sm:w-auto py-2.5"
+          >
+            Retry failed payments
+          </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

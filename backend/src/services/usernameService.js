@@ -1,4 +1,3 @@
-/* eslint-disable */
 /**
  * src/services/usernameService.js
  * Business logic for username-to-public-key mapping and resolution.
@@ -45,16 +44,14 @@ function registerUsername(username, publicKey) {
     throw error;
   }
 
- // Check if public key is already registered to another username
-  /* eslint-disable no-unused-vars */
- // eslint-disable-next-line no-unused-vars
-  for (const [unused, existingPublicKey] of usernameMap.entries()) {    if (existingPublicKey === publicKey) {
+  // Check if public key is already registered to another username
+  for (const existingPublicKey of usernameMap.values()) {
+    if (existingPublicKey === publicKey) {
       const error = new Error("Public key already registered to another username");
       error.status = 409;
       throw error;
     }
   }
-  /* eslint-enable no-unused-vars */
 
   usernameMap.set(canonicalUsername, publicKey);
   return { username: canonicalUsername, publicKey };
@@ -158,7 +155,8 @@ function createUsernameService(store = new Map()) {
     registerUsername(username, publicKey) {
       validateUsername(username);
       validatePublicKey(publicKey);
-      if (store.has(username)) {
+      const canonical = canonicalizeUsername(username);
+      if (store.has(canonical)) {
         const error = new Error("Username already registered");
         error.status = 409;
         throw error;
@@ -170,31 +168,41 @@ function createUsernameService(store = new Map()) {
           throw error;
         }
       }
-      store.set(username, publicKey);
-      return { username, publicKey };
+      store.set(canonical, publicKey);
+      return { username: canonical, publicKey };
     },
     resolveUsername(username) {
       validateUsername(username);
-      const publicKey = store.get(username);
+      const canonical = canonicalizeUsername(username);
+      const publicKey = store.get(canonical);
       if (!publicKey) {
         const error = new Error("Username not found");
         error.status = 404;
         throw error;
       }
-      return { username, publicKey };
+      return { username: canonical, publicKey };
     },
     getAllUsernames: () => Array.from(store.entries()).map(([username, publicKey]) => ({ username, publicKey })),
     removeUsername(username) {
       validateUsername(username);
-      if (!store.delete(username)) {
+      const canonical = canonicalizeUsername(username);
+      if (!store.delete(canonical)) {
         const error = new Error("Username not found");
         error.status = 404;
         throw error;
       }
-      return { username };
+      return { username: canonical };
     },
+    clearUsernames: () => store.clear(),
     store,
   };
+}
+
+/**
+ * Clear all registered usernames (used for test isolation / reset).
+ */
+function clearUsernames() {
+  usernameMap.clear();
 }
 
 module.exports = {
@@ -205,6 +213,7 @@ module.exports = {
   validateUsername,
   validatePublicKey,
   canonicalizeUsername,
+  clearUsernames,
   usernameMap,
   createUsernameService,
 };

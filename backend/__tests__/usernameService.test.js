@@ -1,26 +1,58 @@
 /**
  * __tests__/usernameService.test.js
- * Unit tests for usernameService (issue #533).
+ * Unit tests for usernameService (#533, #726, #730).
  *
- * Tests username registration, uniqueness, and resolution to Stellar address.
+ * Tests username registration, uniqueness, test state isolation, and
+ * valid StrKey address verification using real Keypair fixtures.
  */
 
 "use strict";
 
 const usernameService = require("../src/services/usernameService");
+const {
+  TEST_PUBLIC_KEY_A,
+  TEST_PUBLIC_KEY_B,
+  TEST_PUBLIC_KEY_C,
+  generateValidPublicKey,
+  createInvalidLengthPublicKey,
+  createInvalidChecksumPublicKey,
+} = require("./fixtures/stellar");
 
-const KEY_A = "G" + "A".repeat(55); // 56 chars
-const KEY_B = "G" + "B".repeat(55); // 56 chars
-const KEY_C = "G" + "C".repeat(55); // 56 chars
+const KEY_A = TEST_PUBLIC_KEY_A;
+const KEY_B = TEST_PUBLIC_KEY_B;
+const KEY_C = TEST_PUBLIC_KEY_C;
 
 describe("usernameService", () => {
   beforeEach(() => {
-    // Clear in-memory storage before each test
-    usernameService.usernameMap?.clear?.();
+    // Clear in-memory storage before each test for deterministic state isolation (#726)
+    usernameService.clearUsernames();
+  });
+
+  afterEach(() => {
+    // Reset state after each test to prevent module-level state leakage (#726)
+    usernameService.clearUsernames();
+  });
+
+  describe("state isolation (#726)", () => {
+    it("clears state deterministically with clearUsernames", () => {
+      usernameService.registerUsername("isolateduser", KEY_A);
+      expect(usernameService.getAllUsernames()).toHaveLength(1);
+
+      usernameService.clearUsernames();
+      expect(usernameService.getAllUsernames()).toHaveLength(0);
+      expect(() => usernameService.resolveUsername("isolateduser")).toThrow("Username not found");
+    });
+
+    it("allows registering the same username in consecutive tests without conflict", () => {
+      // If previous test leaked state, this would throw 409
+      const result = usernameService.registerUsername("isolateduser", KEY_B);
+      expect(result.username).toBe("isolateduser");
+      expect(result.publicKey).toBe(KEY_B);
+    });
   });
 
   describe("registerUsername", () => {
-    it("registering a new username succeeds", () => {
+    it("registering a new username succeeds with valid StrKey fixture", () => {
       const result = usernameService.registerUsername("alice123", KEY_A);
 
       expect(result.username).toBe("alice123");
@@ -41,6 +73,12 @@ describe("usernameService", () => {
       expect(() => {
         usernameService.registerUsername("bob456", KEY_A);
       }).toThrow("Public key already registered to another username");
+    });
+
+    it("accepts dynamically generated valid Keypair public keys (#730)", () => {
+      const dynamicKey = generateValidPublicKey();
+      const result = usernameService.registerUsername("dynamicuser", dynamicKey);
+      expect(result.publicKey).toBe(dynamicKey);
     });
 
     it("rejects invalid username format", () => {
@@ -252,10 +290,11 @@ describe("usernameService", () => {
     });
   });
 
-  describe("validatePublicKey", () => {
-    it("accepts valid Stellar public keys", () => {
+  describe("validatePublicKey and StrKey validation (#730)", () => {
+    it("accepts valid Stellar public keys generated from Keypairs", () => {
       expect(() => usernameService.validatePublicKey(KEY_A)).not.toThrow();
       expect(() => usernameService.validatePublicKey(KEY_B)).not.toThrow();
+      expect(() => usernameService.validatePublicKey(KEY_C)).not.toThrow();
     });
 
     it("rejects public keys with wrong prefix", () => {
@@ -267,13 +306,22 @@ describe("usernameService", () => {
       ).toThrow("Invalid Stellar public key format");
     });
 
-    it("rejects public keys with incorrect length", () => {
+    it("rejects public keys with incorrect length (too short / too long)", () => {
       expect(() =>
-        usernameService.validatePublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH")
+        usernameService.validatePublicKey(createInvalidLengthPublicKey(55))
       ).toThrow("Invalid Stellar public key format");
       expect(() =>
-        usernameService.validatePublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHFA")
+        usernameService.validatePublicKey(createInvalidLengthPublicKey(57))
       ).toThrow("Invalid Stellar public key format");
+    });
+
+    it("distinguishes length errors from valid 56-char strings (#730)", () => {
+      const shortKey = createInvalidLengthPublicKey(54);
+      const invalidChecksumKey = createInvalidChecksumPublicKey();
+
+      expect(shortKey.length).toBe(54);
+      expect(invalidChecksumKey.length).toBe(56);
+      expect(() => usernameService.validatePublicKey(shortKey)).toThrow("Invalid Stellar public key format");
     });
 
     it("rejects public keys with invalid characters", () => {
