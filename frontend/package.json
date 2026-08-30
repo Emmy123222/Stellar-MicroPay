@@ -9,6 +9,8 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "test": "jest --runInBand",
+    "test:security-headers": "node --test scripts/security-headers.test.mjs",
+    "check:security-headers": "node scripts/check-security-headers.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
