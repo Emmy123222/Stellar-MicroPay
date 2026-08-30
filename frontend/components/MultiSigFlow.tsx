@@ -80,20 +80,26 @@ interface MultiSigFlowProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Extract the last-4-byte hint (hex) from each signature in a signed XDR. */
+/** Extract the last-4-byte hint (hex) from each unique signature in a signed XDR. */
 function extractHints(signedXDRs: string[]): string[] {
-  const hints: string[] = [];
+  const uniqueSigs: { hint: string; signature: string }[] = [];
   for (const xdr of signedXDRs) {
     try {
       const tx = new Transaction(xdr, NETWORK_PASSPHRASE);
       for (const sig of tx.signatures) {
-        hints.push(Buffer.from(sig.hint()).toString("hex"));
+        const hintHex = Buffer.from(sig.hint()).toString("hex");
+        const sigHex = Buffer.from(sig.signature()).toString("hex");
+        
+        const exists = uniqueSigs.some(s => s.hint === hintHex && s.signature === sigHex);
+        if (!exists) {
+          uniqueSigs.push({ hint: hintHex, signature: sigHex });
+        }
       }
     } catch {
       // skip malformed XDR
     }
   }
-  return hints;
+  return uniqueSigs.map(s => s.hint);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -147,7 +153,8 @@ export default function MultiSigFlow({
   const allSignedXDRs = initiatorSignedXDR
     ? [initiatorSignedXDR, ...cosignerXDRs]
     : cosignerXDRs;
-  const signaturesCollected = allSignedXDRs.length;
+  const uniqueHints = extractHints(allSignedXDRs);
+  const signaturesCollected = uniqueHints.length;
   const thresholdMet = signaturesCollected >= threshold;
   const stepIndex = activeStepIndex(step);
 
@@ -272,9 +279,6 @@ export default function MultiSigFlow({
     }
   };
 
-  const handleRemoveCosignerXDR = (index: number) => {
-    setCosignerXDRs((prev) => prev.filter((_, i) => i !== index));
-  };
 
   // ── Step 5: Submit ─────────────────────────────────────────────────────────
 
@@ -564,25 +568,25 @@ export default function MultiSigFlow({
           </div>
 
           {/* Signature hints */}
-          {allSignedXDRs.length > 0 && (
+          {uniqueHints.length > 0 && (
             <div className="rounded-xl bg-white/5 border border-white/10 p-3 space-y-1">
               <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-2">Collected Signatures</p>
-              {extractHints(allSignedXDRs).map((hint, i) => (
+              {uniqueHints.map((hint, i) => (
                 <div key={i} className="flex items-center justify-between">
                   <span className="text-xs text-slate-400">
                     {i === 0 ? "You (initiator)" : `Co-signer ${i}`}
                   </span>
                   <code className="text-xs text-stellar-300 font-mono">{hint}</code>
-                  {i > 0 && (
-                    <button
-                      onClick={() => handleRemoveCosignerXDR(i - 1)}
-                      className="text-red-400 hover:text-red-300 text-xs ml-2"
-                    >
-                      Remove
-                    </button>
-                  )}
                 </div>
               ))}
+              {cosignerXDRs.length > 0 && (
+                <button
+                  onClick={() => setCosignerXDRs([])}
+                  className="text-red-400 hover:text-red-300 text-xs w-full text-left mt-2 pt-2 border-t border-white/10"
+                >
+                  Clear pasted signatures
+                </button>
+              )}
             </div>
           )}
 

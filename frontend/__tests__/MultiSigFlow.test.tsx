@@ -19,6 +19,26 @@ jest.mock("@/lib/wallet", () => ({
   signTransactionWithWallet: jest.fn(),
 }));
 
+jest.mock("@stellar/stellar-sdk", () => {
+  return {
+    ...jest.requireActual("@stellar/stellar-sdk"),
+    Transaction: class {
+      signatures: any[];
+      constructor(xdr: string) {
+        if (xdr === "AAAA-stub-initiator-xdr") {
+          this.signatures = [{ hint: () => Buffer.from("init"), signature: () => Buffer.from("sig1") }];
+        } else if (xdr === "AAAA-stub-cosigner-xdr") {
+          this.signatures = [{ hint: () => Buffer.from("cos1"), signature: () => Buffer.from("sig2") }];
+        } else if (xdr === "AAAA-stub-duplicate-xdr") {
+          this.signatures = [{ hint: () => Buffer.from("init"), signature: () => Buffer.from("sig1") }];
+        } else {
+          this.signatures = [{ hint: () => Buffer.from("unkn"), signature: () => Buffer.from("sigu") }];
+        }
+      }
+    }
+  };
+});
+
 const PUBLIC_KEY = "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37";
 const DESTINATION = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
@@ -112,4 +132,36 @@ describe("MultiSigFlow — accessible stepper (#825)", () => {
   it("exports the multi-sig threshold constant for callers", () => {
     expect(MULTISIG_THRESHOLD_XLM).toBe(100);
   });
+
+  it("deduplicates duplicate signatures and calculates progress from unique authorized signers", () => {
+    render(
+      <MultiSigFlow
+        publicKey={PUBLIC_KEY}
+        xlmBalance="500"
+        defaultStep="collect"
+        defaultThreshold={3}
+        defaultInitiatorSignedXDR="AAAA-stub-initiator-xdr"
+        defaultCosignerXDRs={["AAAA-stub-duplicate-xdr", "AAAA-stub-cosigner-xdr"]}
+      />
+    );
+
+    // initiator (1) + duplicate (1 but same) + cosigner (1) = 2 unique signatures. The duplicate is ignored.
+    expect(screen.getByRole("status")).toHaveTextContent("Signatures collected: 2 of 3");
+  });
+
+  it("handles unknown signatures in XDR appropriately", () => {
+    render(
+      <MultiSigFlow
+        publicKey={PUBLIC_KEY}
+        xlmBalance="500"
+        defaultStep="collect"
+        defaultThreshold={2}
+        defaultInitiatorSignedXDR="AAAA-stub-initiator-xdr"
+        defaultCosignerXDRs={["AAAA-stub-unknown-xdr"]}
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Signatures collected: 2 of 2");
+  });
 });
+
