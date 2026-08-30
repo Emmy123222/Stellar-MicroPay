@@ -5,6 +5,7 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - frontend_static:/usr/share/nginx/html:ro
@@ -19,6 +20,8 @@ services:
       timeout: 10s
       retries: 3
     restart: always
+    networks:
+      - proxy
 
   frontend:
     build:
@@ -26,12 +29,19 @@ services:
       dockerfile: Dockerfile.prod
     volumes:
       - frontend_static:/usr/share/nginx/html
+    environment:
+      - NEXT_PUBLIC_STELLAR_NETWORK=mainnet
+      - NEXT_PUBLIC_HORIZON_URL=https://horizon.stellar.org
+      - NEXT_PUBLIC_API_URL=https://stellarmicropay.io/api
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:80"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: always
+    networks:
+      - proxy
+      - frontend
 
   backend:
     build:
@@ -42,12 +52,36 @@ services:
       - NODE_ENV=production
       - STELLAR_NETWORK=mainnet
       - HORIZON_URL=https://horizon.stellar.org
+      - ALLOWED_ORIGINS=https://stellarmicropay.io
+      - FEDERATION_DOMAIN=stellarmicropay.io
+      - FEDERATION_DOMAINS=stellarmicropay.io,stellarmicropay.com
+    secrets:
+      - jwt_secret
+      - server_private_key
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: always
+    networks:
+      - frontend
+      - backend
 
 volumes:
   frontend_static:
+
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  server_private_key:
+    file: ./secrets/server_private_key.txt
+
+networks:
+  proxy:
+    driver: bridge
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true

@@ -11,6 +11,7 @@ Stellar MicroPay is an open-source project and every contribution matters, wheth
 - [Code of Conduct](#code-of-conduct)
 - [How to Fork & Set Up](#how-to-fork--set-up)
 - [Running the Project Locally](#running-the-project-locally)
+- [API Versioning & Deprecation Policy](#api-versioning--deprecation-policy)
 - [Making Changes](#making-changes)
 - [Submitting a Pull Request](#submitting-a-pull-request)
 - [Issue Templates](#issue-templates)
@@ -88,6 +89,16 @@ cargo install --locked stellar-cli
 cd contracts/stellar-micropay-contract
 cargo build --target wasm32-unknown-unknown --release
 ```
+
+---
+
+## 📌 API Versioning & Deprecation Policy (#853)
+
+When contributing changes to backend API routes:
+1. **Always implement new routes under `/api/v1/`**: Primary routes must be mounted under `/api/v1/*`.
+2. **Preserve backward compatibility**: When making contract changes, keep legacy routes mounted under `/api/*` and attach the `apiDeprecationHeader` middleware from `src/middleware/deprecation.js`.
+3. **Deprecation headers**: Legacy endpoints will respond with `Deprecation: true`, `Sunset: <date>`, and `Link: </api/v1/...>; rel="successor-version"`.
+4. **Testing**: Include unit/integration test coverage in `backend/__tests__/versioning.test.js` verifying that both versioned and legacy paths respond correctly.
 
 ---
 

@@ -341,31 +341,89 @@ function addExecutionLog(deploymentId, status, message, result = null) {
   }
 }
 
-let priceCache = { value: null, fetchedAt: 0 };
+const PRICE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+const PRICE_MIN_VALID = 0.0001;
+const PRICE_MAX_VALID = 10.0;
+
+async function fetchCoinGeckoPrice() {
+  const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd&include_last_updated_at=true");
+  if (!res.ok) throw new Error(`CoinGecko failed (${res.status})`);
+  const data = await res.json();
+  const value = Number(data?.stellar?.usd);
+  const updatedAt = Number(data?.stellar?.last_updated_at) * 1000;
+  return { value, updatedAt, source: "coingecko" };
+}
+
+async function fetchBinancePrice() {
+  const res = await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=XLMUSDT");
+  if (!res.ok) throw new Error(`Binance failed (${res.status})`);
+  const data = await res.json();
+  const value = Number(data?.lastPrice);
+  const updatedAt = Number(data?.closeTime);
+  return { value, updatedAt, source: "binance" };
+}
+
+function validatePriceData(data, now) {
+  if (!data || !Number.isFinite(data.value) || !Number.isFinite(data.updatedAt)) {
+    throw new Error("Malformed price data: missing or invalid value/timestamp");
+  }
+  if (data.value < PRICE_MIN_VALID || data.value > PRICE_MAX_VALID) {
+    throw new Error(`Price out of sanity range (${PRICE_MIN_VALID} - ${PRICE_MAX_VALID}): ${data.value}`);
+  }
+  
+  const age = now - data.updatedAt;
+  if (age < -60_000) {
+    throw new Error(`Price timestamp is in the future: ${data.updatedAt}`);
+  } else if (age > PRICE_MAX_AGE_MS) {
+    throw new Error(`Price data is stale. Age: ${age}ms, Max: ${PRICE_MAX_AGE_MS}ms`);
+  }
+  return true;
+}
+
+let priceCache = { value: null, fetchedAt: 0, updatedAt: 0 };
 
 async function getXlmUsdPrice() {
   const now = Date.now();
-  if (priceCache.value !== null && now - priceCache.fetchedAt < 30_000) {
+  
+  if (
+    priceCache.value !== null && 
+    (now - priceCache.fetchedAt < 30_000) && 
+    (now - priceCache.updatedAt < PRICE_MAX_AGE_MS)
+  ) {
     return priceCache.value;
   }
 
-  const res = await fetch(
-    "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd"
-  );
+  let priceData = null;
+  let errors = [];
 
-  if (!res.ok) {
-    throw new Error(`Price lookup failed (${res.status})`);
+  // Primary: CoinGecko
+  try {
+    const cgData = await fetchCoinGeckoPrice();
+    validatePriceData(cgData, now);
+    priceData = cgData;
+  } catch (err) {
+    errors.push(err.message);
+    logger.warn({ err: err.message }, "CoinGecko price fetch failed, attempting fallback");
   }
 
-  const data = await res.json();
-  const value = Number(data?.stellar?.usd);
-
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error("Invalid price response from upstream provider");
+  // Fallback: Binance (Documented fallback strategy)
+  if (!priceData) {
+    try {
+      const binData = await fetchBinancePrice();
+      validatePriceData(binData, now);
+      priceData = binData;
+    } catch (err) {
+      errors.push(err.message);
+      logger.warn({ err: err.message }, "Binance price fetch failed");
+    }
   }
 
-  priceCache = { value, fetchedAt: now };
-  return value;
+  if (!priceData) {
+    throw new Error(`All price oracles failed or returned invalid data: ${errors.join(" | ")}`);
+  }
+
+  priceCache = { value: priceData.value, fetchedAt: now, updatedAt: priceData.updatedAt };
+  return priceData.value;
 }
 
 function nextRunIso(intervalMinutes) {
@@ -590,4 +648,5 @@ module.exports = {
   getAuditLog,
   startRunner,
   stopRunner,
+  _getXlmUsdPrice: getXlmUsdPrice,
 };

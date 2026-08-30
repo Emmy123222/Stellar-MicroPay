@@ -1,6 +1,7 @@
 "use strict";
 
 require("dotenv").config();
+const logger = require("../utils/logger");
 
 // In-memory storage for scheduled transactions
 // In a production environment, this would be replaced with a database
@@ -44,11 +45,14 @@ function scheduleTransaction(signedXDR, submitAt, publicKey) {
     attempts: 0,
     lastError: null,
     createdAt: new Date().getTime(),
-    paused: false, // New: pause state
-    pausedAt: null, // New: timestamp when paused
-    claimed: false, // Worker ownership flag (atomic claim)
-    status: "pending", // pending | submitted | failed
-    transactionHash: null, // Populated on successful submission
+    paused: false,
+    pausedAt: null,
+    // Reconciliation state: null | "unknown" | "confirmed" | "failed"
+    submissionState: null,
+    /** @type {string|null} Transaction hash after submission */
+    txHash: null,
+    /** @type {string|null} Source account sequence number from the XDR */
+    sourceSequence: null,
   };
 
   scheduledTransactions.set(id, scheduledTx);
@@ -121,9 +125,14 @@ function getDueTransactions() {
     // 1. Are due for submission (submitAt <= now)
     // 2. Haven't exceeded max attempts (attempts < 3)
     // 3. Are not paused (paused !== true)
-    // 4. Haven't been claimed by the worker yet (claimed !== true)
-    // 5. Are still pending (not already submitted or permanently failed)
-    if (tx.submitAt <= now && tx.attempts < 3 && !tx.paused && !tx.claimed && tx.status === "pending") {
+    // 4. Haven't already been submitted or reconciled (avoids duplicate resubmission)
+    if (
+      tx.submitAt <= now &&
+      tx.attempts < 3 &&
+      !tx.paused &&
+      tx.submissionState !== "confirmed" &&
+      tx.submissionState !== "unknown"
+    ) {
       due.push(tx);
     }
   }
@@ -211,6 +220,111 @@ function removeTransaction(id) {
 }
 
 /**
+ * Record a submission attempt. Sets state to "unknown" until reconciliation.
+ * @param {number} id - The transaction ID
+ * @param {string} txHash - The Stellar transaction hash
+ * @param {string} [sourceSequence] - The source account sequence used in the XDR
+ */
+function markSubmitted(id, txHash, sourceSequence) {
+  const tx = scheduledTransactions.get(id);
+  if (tx) {
+    tx.submissionState = "unknown";
+    tx.txHash = txHash;
+    if (sourceSequence) tx.sourceSequence = sourceSequence;
+    logger.info(JSON.stringify({ type: "transaction_submitted", id, txHash }));
+  }
+}
+
+/**
+ * Reconcile a submitted transaction by confirming or denying it.
+ * When the caller has checked Horizon and determined the outcome, they call
+ * this function to move the transaction to a terminal state.
+ *
+ * @param {number} id - The transaction ID
+ * @param {boolean} confirmed - Whether the transaction was found on-ledger
+ * @param {string} [reason] - Explanation (e.g. timeout, duplicate, bad_seq)
+ */
+function reconcileTransaction(id, confirmed, reason) {
+  const tx = scheduledTransactions.get(id);
+  if (!tx) return;
+
+  if (confirmed) {
+    tx.submissionState = "confirmed";
+    logger.info(JSON.stringify({ type: "transaction_confirmed", id, txHash: tx.txHash }));
+  } else {
+    tx.submissionState = "failed";
+    tx.lastError = reason || "Reconciled as not found on-ledger";
+    logger.info(JSON.stringify({ type: "transaction_failed_reconciliation", id, reason: tx.lastError }));
+  }
+}
+
+/**
+ * Reconcile by looking up a transaction hash on Horizon.
+ * Returns the resolved state so the caller can act on it.
+ *
+ * @param {number} id - The transaction ID
+ * @param {object|null} horizonTx - The Horizon transaction response, or null if not found
+ * @returns {string} "confirmed" | "failed" | "unknown"
+ */
+function reconcileByHash(id, horizonTx) {
+  const tx = scheduledTransactions.get(id);
+  if (!tx) return "unknown";
+
+  if (horizonTx && (horizonTx.successful === true || horizonTx.successful === undefined)) {
+    reconcileTransaction(id, true);
+    return "confirmed";
+  }
+
+  // Found on-ledger but not successful, or not found at all
+  reconcileTransaction(id, false, horizonTx ? "Transaction failed on-ledger" : "Transaction not found");
+  return "failed";
+}
+
+/**
+ * Reconcile by comparing the account's current sequence to the source
+ * sequence that was used when the transaction was signed.
+ *
+ * If the account's sequence has advanced past the source sequence, the
+ * transaction (or a subsequent one using the same sequence) has been applied.
+ *
+ * @param {number} id - The scheduled transaction ID
+ * @param {string|number} currentSequence - The account's current sequence from Horizon
+ * @returns {string} "confirmed" | "failed" | "unknown"
+ */
+function reconcileBySequence(id, currentSequence) {
+  const tx = scheduledTransactions.get(id);
+  if (!tx) return "unknown";
+  if (!tx.sourceSequence) return "unknown";
+
+  const current = BigInt(currentSequence);
+  const source = BigInt(tx.sourceSequence);
+
+  if (current > source) {
+    // Sequence advanced — the transaction was applied (or superseded).
+    reconcileTransaction(id, true, "Sequence advanced past source");
+    return "confirmed";
+  }
+
+  // Sequence hasn't advanced — transaction was never applied
+  reconcileTransaction(id, false, "Sequence unchanged — transaction not applied");
+  return "failed";
+}
+
+/**
+ * Get all transactions that need reconciliation (submitted but outcome unknown).
+ * @returns {Array}
+ */
+function getUnreconciledTransactions() {
+  const unreconciled = [];
+  for (const [, tx] of scheduledTransactions.entries()) {
+    if (tx.submissionState === "unknown") {
+      unreconciled.push(tx);
+    }
+  }
+  return unreconciled;
+}
+
+/**
  * Pause a scheduled transaction
  * @param {number} id - The transaction ID
  * @returns {boolean} True if paused, false if not found
@@ -253,4 +367,9 @@ module.exports = {
   removeTransaction,
   pauseTransaction,
   resumeTransaction,
+  markSubmitted,
+  reconcileTransaction,
+  reconcileByHash,
+  reconcileBySequence,
+  getUnreconciledTransactions,
 };
