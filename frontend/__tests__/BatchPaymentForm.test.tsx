@@ -69,7 +69,7 @@ describe("BatchPaymentForm", () => {
     await user.click(screen.getByRole("button", { name: /Add recipient/i }));
     expect(screen.getAllByPlaceholderText("G...")).toHaveLength(2);
 
-    const removeButtons = screen.getAllByRole("button", { name: /Remove/i });
+    const removeButtons = screen.getAllByRole("button", { name: /Remove recipient/i });
     await user.click(removeButtons[0]);
 
     expect(screen.getAllByPlaceholderText("G...")).toHaveLength(1);
@@ -170,7 +170,7 @@ describe("BatchPaymentForm", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("row-1-address-error")).toHaveTextContent(
-          "Row 1 (Address): Invalid Stellar address."
+          "Recipient 1 (Address): Invalid Stellar address."
         );
       });
     });
@@ -363,5 +363,66 @@ describe("BatchPaymentForm", () => {
     expect(
       screen.getByText(/Total exceeds your available XLM balance/i)
     ).toBeInTheDocument();
+  });
+
+  describe("batch recipient grid accessibility (#824)", () => {
+    it("uses table semantics with column headers for the recipient editor", () => {
+      render(<BatchPaymentForm {...defaultProps} />);
+
+      const table = screen.getByRole("table", { name: /Batch payment recipients/i });
+      expect(table).toHaveAttribute("data-testid", "batch-recipient-grid");
+      expect(screen.getByRole("columnheader", { name: "Recipient address" })).toBeInTheDocument();
+      expect(screen.getByRole("columnheader", { name: "Amount (XLM)" })).toBeInTheDocument();
+      expect(screen.getByRole("columnheader", { name: "Memo" })).toBeInTheDocument();
+      expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+      expect(screen.getByRole("rowheader", { name: "Recipient 1" })).toBeInTheDocument();
+    });
+
+    it("labels remove actions with the recipient index", async () => {
+      const user = userEvent.setup();
+      render(<BatchPaymentForm {...defaultProps} />);
+
+      await user.click(screen.getByRole("button", { name: /Add recipient/i }));
+
+      expect(screen.getByRole("button", { name: "Remove Recipient 1" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove Recipient 2" })).toBeInTheDocument();
+    });
+
+    it("announces inserted and removed rows in a live region", async () => {
+      const user = userEvent.setup();
+      render(<BatchPaymentForm {...defaultProps} />);
+
+      const liveRegion = screen.getByTestId("batch-recipient-row-announcements");
+      expect(liveRegion).toHaveAttribute("aria-live", "polite");
+      expect(liveRegion).toHaveAttribute("aria-atomic", "true");
+
+      await user.click(screen.getByRole("button", { name: /Add recipient/i }));
+      expect(liveRegion).toHaveTextContent("Recipient row 2 inserted.");
+
+      await user.click(screen.getByRole("button", { name: "Remove Recipient 1" }));
+      expect(liveRegion).toHaveTextContent("Recipient row 1 removed.");
+    });
+
+    it("associates row-specific errors with recipient identity", async () => {
+      const user = userEvent.setup();
+      render(<BatchPaymentForm {...defaultProps} />);
+
+      await user.click(screen.getByRole("button", { name: /Add recipient/i }));
+      const addressInputs = screen.getAllByPlaceholderText("G...");
+      const amountInputs = screen.getAllByPlaceholderText("0.5");
+
+      await user.type(addressInputs[0], "BAD_ADDR");
+      await user.type(amountInputs[0], "5");
+      await user.type(addressInputs[1], VALID_ADDR);
+      await user.type(amountInputs[1], "2");
+
+      await user.click(screen.getByRole("button", { name: /Send batch/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("row-1-address-error")).toHaveTextContent(
+          "Recipient 1 (Address): Invalid Stellar address."
+        );
+      });
+    });
   });
 });

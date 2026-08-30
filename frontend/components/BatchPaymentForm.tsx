@@ -64,6 +64,7 @@ export default function BatchPaymentForm({
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [showInvalidOnly, setShowInvalidOnly] = useState(false);
+  const [rowAnnouncement, setRowAnnouncement] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const xlmBalanceValue = parseFloat(xlmBalance || "0");
@@ -138,12 +139,19 @@ export default function BatchPaymentForm({
 
   const handleAddRecipient = () => {
     if (recipients.length >= MAX_RECIPIENTS) return;
+    const nextRowNumber = recipients.length + 1;
     setRecipients((current) => [...current, createRecipient()]);
+    setRowAnnouncement(`Recipient row ${nextRowNumber} inserted.`);
     setBatchMessage(null);
   };
 
   const handleRemoveRecipient = (id: string) => {
+    const rowIndex = recipients.findIndex((recipient) => recipient.id === id);
+    const rowNumber = rowIndex + 1;
     setRecipients((current) => current.filter((recipient) => recipient.id !== id));
+    if (rowIndex >= 0) {
+      setRowAnnouncement(`Recipient row ${rowNumber} removed.`);
+    }
     setBatchMessage(null);
   };
 
@@ -425,6 +433,15 @@ export default function BatchPaymentForm({
         </div>
       )}
 
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+        data-testid="batch-recipient-row-announcements"
+      >
+        {rowAnnouncement}
+      </div>
+
       <div className="space-y-4">
         {showInvalidOnly && displayedRecipients.length === 0 ? (
           <div className="p-6 text-center rounded-3xl border border-white/10 bg-white/5 text-sm text-slate-300">
@@ -438,159 +455,217 @@ export default function BatchPaymentForm({
             </button>
           </div>
         ) : (
-          displayedRecipients.map((recipient) => {
-            const rowIndex = recipients.findIndex((r) => r.id === recipient.id);
-            const rowNumber = rowIndex + 1;
+          <div className="overflow-x-auto rounded-3xl border border-white/10">
+            <table
+              className="min-w-full border-collapse text-left"
+              aria-label="Batch payment recipients"
+              data-testid="batch-recipient-grid"
+            >
+              <caption className="sr-only">
+                Batch payment recipients. Up to {MAX_RECIPIENTS} rows with address, amount, memo,
+                status, and row actions.
+              </caption>
+              <thead className="bg-white/5 text-xs uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Recipient
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Recipient address
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Amount (XLM)
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Memo
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Status
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedRecipients.map((recipient) => {
+                  const rowIndex = recipients.findIndex((r) => r.id === recipient.id);
+                  const rowNumber = rowIndex + 1;
+                  const rowLabel = `Recipient ${rowNumber}`;
 
-            return (
-              <div
-                key={recipient.id}
-                data-testid={`recipient-row-${rowNumber}`}
-                className={`rounded-3xl border p-4 transition ${
-                  recipient.status === "failed" || recipient.error
-                    ? "border-rose-500/30 bg-rose-500/5"
-                    : "border-white/10 bg-white/5"
-                }`}
-              >
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between text-xs text-slate-400 font-medium">
-                    <span>Row #{rowNumber}</span>
-                    {recipient.status === "failed" && (
-                      <span className="text-rose-400">Needs attention</span>
-                    )}
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="label">Recipient address</span>
-                      <input
-                        type="text"
-                        value={recipient.address}
-                        onChange={(event) =>
-                          updateRecipient(recipient.id, {
-                            address: event.target.value,
-                          })
-                        }
-                        disabled={isProcessing}
-                        aria-invalid={Boolean(recipient.fieldErrors?.address)}
-                        aria-label={`Row ${rowNumber} Recipient address`}
-                        className={`input-field w-full ${
-                          recipient.fieldErrors?.address ? "border-rose-500/50" : ""
-                        }`}
-                        placeholder="G..."
-                      />
-                      {recipient.fieldErrors?.address && (
-                        <p
-                          role="alert"
-                          data-testid={`row-${rowNumber}-address-error`}
-                          className="mt-1 text-xs text-rose-400"
-                        >
-                          Row {rowNumber} (Address): {recipient.fieldErrors.address}
-                        </p>
-                      )}
-                    </label>
-                    <label className="block">
-                      <span className="label">Amount (XLM)</span>
-                      <input
-                        type="number"
-                        step="0.0000001"
-                        min="0"
-                        value={recipient.amount}
-                        onChange={(event) =>
-                          updateRecipient(recipient.id, {
-                            amount: event.target.value,
-                          })
-                        }
-                        disabled={isProcessing}
-                        aria-invalid={Boolean(recipient.fieldErrors?.amount)}
-                        aria-label={`Row ${rowNumber} Amount (XLM)`}
-                        className={`input-field w-full ${
-                          recipient.fieldErrors?.amount ? "border-rose-500/50" : ""
-                        }`}
-                        placeholder="0.5"
-                      />
-                      {recipient.fieldErrors?.amount && (
-                        <p
-                          role="alert"
-                          data-testid={`row-${rowNumber}-amount-error`}
-                          className="mt-1 text-xs text-rose-400"
-                        >
-                          Row {rowNumber} (Amount): {recipient.fieldErrors.amount}
-                        </p>
-                      )}
-                    </label>
-                  </div>
-
-                  <label className="block">
-                    <span className="label">Memo (optional)</span>
-                    <input
-                      type="text"
-                      value={recipient.memo}
-                      onChange={(event) =>
-                        updateRecipient(recipient.id, {
-                          memo: truncateMemoText(event.target.value),
-                        })
-                      }
-                      disabled={isProcessing}
-                      aria-invalid={Boolean(recipient.fieldErrors?.memo)}
-                      aria-label={`Row ${rowNumber} Memo`}
-                      className={`input-field w-full ${
-                        recipient.fieldErrors?.memo ? "border-rose-500/50" : ""
+                  return (
+                    <tr
+                      key={recipient.id}
+                      data-testid={`recipient-row-${rowNumber}`}
+                      aria-labelledby={`recipient-row-${rowNumber}-label`}
+                      className={`border-t border-white/10 align-top transition ${
+                        recipient.status === "failed" || recipient.error
+                          ? "bg-rose-500/5"
+                          : "bg-white/[0.02]"
                       }`}
-                      placeholder="Payment note"
-                      maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
-                    />
-                    {recipient.fieldErrors?.memo && (
-                      <p
-                        role="alert"
-                        data-testid={`row-${rowNumber}-memo-error`}
-                        className="mt-1 text-xs text-rose-400"
-                      >
-                        Row {rowNumber} (Memo): {recipient.fieldErrors.memo}
-                      </p>
-                    )}
-                  </label>
-
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-sm text-slate-300">
-                      Status:{" "}
-                      {recipient.status === "idle" && (
-                        <span className="text-slate-400">Waiting</span>
-                      )}
-                      {recipient.status === "pending" && (
-                        <span className="text-amber-300">Processing</span>
-                      )}
-                      {recipient.status === "success" && (
-                        <span className="text-emerald-400">Sent ✓</span>
-                      )}
-                      {recipient.status === "failed" && (
-                        <span className="text-rose-400">Failed</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveRecipient(recipient.id)}
-                        disabled={isProcessing || recipients.length <= 1}
-                        className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-
-                  {recipient.error && (
-                    <div
-                      role="alert"
-                      className="rounded-2xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-sm text-rose-100"
                     >
-                      {recipient.error}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })
+                      <th
+                        scope="row"
+                        id={`recipient-row-${rowNumber}-label`}
+                        className="px-4 py-4 text-xs font-medium text-slate-400 whitespace-nowrap"
+                      >
+                        {rowLabel}
+                        {recipient.status === "failed" && (
+                          <span className="mt-1 block text-rose-400 normal-case">
+                            Needs attention
+                          </span>
+                        )}
+                      </th>
+                      <td className="px-4 py-4">
+                        <label className="block">
+                          <span className="sr-only">{rowLabel} Recipient address</span>
+                          <input
+                            type="text"
+                            value={recipient.address}
+                            onChange={(event) =>
+                              updateRecipient(recipient.id, {
+                                address: event.target.value,
+                              })
+                            }
+                            disabled={isProcessing}
+                            aria-invalid={Boolean(recipient.fieldErrors?.address)}
+                            aria-describedby={
+                              recipient.fieldErrors?.address
+                                ? `recipient-row-${rowNumber}-address-error`
+                                : undefined
+                            }
+                            aria-label={`${rowLabel} Recipient address`}
+                            className={`input-field w-full min-w-[12rem] ${
+                              recipient.fieldErrors?.address ? "border-rose-500/50" : ""
+                            }`}
+                            placeholder="G..."
+                          />
+                          {recipient.fieldErrors?.address && (
+                            <p
+                              id={`recipient-row-${rowNumber}-address-error`}
+                              role="alert"
+                              data-testid={`row-${rowNumber}-address-error`}
+                              className="mt-1 text-xs text-rose-400"
+                            >
+                              {rowLabel} (Address): {recipient.fieldErrors.address}
+                            </p>
+                          )}
+                        </label>
+                      </td>
+                      <td className="px-4 py-4">
+                        <label className="block">
+                          <span className="sr-only">{rowLabel} Amount (XLM)</span>
+                          <input
+                            type="number"
+                            step="0.0000001"
+                            min="0"
+                            value={recipient.amount}
+                            onChange={(event) =>
+                              updateRecipient(recipient.id, {
+                                amount: event.target.value,
+                              })
+                            }
+                            disabled={isProcessing}
+                            aria-invalid={Boolean(recipient.fieldErrors?.amount)}
+                            aria-describedby={
+                              recipient.fieldErrors?.amount
+                                ? `recipient-row-${rowNumber}-amount-error`
+                                : undefined
+                            }
+                            aria-label={`${rowLabel} Amount (XLM)`}
+                            className={`input-field w-full min-w-[8rem] ${
+                              recipient.fieldErrors?.amount ? "border-rose-500/50" : ""
+                            }`}
+                            placeholder="0.5"
+                          />
+                          {recipient.fieldErrors?.amount && (
+                            <p
+                              id={`recipient-row-${rowNumber}-amount-error`}
+                              role="alert"
+                              data-testid={`row-${rowNumber}-amount-error`}
+                              className="mt-1 text-xs text-rose-400"
+                            >
+                              {rowLabel} (Amount): {recipient.fieldErrors.amount}
+                            </p>
+                          )}
+                        </label>
+                      </td>
+                      <td className="px-4 py-4">
+                        <label className="block">
+                          <span className="sr-only">{rowLabel} Memo (optional)</span>
+                          <input
+                            type="text"
+                            value={recipient.memo}
+                            onChange={(event) =>
+                              updateRecipient(recipient.id, {
+                                memo: truncateMemoText(event.target.value),
+                              })
+                            }
+                            disabled={isProcessing}
+                            aria-invalid={Boolean(recipient.fieldErrors?.memo)}
+                            aria-describedby={
+                              recipient.fieldErrors?.memo
+                                ? `recipient-row-${rowNumber}-memo-error`
+                                : undefined
+                            }
+                            aria-label={`${rowLabel} Memo (optional)`}
+                            className={`input-field w-full min-w-[10rem] ${
+                              recipient.fieldErrors?.memo ? "border-rose-500/50" : ""
+                            }`}
+                            placeholder="Payment note"
+                            maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
+                          />
+                          {recipient.fieldErrors?.memo && (
+                            <p
+                              id={`recipient-row-${rowNumber}-memo-error`}
+                              role="alert"
+                              data-testid={`row-${rowNumber}-memo-error`}
+                              className="mt-1 text-xs text-rose-400"
+                            >
+                              {rowLabel} (Memo): {recipient.fieldErrors.memo}
+                            </p>
+                          )}
+                        </label>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
+                        {recipient.status === "idle" && (
+                          <span className="text-slate-400">Waiting</span>
+                        )}
+                        {recipient.status === "pending" && (
+                          <span className="text-amber-300">Processing</span>
+                        )}
+                        {recipient.status === "success" && (
+                          <span className="text-emerald-400">Sent ✓</span>
+                        )}
+                        {recipient.status === "failed" && (
+                          <span className="text-rose-400">Failed</span>
+                        )}
+                        {recipient.error && (
+                          <div
+                            role="alert"
+                            className="mt-2 max-w-xs rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-100"
+                          >
+                            {rowLabel}: {recipient.error}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRecipient(recipient.id)}
+                          disabled={isProcessing || recipients.length <= 1}
+                          aria-label={`Remove ${rowLabel}`}
+                          className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
 
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-center">
