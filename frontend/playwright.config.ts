@@ -13,7 +13,6 @@ export default defineConfig({
         ['html'],
         ['junit', { outputFile: 'test-results/results.xml' }],
         ['json', { outputFile: 'test-results/results.json' }],
-        ['lcov'],
       ]
     : 'html',
   expect: {
