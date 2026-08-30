@@ -7,9 +7,10 @@
  */
 "use strict";
 
+const { Utils, Keypair } = require("@stellar/stellar-sdk");
 const express = require("express");
 const jwt     = require("jsonwebtoken");
-const { Utils, Keypair } = require("@stellar/stellar-sdk");
+
 const {
   JWT_SECRET,
   SIGN_OPTIONS,
@@ -193,7 +194,7 @@ router.post("/refresh", csrfOriginCheck(), (req, res) => {
 // with any of that user's tokens will fail.
 router.post("/logout-all", verifyJWT, (req, res) => {
   const revokedCount = tokenFamilyStore.revokeAllFamiliesForUser(req.user.publicKey);
-  const { maxAge, ...clearOptions } = cookieOptions();
+  const { maxAge: _maxAge, ...clearOptions } = cookieOptions();
   res.clearCookie("jwt", clearOptions);
   return res.json({ success: true, revokedFamilies: revokedCount });
 });

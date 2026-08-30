@@ -6,10 +6,11 @@
 "use strict";
 
 const express = require("express");
+
 const router = express.Router();
+const paymentController = require("../controllers/paymentController");
 const { paymentLimiter } = require("../middleware/rateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
-const paymentController = require("../controllers/paymentController");
 
 /**
  * GET /api/payments/:publicKey

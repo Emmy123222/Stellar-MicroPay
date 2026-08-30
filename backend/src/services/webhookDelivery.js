@@ -6,9 +6,10 @@
 
 "use strict";
 
+const dns = require("node:dns").promises;
+
 const logger = require("../utils/logger");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
-const dns = require("node:dns").promises;
 
 const BLOCKED_IPV4 = [
   [/^0\./, "unspecified"],
