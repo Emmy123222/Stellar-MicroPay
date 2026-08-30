@@ -13,6 +13,16 @@ function setupApp() {
   const app = express();
   app.use(express.json());
   
+  // Stand in for verifyJWT: real routes set req.user.publicKey from the SEP-10
+  // JWT before registerUsername runs, so tests simulate that via a header.
+  app.use((req, res, next) => {
+    const authedPublicKey = req.header("x-test-authed-public-key");
+    if (authedPublicKey) {
+      req.user = { publicKey: authedPublicKey };
+    }
+    next();
+  });
+
   app.get("/api/accounts/resolve/:username", accountController.resolveUsername);
   app.get("/api/accounts/:publicKey/balance", accountController.getBalance);
   app.get("/api/accounts/:publicKey", accountController.getAccount);
@@ -119,8 +129,9 @@ describe("accountController", () => {
 
       const res = await request(app)
         .post("/api/accounts/register")
+        .set("x-test-authed-public-key", "G_VALID")
         .send({ username: "alice", publicKey: "G_VALID" });
-        
+
       expect(res.status).toBe(201);
       expect(res.body).toEqual({
         success: true,
@@ -139,8 +150,9 @@ describe("accountController", () => {
 
       const res = await request(app)
         .post("/api/accounts/register")
+        .set("x-test-authed-public-key", "G_VALID")
         .send({ username: "bob", publicKey: "G_VALID" });
-        
+
       expect(res.status).toBe(409);
       expect(res.body).toEqual({ error: "Username already taken" });
     });

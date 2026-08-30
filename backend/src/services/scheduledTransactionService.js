@@ -131,7 +131,8 @@ function getDueTransactions() {
       tx.attempts < 3 &&
       !tx.paused &&
       tx.submissionState !== "confirmed" &&
-      tx.submissionState !== "unknown"
+      tx.submissionState !== "unknown" &&
+      tx.submissionState !== "failed"
     ) {
       due.push(tx);
     }
