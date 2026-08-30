@@ -42,6 +42,31 @@ function latencyColour(ms: number): "green" | "amber" | "red" {
   return "red";
 }
 
+/** Average latency across successful samples, or "N/A" if none have succeeded. */
+function getAverageLatency(samples: LatencySample[]): string {
+  const successful = samples.filter((s): s is { time: number; latencyMs: number } => s.latencyMs !== null);
+  if (successful.length === 0) return "N/A";
+  const avg = successful.reduce((sum, s) => sum + s.latencyMs, 0) / successful.length;
+  return formatMs(Math.round(avg));
+}
+
+/** Short health label derived from the current error state and recent sample history. */
+function getHealthStatus(samples: LatencySample[], error: string | null): string {
+  if (error) return "Down";
+  const recent = samples.slice(-5);
+  if (recent.length > 0 && recent.every((s) => s.latencyMs === null)) return "Down";
+  if (recent.some((s) => s.latencyMs === null || s.latencyMs >= 1500)) return "Degraded";
+  return "Healthy";
+}
+
+/** Accessible text description of a single latency sample. */
+function describeSample(sample: LatencySample): string {
+  const time = new Date(sample.time).toLocaleTimeString();
+  return sample.latencyMs === null
+    ? `${time}: request failed`
+    : `${time}: ${formatMs(sample.latencyMs)}`;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Network() {

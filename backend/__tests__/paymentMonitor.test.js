@@ -25,20 +25,21 @@ jest.mock("@stellar/stellar-sdk", () => {
 jest.mock("../src/services/webhookStore", () => ({
   getWebhooksByPublicKey: jest.fn().mockReturnValue([]),
   getAllWebhooks: jest.fn().mockReturnValue([]),
+  saveMonitorCursor: jest.fn(),
+  getMonitorCursor: jest.fn().mockReturnValue(null),
 }));
 jest.mock("../src/services/webhookDelivery", () => ({
   deliverWebhook: jest.fn(),
 }));
-jest.mock("../src/services/cursorStore", () => ({
-  get: jest.fn().mockReturnValue("now"),
-  set: jest.fn(),
-}));
 
 const { Horizon } = require("@stellar/stellar-sdk");
-const { startMonitoring } = require("../src/services/paymentMonitor");
-const { getWebhooksByPublicKey } = require("../src/services/webhookStore");
+const { startMonitoring, stopMonitoring } = require("../src/services/paymentMonitor");
+const {
+  getWebhooksByPublicKey,
+  saveMonitorCursor,
+  getMonitorCursor,
+} = require("../src/services/webhookStore");
 const { deliverWebhook } = require("../src/services/webhookDelivery");
-const cursorStore = require("../src/services/cursorStore");
 
 const PUBLIC_KEY = "GA0000000000000000000000000000000000000000000000000000";
 
@@ -61,13 +62,20 @@ beforeEach(() => {
   jest.clearAllMocks();
   streamOptions = null;
   lastCursorArg = null;
-  cursorStore.get.mockReturnValue("now");
+  getMonitorCursor.mockReturnValue(null);
   getWebhooksByPublicKey.mockReturnValue([{ id: "w1", publicKey: PUBLIC_KEY }]);
+});
+
+afterEach(() => {
+  // startMonitoring is idempotent (no-op while a stream is already active for
+  // the key), so each test must tear down its stream or the next test's call
+  // silently reuses the previous one's closure instead of exercising the code.
+  stopMonitoring(PUBLIC_KEY);
 });
 
 describe("paymentMonitor durable cursor (#773)", () => {
   it("resumes from a persisted cursor instead of always 'now'", () => {
-    cursorStore.get.mockReturnValue("003100000000");
+    getMonitorCursor.mockReturnValue("003100000000");
     startMonitoring(PUBLIC_KEY);
     expect(lastCursorArg).toBe("003100000000");
   });
@@ -80,11 +88,11 @@ describe("paymentMonitor durable cursor (#773)", () => {
   it("advances the durable cursor after handling a payment", async () => {
     startMonitoring(PUBLIC_KEY);
     await streamOptions.onmessage(payment({ paging_token: "p1" }));
-    expect(cursorStore.set).toHaveBeenCalledWith(PUBLIC_KEY, "p1");
+    expect(saveMonitorCursor).toHaveBeenCalledWith(PUBLIC_KEY, "p1");
   });
 
   it("skips a payment replayed at the last persisted cursor", async () => {
-    cursorStore.get.mockReturnValue("p1");
+    getMonitorCursor.mockReturnValue("p1");
     startMonitoring(PUBLIC_KEY);
     await streamOptions.onmessage(payment({ paging_token: "p1" }));
     expect(getWebhooksByPublicKey).not.toHaveBeenCalled();

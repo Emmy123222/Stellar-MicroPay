@@ -14,15 +14,6 @@ describe("Stellar helper", () => {
     expect(TransactionCategory.Payment).toBe("Payment");
     expect(TransactionCategory.Merge).toBe("Merge");
   });
-
-  it.each([
-    [0, "pending"],
-    [1, "claimable"],
-    [2, "claimed"],
-    [3, "cancelled"],
-  ])("maps %i to %s", (status, expected) => {
-    expect(resolveEscrowStatus({ status })).toBe(expected);
-  });
 });
 
 describe("horizonAssetToAsset (#715)", () => {

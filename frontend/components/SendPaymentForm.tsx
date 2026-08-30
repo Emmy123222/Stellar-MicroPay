@@ -598,7 +598,7 @@ function SendPaymentForm({
       setMemo("");
       setResolvedPaymentDestination(null);
       setSnsResolved(null);
-      setSnsError(null);
+      setDestinationResolutionError(null);
       setSnsResolving(false);
     }
     setStatus("idle");
@@ -898,6 +898,35 @@ function SendPaymentForm({
                 setResolvedPaymentDestination(null);
                 setDestAccountWarning(null);
                 setIsContactsDropdownOpen(true);
+
+                // SNS live resolution: trigger for federation/SNS patterns
+                const trimmed = val.trim();
+                const looksLikeRawAddress = trimmed.startsWith("G") && trimmed.length === 56;
+                if (isStellarName(trimmed) && !looksLikeRawAddress) {
+                  // Clear previous SNS state
+                  setSnsResolved(null);
+                  setDestinationResolutionError(null);
+                  if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
+                  setSnsResolving(true);
+                  snsDebounceRef.current = setTimeout(() => {
+                    resolveStellarName(trimmed)
+                      .then((address) => {
+                        setSnsResolved(address);
+                        setDestinationResolutionError(null);
+                      })
+                      .catch((err: unknown) => {
+                        setSnsResolved(null);
+                        setDestinationResolutionError(err instanceof Error ? err.message : "Name not found or invalid");
+                      })
+                      .finally(() => setSnsResolving(false));
+                  }, 600);
+                } else {
+                  // Not an SNS name — clear SNS state
+                  if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
+                  setSnsResolving(false);
+                  setSnsResolved(null);
+                  setDestinationResolutionError(null);
+                }
               }}
               onFocus={() => setIsContactsDropdownOpen(true)}
               placeholder="G... address or alice.xlm"
