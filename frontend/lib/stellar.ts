@@ -41,6 +41,30 @@ import {
 } from "./stellarConfig";
 
 import { apiFetch } from "./api";
+import {
+  STELLAR_BASE_FEE_STROOPS,
+  STELLAR_STROOPS_PER_XLM,
+  STELLAR_TRANSACTION_TIMEOUT_SECONDS,
+  calculateMinimumBalance,
+  truncateMemoText,
+} from "./stellar/protocol";
+import { USDC, USDC_ISSUER } from "./stellar/assets";
+import {
+  TransactionCategory,
+  type AccountReserveInfo,
+  type FetchAllPaymentsProgress,
+  type FundingPollOptions,
+  type PaymentHistoryResponse,
+  type PaymentRecord,
+  type PaymentStreamHandler,
+  type PaymentStreamUnsubscribe,
+  type Trustline,
+  type WalletBalance,
+} from "./stellar/types";
+
+export * from "./stellar/protocol";
+export * from "./stellar/assets";
+export * from "./stellar/types";
 
 export {
   server,
@@ -55,92 +79,8 @@ export {
   NETWORK_PASSPHRASE,
 };
 
-/** One XLM is divided into 10,000,000 stroops, Stellar's smallest unit. */
-export const STELLAR_STROOPS_PER_XLM = 10_000_000;
-
-/** Stellar's protocol minimum operation fee is 100 stroops. */
-export const STELLAR_BASE_FEE_STROOPS = 100;
-
-/** Default network fee in XLM, derived from the base fee in stroops. */
-export const STELLAR_BASE_FEE_XLM =
-  STELLAR_BASE_FEE_STROOPS / STELLAR_STROOPS_PER_XLM;
-
-/** Transactions built for wallet signing expire after 60 seconds. */
-export const STELLAR_TRANSACTION_TIMEOUT_SECONDS = 60;
-
-/** Stellar MEMO_TEXT values are capped at 28 UTF-8 bytes by the protocol. */
-export const STELLAR_MEMO_TEXT_MAX_BYTES = 28;
-
-/** A base Stellar account must keep two reserve units before subentries. */
-export const STELLAR_BASE_ACCOUNT_RESERVE_COUNT = 2;
-
-/**
- * Stellar base reserve in XLM.
- *
- * Each account holds (2 + subentry_count) base reserves of 0.5 XLM. Trustlines,
- * offers, signers, and data entries each count as one subentry.
- *
- * @see https://developers.stellar.org/docs/learn/fundamentals/stellar-data-structures/accounts#base-reserves
- */
-export const STELLAR_BASE_RESERVE_XLM = 0.5;
-
-/** Minimum XLM balance for an account with no subentries. */
-export const STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM =
-  STELLAR_BASE_ACCOUNT_RESERVE_COUNT * STELLAR_BASE_RESERVE_XLM;
-
 const STELLAR_BASE_FEE_STROOPS_STRING = String(STELLAR_BASE_FEE_STROOPS);
 const ELEVATED_FEE_MAX_STROOPS = STELLAR_BASE_FEE_STROOPS * 10;
-
-/** Truncate a memo string so its UTF-8 encoding fits within the Stellar MEMO_TEXT byte limit. */
-export function truncateMemoText(memo: string): string {
-  const encoder = new TextEncoder();
-  if (encoder.encode(memo).length <= STELLAR_MEMO_TEXT_MAX_BYTES) {
-    return memo;
-  }
-
-  let truncated = "";
-  for (const char of memo) {
-    const next = truncated + char;
-    if (encoder.encode(next).length > STELLAR_MEMO_TEXT_MAX_BYTES) {
-      break;
-    }
-    truncated = next;
-  }
-
-  return truncated;
-}
-
-/**
- * USDC issuer (Circle) for the active network.
- *
- * If you intend to use USDC features on testnet, set `NEXT_PUBLIC_USDC_ISSUER`.
- */
-export const USDC_ISSUER =
-  process.env.NEXT_PUBLIC_USDC_ISSUER ||
-  // Default to mainnet Circle issuer. (App can still run without USDC usage.)
-  "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
-
-/** USDC asset helper. */
-export const USDC = new Asset("USDC", USDC_ISSUER);
-
-/** Known assets for trustline management. */
-export const KNOWN_ASSETS = {
-  testnet: [
-    { code: "USDC", issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" },
-    { code: "AQUA", issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA7" }, // Example issuer
-    { code: "yXLM", issuer: "GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55" }, // Example issuer
-  ],
-  mainnet: [
-    { code: "USDC", issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" },
-    { code: "AQUA", issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA7" }, // Example issuer
-    { code: "yXLM", issuer: "GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55" }, // Example issuer
-  ],
-};
-
-/** Get known assets for the current network. */
-export function getKnownAssets() {
-  return KNOWN_ASSETS[NETWORK];
-}
 
 /** Soroban RPC server URL. Defaults to testnet. */
 export function getSorobanRpcUrl(): string {
@@ -180,83 +120,6 @@ export const sorobanServer = new Proxy({} as rpc.Server, {
 /** The deployed Soroban contract ID for recording tips. */
 export const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-
-/**
- * Enum for transaction categories.
- */
-export enum TransactionCategory {
-  Payment = "Payment",
-  Transfer = "Transfer",
-  Merge = "Merge",
-  // Add more as needed
-}
-
-/**
- * Represents a single asset balance on a Stellar account.
-*/
-export interface WalletBalance {
-  /** Full asset identifier, e.g. `"native"` or `"USDC:GA5ZSEJY..."` */
-  asset: string;
-  /** Human-readable balance string, e.g. `"100.0000000"` */
-  balance: string;
-  /** Short asset code shown in the UI, e.g. `"XLM"` or `"USDC"` */
-  assetCode: string;
-}
-
-/**
- * Represents a trustline for a non-native asset.
- */
-export interface Trustline {
-  /** Asset code, e.g. "USDC" */
-  assetCode: string;
-  /** Asset issuer public key */
-  issuer: string;
-  /** Current balance */
-  balance: string;
-  /** Trust limit */
-  limit: string;
-}
-/**
- * Represents a single transaction operation in a user's transaction history.
-*/
-export interface PaymentRecord {
-  /** Unique operation ID assigned by Horizon. */
-  id: string;
-  /** Whether this payment was sent or received by the queried account. */
-  type: "sent" | "received" | "merge";
-  /** Whether this payment was sent or received by the queried account. */
-  amount: string;
-  /** Asset code, e.g. `"XLM"` */
-  asset: string;
-  /** Sender's Stellar public key. */
-  from: string;
-  /** Recipient's Stellar public key. */
-  to: string;
-  /** Optional memo text attached to the transaction. */
-  memo?: string;
-  /** ISO 8601 timestamp of when the operation was created. */
-  createdAt: string;
-  /** Hash of the parent transaction. */
-  transactionHash: string;
-  /** Horizon paging token used for cursor-based pagination. */
-  pagingToken?: string;
-  /** Category of the transaction. */
-  category?: TransactionCategory;
-}
-
-/**
- * Response shape returned by {@link getPaymentHistory}.
-*/
-export interface PaymentHistoryResponse {
-  /** Array of payment records for the requested page. */
-  records: PaymentRecord[];
-  /** Whether more records are available on the next page. */
-  hasMore: boolean;
-  /** Cursor string to pass into the next {@link getPaymentHistory} call. */
-  nextCursor?: string;
-}
-
 // DEX Types
 export interface OrderbookEntry {
   price: string;
@@ -279,22 +142,6 @@ export interface NetworkStats {
   p99Fee: number;
 }
 
-export interface FetchAllPaymentsProgress {
-  fetchedRecords: number;
-  fetchedPages: number;
-  done: boolean;
-}
-
-/**
- * Handle function invoked for each streamed payment operation.
- */
-export type PaymentStreamHandler = (payment: PaymentRecord) => void;
-
-/**
- * Function returned by {@link streamPayments} to stop the underlying EventSource.
- */
-export type PaymentStreamUnsubscribe = () => void;
-
 // ─── Account helpers ────────────────────────────────────────────────────────
 
 /** Sentinel error message used to detect unfunded accounts in the UI. */
@@ -303,12 +150,6 @@ export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
 /** Friendbot endpoint for Stellar testnet funding. */
 export const FRIENDBOT_URL =
   process.env.NEXT_PUBLIC_FRIENDBOT_URL || "https://friendbot.stellar.org";
-
-/** Polling options for waiting until an account exists on Horizon. */
-export interface FundingPollOptions {
-  intervalMs?: number;
-  timeoutMs?: number;
-}
 
 /**
  * Fetch all trustlines (non-native asset balances) for a Stellar account.
@@ -457,30 +298,6 @@ export async function getXLMBalance(publicKey: string): Promise<string> {
   const balances = await getBalances(publicKey);
   const xlm = balances.find((b: WalletBalance) => b.assetCode === "XLM");
   return xlm ? xlm.balance : "0";
-}
-
-/**
- * Returns the minimum XLM balance required for an account with the given
- * subentry count.
- */
-export function calculateMinimumBalance(subentryCount: number): number {
-  const safeSubentryCount = Number.isFinite(subentryCount) && subentryCount >= 0
-    ? subentryCount
-    : 0;
-  return (
-    STELLAR_BASE_ACCOUNT_RESERVE_COUNT + safeSubentryCount
-  ) * STELLAR_BASE_RESERVE_XLM;
-}
-
-export interface AccountReserveInfo {
-  /** Total XLM held by the account (native balance). */
-  xlmBalance: number;
-  /** Number of subentries on the account (trustlines + offers + signers + data). */
-  subentryCount: number;
-  /** Minimum balance the account must keep to remain submittable. */
-  minimumBalance: number;
-  /** XLM available to spend without breaching the reserve. */
-  spendableBalance: number;
 }
 
 /**
