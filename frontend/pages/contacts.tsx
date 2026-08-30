@@ -4,7 +4,7 @@
  * Supports favouriting contacts and tagging them for quick filtering.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import {
@@ -39,6 +39,8 @@ export default function Contacts() {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const editTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // Tag input inside the add/edit form
   const [tagInput, setTagInput] = useState("");
@@ -102,6 +104,7 @@ export default function Contacts() {
       setContacts(nextContacts);
       showToast("Contact updated");
       setEditingId(null);
+      requestAnimationFrame(() => editTriggerRef.current?.focus());
     } else {
       setContacts(
         upsertAddressBookContact({ nickname: name, address, tags: formTags, favourite: false })
@@ -120,12 +123,14 @@ export default function Contacts() {
     showToast("Contact deleted");
   };
 
-  const handleEditContact = (contact: AddressBookContact) => {
+  const handleEditContact = (contact: AddressBookContact, trigger: HTMLButtonElement) => {
+    editTriggerRef.current = trigger;
     setEditingId(contact.id);
     setName(contact.nickname);
     setAddress(contact.address);
     setFormTags(contact.tags ?? []);
     setTagInput("");
+    requestAnimationFrame(() => nameInputRef.current?.focus());
   };
 
   const handleCancelEdit = () => {
@@ -134,6 +139,7 @@ export default function Contacts() {
     setAddress("");
     setFormTags([]);
     setTagInput("");
+    requestAnimationFrame(() => editTriggerRef.current?.focus());
   };
 
   const handleToggleFavourite = (id: string) => {
@@ -243,7 +249,16 @@ export default function Contacts() {
 
       <div className="space-y-8">
         {/* ── Add / Edit Contact Form ─────────────────────────────────────── */}
-        <div className="card">
+        <div
+          className="card"
+          onKeyDown={(event) => {
+            if (editingId && event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              handleCancelEdit();
+            }
+          }}
+        >
           <h2 className="font-display text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <PlusIcon className="w-5 h-5 text-stellar-400" />
             {editingId ? "Edit Contact" : "Add Contact"}
@@ -253,6 +268,7 @@ export default function Contacts() {
             <div>
               <label className="label">Contact name</label>
               <input
+                ref={nameInputRef}
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -395,8 +411,10 @@ export default function Contacts() {
           <div className="flex flex-wrap gap-2 items-center">
             <span className="text-xs text-slate-500 uppercase tracking-wide font-medium">Filter:</span>
             <button
+              type="button"
               onClick={() => setActiveTagFilter(null)}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              aria-pressed={activeTagFilter === null}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400 transition-colors ${
                 activeTagFilter === null
                   ? "bg-stellar-500/20 border-stellar-500/40 text-stellar-300"
                   : "border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300"
@@ -406,9 +424,11 @@ export default function Contacts() {
             </button>
             {allTags.map((tag) => (
               <button
+                type="button"
                 key={tag}
                 onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
-                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                aria-pressed={activeTagFilter === tag}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400 transition-colors ${
                   activeTagFilter === tag
                     ? "bg-stellar-500/20 border-stellar-500/40 text-stellar-300"
                     : "border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300"
@@ -470,6 +490,7 @@ export default function Contacts() {
                         onAddInlineTag={handleAddInlineTag}
                         onRemoveInlineTag={handleRemoveInlineTag}
                         onFilterByTag={setActiveTagFilter}
+                        activeTagFilter={activeTagFilter}
                       />
                     ))}
                   </div>
@@ -503,6 +524,7 @@ export default function Contacts() {
                         onAddInlineTag={handleAddInlineTag}
                         onRemoveInlineTag={handleRemoveInlineTag}
                         onFilterByTag={setActiveTagFilter}
+                        activeTagFilter={activeTagFilter}
                       />
                     ))}
                   </div>
@@ -534,7 +556,7 @@ interface ContactCardProps {
   inlineTagInput: string;
   onSetInlineTagInput: (v: string) => void;
   onToggleFavourite: (id: string) => void;
-  onEdit: (c: AddressBookContact) => void;
+  onEdit: (c: AddressBookContact, trigger: HTMLButtonElement) => void;
   onDelete: (id: string) => void;
   onCopy: (addr: string) => void;
   onSend: (c: AddressBookContact) => void;
@@ -543,6 +565,7 @@ interface ContactCardProps {
   onAddInlineTag: (c: AddressBookContact) => void;
   onRemoveInlineTag: (c: AddressBookContact, tag: string) => void;
   onFilterByTag: (tag: string | null) => void;
+  activeTagFilter: string | null;
 }
 
 function ContactCard({
@@ -561,10 +584,18 @@ function ContactCard({
   onAddInlineTag,
   onRemoveInlineTag,
   onFilterByTag,
+  activeTagFilter,
 }: ContactCardProps) {
   const isEditingThis = editingId === contact.id;
   const isTaggingThis = inlineTagContactId === contact.id;
   const tags = contact.tags ?? [];
+  const tagToggleRef = useRef<HTMLButtonElement>(null);
+  const inlineEditorId = `contact-tag-editor-${contact.id}`;
+
+  const closeInlineEditor = () => {
+    onCloseInlineTags();
+    requestAnimationFrame(() => tagToggleRef.current?.focus());
+  };
 
   return (
     <div
@@ -589,38 +620,45 @@ function ContactCard({
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-2">
               {tags.map((tag) => (
-                <button
+                <span
                   key={tag}
-                  onClick={() => onFilterByTag(tag)}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-stellar-500/10 text-stellar-400 border border-stellar-500/20 hover:bg-stellar-500/20 transition-colors"
-                  title={`Filter by "${tag}"`}
+                  className="inline-flex items-stretch rounded-full text-xs bg-stellar-500/10 text-stellar-400 border border-stellar-500/20 overflow-hidden"
                 >
-                  {tag}
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); onRemoveInlineTag(contact, tag); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onRemoveInlineTag(contact, tag); } }}
-                    className="hover:text-red-400 ml-0.5"
+                  <button
+                    type="button"
+                    onClick={() => onFilterByTag(tag)}
+                    aria-pressed={activeTagFilter === tag}
+                    className="px-2 py-0.5 hover:bg-stellar-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-stellar-400 transition-colors"
+                    title={`Filter by "${tag}"`}
+                  >
+                    {tag}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveInlineTag(contact, tag)}
+                    className="px-1.5 hover:text-red-400 hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-400 transition-colors"
                     aria-label={`Remove tag ${tag}`}
                   >
                     <XSmallIcon className="w-3 h-3" />
-                  </span>
-                </button>
+                  </button>
+                </span>
               ))}
             </div>
           )}
 
           {/* Inline tag editor */}
           {isTaggingThis && (
-            <div className="flex gap-2 mt-2">
+            <div id={inlineEditorId} className="flex gap-2 mt-2">
               <input
                 type="text"
                 value={inlineTagInput}
                 onChange={(e) => onSetInlineTagInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") { e.preventDefault(); onAddInlineTag(contact); }
-                  if (e.key === "Escape") onCloseInlineTags();
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    closeInlineEditor();
+                  }
                 }}
                 placeholder="New tag…"
                 autoFocus
@@ -636,7 +674,7 @@ function ContactCard({
               </button>
               <button
                 type="button"
-                onClick={onCloseInlineTags}
+                onClick={closeInlineEditor}
                 className="px-2 py-1 rounded-lg bg-slate-700 text-slate-400 text-sm hover:bg-slate-600 transition-colors"
               >
                 Done
@@ -649,9 +687,12 @@ function ContactCard({
         <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
           {/* Favourite toggle */}
           <button
+            type="button"
             onClick={() => onToggleFavourite(contact.id)}
             title={contact.favourite ? "Remove from favourites" : "Add to favourites"}
-            className={`p-2 rounded-lg transition-colors ${
+            aria-label={contact.favourite ? `Remove ${contact.nickname} from favourites` : `Add ${contact.nickname} to favourites`}
+            aria-pressed={Boolean(contact.favourite)}
+            className={`p-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 transition-colors ${
               contact.favourite
                 ? "text-amber-400 bg-amber-400/10 hover:bg-amber-400/20"
                 : "text-slate-500 hover:text-amber-400 hover:bg-amber-400/10"
@@ -666,9 +707,15 @@ function ContactCard({
 
           {/* Tag button */}
           <button
-            onClick={() => (isTaggingThis ? onCloseInlineTags() : onOpenInlineTags(contact))}
+            ref={tagToggleRef}
+            type="button"
+            onClick={() => (isTaggingThis ? closeInlineEditor() : onOpenInlineTags(contact))}
             title="Edit tags"
-            className={`p-2 rounded-lg transition-colors ${
+            aria-label={`Edit tags for ${contact.nickname}`}
+            aria-pressed={isTaggingThis}
+            aria-expanded={isTaggingThis}
+            aria-controls={inlineEditorId}
+            className={`p-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400 transition-colors ${
               isTaggingThis
                 ? "text-stellar-400 bg-stellar-500/10"
                 : "text-slate-400 hover:text-stellar-400 hover:bg-stellar-500/10"
@@ -679,6 +726,7 @@ function ContactCard({
 
           {/* Copy */}
           <button
+            type="button"
             onClick={() => onCopy(contact.address)}
             title="Copy address"
             className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
@@ -688,6 +736,7 @@ function ContactCard({
 
           {/* Send */}
           <button
+            type="button"
             onClick={() => onSend(contact)}
             title="Send XLM to this contact"
             className="px-3 py-2 rounded-lg text-sm font-medium text-stellar-300 bg-stellar-500/10 border border-stellar-500/20 hover:bg-stellar-500/20 hover:border-stellar-500/30 transition-colors"
@@ -697,8 +746,10 @@ function ContactCard({
 
           {/* Edit */}
           <button
-            onClick={() => onEdit(contact)}
+            type="button"
+            onClick={(event) => onEdit(contact, event.currentTarget)}
             title="Edit contact"
+            aria-label={`Edit ${contact.nickname}`}
             className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
           >
             <EditIcon className="w-4 h-4" />
@@ -706,6 +757,7 @@ function ContactCard({
 
           {/* Delete */}
           <button
+            type="button"
             onClick={() => onDelete(contact.id)}
             title="Delete contact"
             className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
