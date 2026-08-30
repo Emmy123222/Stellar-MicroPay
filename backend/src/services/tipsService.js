@@ -2,6 +2,12 @@
  * src/services/tipsService.js
  * Business logic for tracking tips received by creators.
  * Uses in-memory storage for v1 (can be migrated to database later).
+ *
+ * NOTE: This module only *records* tips. It trusts that the caller (the
+ * controller) has already verified the txHash against Horizon via
+ * stellarService.verifyTipTransaction — this module's own job is just to
+ * store the result once and refuse to store the same on-chain transaction
+ * twice.
  */
 
 "use strict";
@@ -10,25 +16,39 @@
 // Structure: Map<creatorPublicKey, TipRecord[]>
 const tipsByCreator = new Map();
 
+// Guards against the same verified on-chain transaction being recorded as
+// more than one tip (e.g. a duplicate/replayed request for a hash that was
+// already accepted).
+const seenTxHashes = new Set();
+
 // Tip record structure:
 // { id, senderPublicKey, creatorPublicKey, amount, asset, memo, timestamp, txHash }
 
 let tipIdCounter = 1;
 
 /**
- * Record a tip sent to a creator.
+ * Record a tip sent to a creator. The txHash must belong to a transaction
+ * that has already been verified on-chain (see stellarService.verifyTipTransaction)
+ * — this function does not itself talk to Horizon.
+ *
  * @param {string} senderPublicKey - The Stellar public key of the sender
  * @param {string} creatorPublicKey - The Stellar public key of the creator
  * @param {string} amount - The amount sent
  * @param {string} asset - The asset code (XLM, USDC, etc.)
  * @param {string} [memo] - Optional memo/message from sender
- * @param {string} [txHash] - The transaction hash
+ * @param {string} txHash - The verified on-chain transaction hash
  * @returns {object} The created tip record
  */
-function recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", memo = "", txHash = "" }) {
-  if (!senderPublicKey || !creatorPublicKey || !amount) {
-    const error = new Error("senderPublicKey, creatorPublicKey, and amount are required");
+function recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", memo = "", txHash }) {
+  if (!senderPublicKey || !creatorPublicKey || !amount || !txHash) {
+    const error = new Error("senderPublicKey, creatorPublicKey, amount, and txHash are required");
     error.status = 400;
+    throw error;
+  }
+
+  if (seenTxHashes.has(txHash)) {
+    const error = new Error("This transaction has already been recorded as a tip");
+    error.status = 409;
     throw error;
   }
 
@@ -48,6 +68,7 @@ function recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", m
   }
 
   tipsByCreator.get(creatorPublicKey).unshift(tip); // Add to beginning (most recent first)
+  seenTxHashes.add(txHash);
 
   return tip;
 }
@@ -122,7 +143,7 @@ function getTipsStats(creatorPublicKey) {
   if (tips.length > 0) {
     const totalAmount = tips.reduce((sum, tip) => sum + parseFloat(tip.amount), 0);
     stats.averageTip = String(totalAmount / tips.length);
-    
+
     const amounts = tips.map(t => parseFloat(t.amount));
     stats.largestTip = String(Math.max(...amounts));
     stats.smallestTip = String(Math.min(...amounts));
@@ -171,7 +192,8 @@ function getTipsSent(senderPublicKey, options = {}) {
 }
 
 /**
- * Validate tip record input.
+ * Validate tip record input shape (format only — does not check the claim
+ * against the chain; that's stellarService.verifyTipTransaction's job).
  */
 function validateTipInput(data) {
   const errors = [];
@@ -192,6 +214,12 @@ function validateTipInput(data) {
     errors.push("amount is required");
   } else if (isNaN(parseFloat(data.amount)) || parseFloat(data.amount) <= 0) {
     errors.push("amount must be a positive number");
+  }
+
+  if (!data.txHash) {
+    errors.push("txHash is required");
+  } else if (!/^[0-9a-fA-F]{64}$/.test(data.txHash)) {
+    errors.push("Invalid transaction hash format");
   }
 
   if (errors.length > 0) {
@@ -217,7 +245,7 @@ function getTopTippers(creatorPublicKey, limit = 5) {
   }
 
   const tips = tipsByCreator.get(creatorPublicKey) || [];
-  
+
   // Aggregate total tipped per sender
   const totals = new Map();
   for (const tip of tips) {
@@ -250,4 +278,5 @@ module.exports = {
   validateTipInput,
   getTopTippers,
   tipsByCreator,
+  seenTxHashes,
 };
