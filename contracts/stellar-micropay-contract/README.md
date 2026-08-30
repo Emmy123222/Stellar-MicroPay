@@ -113,7 +113,7 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
   - `admin: Address` - account stored as the contract administrator.
 - **Return value**: none.
 - **Authorization requirements**: none in the current implementation; the first successful caller sets the admin.
-- **Events emitted**: `(init)` with the admin address as event data.
+- **Events emitted**: `(init)` with `(1, admin)` as event data.
 - **Error conditions**:
   - Panics with `Contract already initialized` if an admin is already stored.
 
@@ -138,7 +138,7 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
   - `amount: i128` - amount to transfer and record.
 - **Return value**: none.
 - **Authorization requirements**: `from.require_auth()`.
-- **Events emitted**: `(tip, from, to)` with `amount` as event data.
+- **Events emitted**: `(tip, from, to)` with `(1, amount)` as event data.
 - **Error conditions**:
   - Panics with `Tip amount must be positive` when `amount <= 0`.
   - Propagates token contract transfer failures, including insufficient balance, missing trustline, or token authorization failures.
@@ -181,18 +181,19 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
 - **Error conditions**:
   - Panics with `Tip record not found` if no record exists for `(recipient, index)`.
 
-### `mint_receipt(env: Env, from: Address, to: Address, amount: i128, memo: Symbol) -> u32`
+### `mint_receipt(env: Env, from: Address, to: Address, amount: i128, memo: String) -> Result<u32, ContractError>`
 
 - **Parameters**:
   - `from: Address` - payer address that owns the receipt record.
   - `to: Address` - payment recipient address.
   - `amount: i128` - amount represented by the receipt.
-  - `memo: Symbol` - short receipt memo stored on-chain.
+  - `memo: String` - UTF-8 receipt memo, capped at 256 bytes.
 - **Return value**: zero-based receipt index for `from`.
 - **Authorization requirements**: `from.require_auth()`.
-- **Events emitted**: `(receipt, from)` with the receipt index as event data.
+- **Events emitted**: `(receipt, from)` with `(1, receipt_index)` as event data.
 - **Error conditions**:
   - Panics with `Receipt amount must be positive` when `amount <= 0`.
+  - Returns `ReceiptMemoTooLong` when the UTF-8 encoding exceeds 256 bytes.
 
 ### `get_receipt_count(env: Env, payer: Address) -> u32`
 
@@ -214,18 +215,35 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
 - **Error conditions**:
   - Panics with `Receipt not found` if no receipt exists for `(payer, index)`.
 
-### `create_escrow(env: Env, from: Address, to: Address, amount: i128, release_ledger: u32) -> ()`
+### `get_legacy_receipt(env: Env, payer: Address, index: u32) -> LegacyReceiptMetadata`
+
+Reads a receipt written through storage schema v3, preserving its original
+`Symbol` memo. New UTF-8 receipts are read through `get_receipt` instead.
+
+### `create_escrow(env: Env, token_address: Address, from: Address, to: Address, amount: i128, release_ledger: u32) -> u32`
 
 - **Parameters**:
-  - `from: Address` - intended escrow funder.
-  - `to: Address` - intended escrow beneficiary.
-  - `amount: i128` - intended escrow amount.
-  - `release_ledger: u32` - intended release ledger.
-- **Return value**: none.
-- **Authorization requirements**: none in the current stub.
-- **Events emitted**: none.
+  - `token_address: Address` - token contract whose funds are locked.
+  - `from: Address` - escrow funder.
+  - `to: Address` - escrow beneficiary.
+  - `amount: i128` - amount locked by the escrow.
+  - `release_ledger: u32` - first ledger at which the beneficiary may claim.
+- **Return value**: zero-based escrow id.
+- **Authorization requirements**: `from.require_auth()`.
+- **Events emitted**: `(escrow_create, escrow_id)` with `(1, from, to, amount, release_ledger)` as event data.
 - **Error conditions**:
-  - Always panics with `Escrow payments coming in v2.1 — see ROADMAP.md`.
+  - Panics when the amount is not positive or the release ledger is not in the future.
+
+### Escrow release boundary
+
+The boundary is inclusive for claims and exclusive for cancellations:
+
+- `claim_escrow` returns `EscrowClaimTooEarly` through `release_ledger - 1` and is valid at `release_ledger` and later.
+- `cancel_escrow` is valid through `release_ledger - 1` and returns `EscrowCancelTooLate` at `release_ledger` and later.
+
+Therefore claim and cancel are never both valid in the same ledger. These
+semantics are identical on testnet and mainnet because they use the current
+ledger sequence, not wall-clock time.
 
 ### `batch_send(env: Env, token_address: Address, from: Address, recipients: Vec<Address>, amounts: Vec<i128>) -> ()`
 
@@ -253,7 +271,7 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
   - `deposit: i128` - amount locked in the contract up front.
 - **Return value**: zero-based stream id.
 - **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_open, stream_id)` with `(payer, recipients, weights, rate_per_ledger, deposit)`.
+- **Events emitted**: `(stream_open, stream_id)` with `(1, payer, recipients, weights, rate_per_ledger, deposit)`.
 - **Error conditions**:
   - Panics with `recipients and weights must have equal length` when the two lists differ in length.
   - Panics with `at least one recipient is required` when `recipients` is empty.
@@ -272,7 +290,7 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
   - `recipient: Address` - one of the stream's recipients.
 - **Return value**: amount transferred to `recipient` — their weighted share of accrual minus what they have already claimed; `0` when nothing new has accrued for them since their last claim.
 - **Authorization requirements**: `recipient.require_auth()`.
-- **Events emitted**: `(stream_claim, stream_id)` with `(recipient, amount)`.
+- **Events emitted**: `(stream_claim, stream_id)` with `(1, recipient, amount)`.
 - **Error conditions**:
   - Panics with `stream not found` for an unknown id.
   - Panics with `unauthorized` when the caller is not one of the stream's recipients.
@@ -286,7 +304,7 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
   - `amount: i128` - additional deposit.
 - **Return value**: none.
 - **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_topup, stream_id)` with `(payer, amount, deposited)`.
+- **Events emitted**: `(stream_topup, stream_id)` with `(1, payer, amount, deposited)`.
 - **Error conditions**: `stream not found`, `unauthorized`, `stream is closed`, or `amount must be positive`.
 
 ### `pause_stream(env: Env, stream_id: u32, payer: Address) -> ()`
@@ -296,7 +314,7 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
   - `payer: Address` - the stream's payer.
 - **Return value**: none.
 - **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_pause, stream_id)` with `(payer, paused_at_ledger)`.
+- **Events emitted**: `(stream_pause, stream_id)` with `(1, payer, paused_at_ledger)`.
 - **Error conditions**: `stream not found`, `unauthorized`, `stream is closed`, or `stream already paused`.
 
 While paused, the claimable amount stops growing. Already-accrued funds stay
@@ -310,7 +328,7 @@ balance.
   - `payer: Address` - the stream's payer.
 - **Return value**: none.
 - **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_resume, stream_id)` with `(payer, pause_length)`.
+- **Events emitted**: `(stream_resume, stream_id)` with `(1, payer, pause_length)`.
 - **Error conditions**: `stream not found`, `unauthorized`, `stream is closed`, or `stream is not paused`.
 
 Accrual resumes from the point it stopped: the pause length is added to
@@ -324,7 +342,7 @@ never back-paid.
   - `payer: Address` - the stream's payer.
 - **Return value**: none.
 - **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_close, stream_id)` with `(owed, refund)`, where `owed` is the combined amount paid out to all recipients during this call and `refund` is what goes back to the payer (#558).
+- **Events emitted**: `(stream_close, stream_id)` with `(1, owed, refund)`, where `owed` is the combined amount paid out to all recipients during this call and `refund` is what goes back to the payer (#558).
 - **Error conditions**: `stream not found`, `unauthorized`, or `stream is closed`.
 
 Settles everything accrued to each recipient by weight (#559) and refunds the
@@ -357,7 +375,7 @@ unstreamed remainder to the payer in the same call.
   - `admin: Address` - the stored contract administrator.
 - **Return value**: the schema version migrated to.
 - **Authorization requirements**: `admin.require_auth()`.
-- **Events emitted**: `(migrate)` with `(from_version, to_version)`.
+- **Events emitted**: `(migrate)` with `(1, from_version, to_version)`.
 - **Error conditions**:
   - Panics with `Contract not initialized` if `initialize` has not run.
   - Panics with `Unauthorized` when the caller is not the stored admin.
@@ -383,9 +401,23 @@ deployments; `migrate` advances it after an upgrade.
 | `1` | Adds `Stream`, `DataKey::Stream`, `DataKey::StreamCount` and `DataKey::SchemaVersion`. |
 | `2` | `Stream.recipient: Address` and `Stream.claimed: i128` replaced by `Stream.recipients: Vec<StreamRecipient>`, splitting payout across weighted recipients (#559). |
 | `3` | Adds `EscrowSenderCount`, `EscrowSenderIndex`, `EscrowRecipientCount`, and `EscrowRecipientIndex` for account-oriented escrow discovery (#796). |
+| `4` | Adds `ReceiptRecordV2` with a bounded UTF-8 `String` memo. Existing `ReceiptRecord` entries remain readable through `get_legacy_receipt`; new receipts append at the existing per-payer count and are stored under the v2 key (#797). |
 
 `get_schema_version()` returns `0` for any instance that has never been
 stamped, which is how a pre-versioning deployment is detected.
+
+#### v3 to v4 receipt migration
+
+Receipt owners are not globally enumerable, so v4 deliberately avoids an
+unbounded eager rewrite. After the admin upgrades the WASM and calls
+`migrate`, existing `(payer, index)` entries stay under `ReceiptRecord` and
+remain available through `get_legacy_receipt`. New receipts continue from the
+same `ReceiptCount` but are written under the appended `ReceiptRecordV2` key
+and read through `get_receipt`. Clients choose the getter based on the receipt
+creation era (or try v2, then legacy) and preserve legacy `Symbol` values
+exactly. A future archival migration may copy records off-chain and re-mint
+them only with each payer's authorization; this contract never silently
+converts or truncates a legacy memo.
 
 ### What counts as a breaking storage change
 

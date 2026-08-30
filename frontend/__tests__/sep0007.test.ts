@@ -140,5 +140,29 @@ describe('sep0007 URI parsing', () => {
       expect(result.success).toBe(true);
       expect(result.data?.amount).toBe('100');
     });
+
+    it('rejects URI with asset_issuer but missing asset_code', () => {
+      const uri = 'stellar:pay?destination=GABC123456789012345678901234567890123456789012345678&asset_issuer=GDEF456789012345678901234567890123456789012345678901';
+      const result = parseStellarURI(uri);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('asset_code is required');
+    });
+
+    it('rejects unsupported network passphrase', () => {
+      const uri = 'stellar:pay?destination=GABC123456789012345678901234567890123456789012345678&network_passphrase=Fake%20Network';
+      const result = parseStellarURI(uri);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Unsupported network passphrase');
+    });
+
+    it('allows valid network passphrases', () => {
+      const uri = 'stellar:pay?destination=GABC123456789012345678901234567890123456789012345678&network_passphrase=Test%20SDF%20Network%20%3B%20September%202015';
+      const result = parseStellarURI(uri);
+
+      expect(result.success).toBe(true);
+      expect(result.data?.networkPassphrase).toBe('Test SDF Network ; September 2015');
+    });
   });
 });
