@@ -9,11 +9,18 @@
 
 const tipsService = require("../src/services/tipsService");
 
-const KEY_A = "G" + "A".repeat(55); // 56 chars
-const KEY_B = "G" + "B".repeat(55); // 56 chars
-const KEY_C = "G" + "C".repeat(55); // 56 chars
-const KEY_D = "G" + "D".repeat(55); // 56 chars
-const KEY_E = "G" + "E".repeat(55); // 56 chars
+const {
+  createDeterministicPublicKey,
+  TEST_PUBLIC_KEY_A,
+  TEST_PUBLIC_KEY_B,
+  TEST_PUBLIC_KEY_C,
+} = require("./fixtures/stellar");
+
+const KEY_A = TEST_PUBLIC_KEY_A;
+const KEY_B = TEST_PUBLIC_KEY_B;
+const KEY_C = TEST_PUBLIC_KEY_C;
+const KEY_D = createDeterministicPublicKey(4);
+const KEY_E = createDeterministicPublicKey(5);
 
 describe("tipsService", () => {
   beforeEach(() => {
@@ -165,6 +172,35 @@ describe("tipsService", () => {
 
     it("throws error when creatorPublicKey is missing", () => {
       expect(() => tipsService.getTipsStats()).toThrow("creatorPublicKey is required");
+    });
+
+    it("provides per-asset averages", () => {
+      const stats = tipsService.getTipsStats(KEY_B);
+      // XLM: 10 + 5 = 15, count 2 → average 7.5
+      expect(stats.totalByAsset.XLM.average).toBe("7.5");
+      // USDC: 15, count 1 → average 15
+      expect(stats.totalByAsset.USDC.average).toBe("15");
+    });
+
+    it("handles fractional stroop boundaries without rounding errors", () => {
+      tipsService.tipsByCreator.clear();
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000001", asset: "XLM" });
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000002", asset: "XLM" });
+
+      const stats = tipsService.getTipsStats(KEY_B);
+      expect(stats.totalByAsset.XLM.amount).toBe("0.0000003");
+      expect(stats.totalByAsset.XLM.count).toBe(2);
+      // average: 0.00000015 stroops — 3 is not divisible by 2 in integer math, truncates
+      expect(stats.totalByAsset.XLM.average).toBe("0.0000001");
+    });
+
+    it("handles large totals without floating-point loss", () => {
+      tipsService.tipsByCreator.clear();
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "999999999.9999999", asset: "XLM" });
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000001", asset: "XLM" });
+
+      const stats = tipsService.getTipsStats(KEY_B);
+      expect(stats.totalByAsset.XLM.amount).toBe("1000000000");
     });
   });
 

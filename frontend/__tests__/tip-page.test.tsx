@@ -21,6 +21,8 @@ jest.mock("@/components/TipWidget", () => ({
   ),
 }));
 
+import { TEST_PUBLIC_KEY_A } from "./fixtures/stellar";
+
 describe("tip page", () => {
   beforeEach(() => {
     (useRouter as jest.Mock).mockReturnValue({
@@ -43,7 +45,7 @@ describe("tip page", () => {
         success: true,
         data: {
           username: "alice",
-          publicKey: `G${"A".repeat(55)}`,
+          publicKey: TEST_PUBLIC_KEY_A,
         },
       }),
     });
@@ -51,7 +53,7 @@ describe("tip page", () => {
     render(<TipPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("tip-widget")).toHaveTextContent(`alice:G${"A".repeat(55)}`);
+      expect(screen.getByTestId("tip-widget")).toHaveTextContent(`alice:${TEST_PUBLIC_KEY_A}`);
     });
 
     expect(global.fetch).toHaveBeenCalledWith(

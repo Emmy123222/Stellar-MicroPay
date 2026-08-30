@@ -188,3 +188,46 @@ describe("RecurringPayments — pause / delete actions (#513)", () => {
     expect(screen.getByPlaceholderText("0.0000000")).toHaveValue(3);
   });
 });
+
+describe("RecurringPayments — Accessibility enhancements (#513)", () => {
+  async function createSchedule(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByText(/\+ New schedule/i));
+    await user.type(screen.getByPlaceholderText("G..."), RECIPIENT);
+    await user.clear(screen.getByPlaceholderText("0.0000000"));
+    await user.type(screen.getByPlaceholderText("0.0000000"), "3");
+    await user.click(screen.getByRole("button", { name: /Create/i }));
+  }
+
+  it("announces successful state changes to screen readers", async () => {
+    const user = userEvent.setup();
+    renderRP();
+    await createSchedule(user);
+    
+    // Announcement container should be in DOM
+    const liveRegion = document.querySelector('[aria-live="polite"]');
+    expect(liveRegion).toHaveTextContent("Schedule created.");
+
+    await user.click(screen.getByRole("button", { name: /Pause schedule/i }));
+    expect(liveRegion).toHaveTextContent("Schedule paused.");
+
+    await user.click(screen.getByRole("button", { name: /Resume schedule/i }));
+    expect(liveRegion).toHaveTextContent("Schedule resumed.");
+
+    await user.click(screen.getByRole("button", { name: /Delete schedule/i }));
+    expect(liveRegion).toHaveTextContent("Schedule deleted.");
+  });
+
+  it("returns focus to the main heading after deletion", async () => {
+    const user = userEvent.setup();
+    renderRP();
+    await createSchedule(user);
+
+    await user.click(screen.getByRole("button", { name: /Delete schedule/i }));
+
+    // We used a setTimeout for focusing to allow react to render
+    await waitFor(() => {
+      const heading = screen.getByRole("heading", { name: /Recurring Payments/i });
+      expect(document.activeElement).toBe(heading);
+    });
+  });
+});

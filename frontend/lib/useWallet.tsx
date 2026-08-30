@@ -9,13 +9,19 @@ import {
 import {
   disconnectWallet as clearWalletConnection,
   getConnectedPublicKey,
+  signTransactionWithWallet,
 } from "@/lib/wallet";
 
 interface WalletContextValue {
   publicKey: string | null;
   isWalletReady: boolean;
+  connect: (nextPublicKey: string) => void;
+  disconnect: () => void;
   connectWallet: (nextPublicKey: string) => void;
   disconnectWallet: () => void;
+  signTransaction: (
+    transactionXDR: string,
+  ) => Promise<{ signedXDR: string | null; error: string | null }>;
 }
 
 const WalletContext = createContext<WalletContextValue | undefined>(undefined);
@@ -48,7 +54,9 @@ function saveLastPublicKey(publicKey: string | null) {
 
 /** Provides the wallet context, tracking the connected public key and restoring the last-connected wallet on mount. */
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const [publicKey, setPublicKey] = useState<string | null>(() => loadLastPublicKey());
+  const [publicKey, setPublicKey] = useState<string | null>(() =>
+    loadLastPublicKey(),
+  );
   const [isWalletReady, setIsWalletReady] = useState(false);
 
   useEffect(() => {
@@ -75,6 +83,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     () => ({
       publicKey,
       isWalletReady,
+      connect: (nextPublicKey: string) => {
+        saveLastPublicKey(nextPublicKey);
+        setPublicKey(nextPublicKey);
+      },
+      disconnect: () => {
+        clearWalletConnection();
+        saveLastPublicKey(null);
+        setPublicKey(null);
+      },
       connectWallet: (nextPublicKey: string) => {
         saveLastPublicKey(nextPublicKey);
         setPublicKey(nextPublicKey);
@@ -84,11 +101,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         saveLastPublicKey(null);
         setPublicKey(null);
       },
+      signTransaction: async (transactionXDR: string) => {
+        return signTransactionWithWallet(transactionXDR);
+      },
     }),
-    [publicKey, isWalletReady]
+    [publicKey, isWalletReady],
   );
 
-  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
+  return (
+    <WalletContext.Provider value={value}>{children}</WalletContext.Provider>
+  );
 }
 
 /** Access the wallet context; throws if called outside a WalletProvider. */

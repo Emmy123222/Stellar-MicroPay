@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/nextjs";
+import type { Meta, StoryObj } from "@storybook/react";
 import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import { userEvent, within } from "@storybook/test";
 
