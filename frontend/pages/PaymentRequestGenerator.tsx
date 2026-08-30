@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import clsx from "clsx";
 import { QRCodeCanvas } from "qrcode.react";
 import { buildPaymentLinkUrl, rememberPaymentLink } from "@/lib/paymentLinks";
+import { NETWORK } from "@/lib/stellarConfig";
 
 export default function PaymentRequestGenerator() {
   const [destination, setDestination] = useState("");
@@ -26,6 +27,8 @@ export default function PaymentRequestGenerator() {
       amount: amount.toString(),
       memo: memo.trim() || undefined,
       validUntil,
+      // Bind the link to the active Stellar network (#749).
+      network: NETWORK,
     };
 
     const url = buildPaymentLinkUrl(window.location.origin, paymentData);

@@ -102,6 +102,22 @@ describe("PaymentLinkGenerator", () => {
     );
   });
 
+  it("binds the generated link to the active Stellar network (#749)", async () => {
+    const user = userEvent.setup();
+    render(<PaymentLinkGenerator />);
+
+    await fillForm(user)();
+    await user.click(screen.getByRole("button", { name: /create payment link/i }));
+
+    // In the jsdom test environment (no stored network config, no env override)
+    // the app defaults to testnet, so the payload must carry an explicit
+    // supported network identifier.
+    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ network: "testnet" })
+    );
+  });
+
   it("does not generate a link when destination is empty", async () => {
     const user = userEvent.setup();
     render(<PaymentLinkGenerator />);

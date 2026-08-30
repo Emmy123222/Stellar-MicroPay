@@ -4,15 +4,17 @@
  * Validates expiration, handles errors, and pre-fills the payment form.
  */
 import { useRouter } from "next/router";
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
-import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
+import { getXLMBalance, getContractTipTotal, CONTRACT_ID, NETWORK } from "@/lib/stellar";
 import { formatStroopsToXLM } from "@/utils/format";
 import {
   canRedeemPaymentLink,
   markPaymentLinkRedeemed,
   parsePaymentLinkQuery,
+  type PaymentLinkNetwork,
 } from "@/lib/paymentLinks";
 import { useWallet } from "@/lib/useWallet";
 
@@ -31,6 +33,9 @@ export default function PayPage() {
   const [xlmBalance, setXlmBalance] = useState<string>("0");
   const [tipTotal, setTipTotal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null); // New: Error state
+  // The network this link is bound to, when it differs from the app's active
+  // network. Blocks the payment form until the user switches networks (#749).
+  const [networkMismatch, setNetworkMismatch] = useState<PaymentLinkNetwork | null>(null);
 
   // Step 1: Parse and validate URL payment details.
   useEffect(() => {
@@ -44,11 +49,13 @@ export default function PayPage() {
       "expires",
       "expiry",
       "validUntil",
+      "network",
     ].some((key) => router.query[key] != null);
 
     if (!hasPaymentQuery) {
       setPrefill(null);
       setError(null);
+      setNetworkMismatch(null);
       return;
     }
 
@@ -58,12 +65,27 @@ export default function PayPage() {
       setError(
         parsed.reason === "invalid-expiry"
           ? "The payment link expiry timestamp is invalid."
-          : parsed.reason === "missing"
-            ? "The payment link data is incomplete or malformed."
-            : "Invalid payment link. Please check the URL.",
+          : parsed.reason === "invalid-network"
+            ? "The payment link specifies an unsupported network."
+            : parsed.reason === "missing"
+              ? "The payment link data is incomplete or malformed."
+              : "Invalid payment link. Please check the URL.",
       );
+      setNetworkMismatch(null);
       return;
     }
+
+    // Network binding (#749): if the link was created on a different network
+    // than the one the app is currently connected to, refuse to prefill the
+    // form until the user switches networks. This stops a testnet-issued link
+    // from being paid on mainnet (or vice versa) with real funds.
+    if (parsed.payload.network && parsed.payload.network !== NETWORK) {
+      setPrefill(null);
+      setError(null);
+      setNetworkMismatch(parsed.payload.network);
+      return;
+    }
+    setNetworkMismatch(null);
 
     // Reuse guard (#157): block links that have already been redeemed
     // on this device. Expiry is also checked centrally immediately before
@@ -119,6 +141,44 @@ export default function PayPage() {
         .catch(() => setTipTotal("0"));
     }
   }, [prefill?.destination]);
+
+  // Network mismatch guard (#749): the link targets a Stellar network that is
+  // not the one this app is connected to. Warn and block the form so the
+  // payment is never submitted on the wrong network.
+  if (networkMismatch) {
+    const targetLabel = networkMismatch === "mainnet" ? "Mainnet" : "Testnet";
+    const currentLabel = NETWORK === "mainnet" ? "Mainnet" : "Testnet";
+    return (
+      <div className="max-w-md mx-auto mt-20 p-8 card border-amber-500/30 text-center animate-fade-in bg-cosmos-900/50">
+        <div className="bg-amber-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+          <span className="text-2xl text-amber-500">⚠️</span>
+        </div>
+        <h2 className="text-xl font-bold text-white mb-2">
+          Different Stellar Network
+        </h2>
+        <p className="text-slate-400 mb-6">
+          This payment link was created on <strong className="text-amber-300">{targetLabel}</strong>,
+          but your wallet is currently connected to <strong className="text-slate-200">{currentLabel}</strong>.
+          Switch networks before completing this payment so your transaction is
+          submitted to the intended network.
+        </p>
+        <div className="space-y-3">
+          <Link
+            href="/settings"
+            className="btn-primary w-full block text-center py-2"
+          >
+            Switch to {targetLabel}
+          </Link>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="btn-secondary w-full py-2"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // UI: Error State (Graceful Degradation)
   if (error) {
