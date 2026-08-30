@@ -25,6 +25,8 @@ export interface URIParseResult {
   isExternal?: boolean; // Whether this came from an external URI handler
 }
 
+const MEMO_TEXT_MAX_BYTES = 28;
+
 /**
  * Parse a SEP-0007 URI string
  * Supports both stellar:pay and web+stellar:pay formats
@@ -87,6 +89,13 @@ export function parseStellarURI(uri: string): URIParseResult {
     const memoType = memoTypeRaw && validMemoTypes.includes(memoTypeRaw as typeof validMemoTypes[number])
       ? (memoTypeRaw as ParsedStellarURI['memoType'])
       : undefined;
+
+    if (memo && memoType === 'MEMO_TEXT' && new TextEncoder().encode(memo).length > MEMO_TEXT_MAX_BYTES) {
+      return {
+        success: false,
+        error: `MEMO_TEXT exceeds the ${MEMO_TEXT_MAX_BYTES}-byte UTF-8 limit`
+      };
+    }
     const msg = params.get('msg') || undefined;
     const networkPassphrase = params.get('network_passphrase') || undefined;
 

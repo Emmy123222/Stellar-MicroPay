@@ -120,6 +120,11 @@ export function truncateMemoText(memo: string): string {
   return truncated;
 }
 
+/** Return the encoded UTF-8 size of a Stellar MEMO_TEXT value. */
+export function memoTextByteLength(memo: string): number {
+  return new TextEncoder().encode(memo).length;
+}
+
 /**
  * USDC issuer (Circle) for the active network.
  *
@@ -1288,7 +1293,7 @@ export async function buildReceiptMintTransaction({
   const contract = new Contract(CONTRACT_ID);
 
   const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
-  const memoStr = (memo ?? "").slice(0, 28);
+  const memoStr = truncateMemoText(memo ?? "");
   const memoScVal = nativeToScVal(memoStr, { type: "symbol" });
 
   const tx = new TransactionBuilder(sourceAccount, {
