@@ -146,7 +146,7 @@ jobs:
 
     env:
       RUST_VERSION: "1.82.0"
-      STELLAR_CLI_VERSION: "v21.5.0"
+      STELLAR_CLI_VERSION: "21.5.0"
 
     steps:
       - uses: actions/checkout@v4

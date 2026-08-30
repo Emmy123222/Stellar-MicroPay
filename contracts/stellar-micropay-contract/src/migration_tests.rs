@@ -16,8 +16,8 @@ use soroban_sdk::{
 };
 
 use crate::{
-    DataKey, Escrow, EscrowStatus, LegacyReceiptMetadata, MicroPayContract,
-    MicroPayContractClient, TipRecord, SCHEMA_VERSION,
+    DataKey, Escrow, EscrowStatus, LegacyReceiptMetadata, MicroPayContract, MicroPayContractClient,
+    TipRecord, SCHEMA_VERSION,
 };
 
 // ── v1 snapshot fixture builder ──────────────────────────────────────────────
@@ -31,7 +31,9 @@ fn build_v1_snapshot(env: &Env, contract_id: &Address) -> (Address, Address, Add
     let admin = Address::generate(env);
     let payer = Address::generate(env);
     let tip_recipient = Address::generate(env);
-    let token = env.register_stellar_asset_contract_v2(Address::generate(env)).address();
+    let token = env
+        .register_stellar_asset_contract_v2(Address::generate(env))
+        .address();
 
     env.as_contract(contract_id, || {
         // ── Admin ────────────────────────────────────────────────────────
@@ -43,7 +45,9 @@ fn build_v1_snapshot(env: &Env, contract_id: &Address) -> (Address, Address, Add
         );
 
         // ── Schema version = 1 ──────────────────────────────────────────
-        env.storage().persistent().set(&DataKey::SchemaVersion, &1u32);
+        env.storage()
+            .persistent()
+            .set(&DataKey::SchemaVersion, &1u32);
         env.storage().persistent().extend_ttl(
             &DataKey::SchemaVersion,
             crate::PERSISTENT_LIFETIME_THRESHOLD,
@@ -72,10 +76,9 @@ fn build_v1_snapshot(env: &Env, contract_id: &Address) -> (Address, Address, Add
                 crate::PERSISTENT_BUMP_AMOUNT,
             );
         }
-        env.storage().persistent().set(
-            &DataKey::TipTotal(tip_recipient.clone()),
-            &tip_total,
-        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::TipTotal(tip_recipient.clone()), &tip_total);
         env.storage().persistent().extend_ttl(
             &DataKey::TipTotal(tip_recipient.clone()),
             crate::PERSISTENT_LIFETIME_THRESHOLD,
@@ -100,19 +103,17 @@ fn build_v1_snapshot(env: &Env, contract_id: &Address) -> (Address, Address, Add
             memo: Symbol::new(env, "invoice_42"),
             ledger: 200,
         };
-        env.storage().persistent().set(
-            &DataKey::ReceiptRecord(payer.clone(), 0),
-            &receipt,
-        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::ReceiptRecord(payer.clone(), 0), &receipt);
         env.storage().persistent().extend_ttl(
             &DataKey::ReceiptRecord(payer.clone(), 0),
             crate::PERSISTENT_LIFETIME_THRESHOLD,
             crate::PERSISTENT_BUMP_AMOUNT,
         );
-        env.storage().persistent().set(
-            &DataKey::ReceiptCount(payer.clone()),
-            &1u32,
-        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::ReceiptCount(payer.clone()), &1u32);
         env.storage().persistent().extend_ttl(
             &DataKey::ReceiptCount(payer.clone()),
             crate::PERSISTENT_LIFETIME_THRESHOLD,
@@ -129,17 +130,13 @@ fn build_v1_snapshot(env: &Env, contract_id: &Address) -> (Address, Address, Add
             release_ledger: 999_999,
             status: EscrowStatus::Pending,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Escrow(0), &escrow);
+        env.storage().persistent().set(&DataKey::Escrow(0), &escrow);
         env.storage().persistent().extend_ttl(
             &DataKey::Escrow(0),
             crate::PERSISTENT_LIFETIME_THRESHOLD,
             crate::PERSISTENT_BUMP_AMOUNT,
         );
-        env.storage()
-            .persistent()
-            .set(&DataKey::EscrowCount, &1u32);
+        env.storage().persistent().set(&DataKey::EscrowCount, &1u32);
         env.storage().persistent().extend_ttl(
             &DataKey::EscrowCount,
             crate::PERSISTENT_LIFETIME_THRESHOLD,
@@ -149,9 +146,7 @@ fn build_v1_snapshot(env: &Env, contract_id: &Address) -> (Address, Address, Add
         // ── Stream count (no Stream entries — v1 streams are omitted
         //    because their layout changed in v2; the migration test
         //    focuses on non-stream data survival) ─────────────────────────
-        env.storage()
-            .persistent()
-            .set(&DataKey::StreamCount, &0u32);
+        env.storage().persistent().set(&DataKey::StreamCount, &0u32);
         env.storage().persistent().extend_ttl(
             &DataKey::StreamCount,
             crate::PERSISTENT_LIFETIME_THRESHOLD,
