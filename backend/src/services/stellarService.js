@@ -6,8 +6,13 @@
 
 "use strict";
 
-const { server } = require("../config/stellar");
+const { server, HORIZON_URL } = require("../config/stellar");
 const logger = require("../utils/logger");
+const {
+  STATES,
+  getBreaker,
+  HorizonCircuitOpenError,
+} = require("./horizonCircuitBreaker");
 
 // ─── In-memory LRU cache for getAccount (5 s TTL) ────────────────────────────
 const ACCOUNT_CACHE_TTL_MS = 5_000;
@@ -41,10 +46,20 @@ function isTransientError(err) {
 /**
  * Run `fn` with a hard timeout and retry up to MAX_RETRIES times on
  * transient errors, using exponential back-off (100 ms × 2^attempt).
+ * When the Horizon circuit is open, fail fast with retry guidance instead
+ * of amplifying upstream load (#840).
  */
 async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const breaker = getBreaker(HORIZON_URL);
   let lastErr;
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      breaker.assertCanExecute();
+    } catch (circuitErr) {
+      throw circuitErr;
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -58,15 +73,30 @@ async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
         ),
       ]);
       clearTimeout(timer);
+      breaker.recordSuccess();
       return result;
     } catch (err) {
       clearTimeout(timer);
       lastErr = err;
-      if (!isTransientError(err) || attempt === MAX_RETRIES) throw err;
+
+      if (!isTransientError(err)) {
+        throw err;
+      }
+
+      breaker.recordFailure();
+      if (breaker.state === STATES.OPEN) {
+        throw new HorizonCircuitOpenError(breaker.snapshot());
+      }
+
+      if (attempt === MAX_RETRIES) {
+        throw err;
+      }
+
       // Exponential back-off: 100 ms, 200 ms, 400 ms …
       await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
     }
   }
+
   throw lastErr;
 }
 
@@ -106,8 +136,14 @@ function clearAccountCache() {
 async function getAccount(publicKey) {
   validatePublicKey(publicKey);
 
-  const cached = cacheGet(publicKey);
-  if (cached) return cached;
+  const breaker = getBreaker(HORIZON_URL);
+  if (breaker.state === STATES.OPEN) {
+    breaker.refreshState();
+  }
+  if (breaker.state !== STATES.OPEN) {
+    const cached = cacheGet(publicKey);
+    if (cached) return cached;
+  }
 
   try {
     const account = await withTimeoutAndRetry(() => server.loadAccount(publicKey));

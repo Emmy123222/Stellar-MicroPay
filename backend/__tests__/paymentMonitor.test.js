@@ -39,6 +39,7 @@ const { startMonitoring } = require("../src/services/paymentMonitor");
 const { getWebhooksByPublicKey } = require("../src/services/webhookStore");
 const { deliverWebhook } = require("../src/services/webhookDelivery");
 const cursorStore = require("../src/services/cursorStore");
+const { getBreaker, resetAllBreakers } = require("../src/services/horizonCircuitBreaker");
 
 const PUBLIC_KEY = "GA0000000000000000000000000000000000000000000000000000";
 
@@ -59,6 +60,7 @@ function payment(over = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  resetAllBreakers();
   streamOptions = null;
   lastCursorArg = null;
   cursorStore.get.mockReturnValue("now");
@@ -96,5 +98,28 @@ describe("paymentMonitor durable cursor (#773)", () => {
     await streamOptions.onmessage(payment({ paging_token: "p2" }));
     await streamOptions.onmessage(payment({ paging_token: "p2" }));
     expect(deliverWebhook).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("paymentMonitor Horizon circuit breaker (#840)", () => {
+  it("does not start a stream while the circuit is open", () => {
+    const breaker = getBreaker("https://horizon-testnet.stellar.org", { failureThreshold: 1 });
+    breaker.recordFailure();
+
+    const result = startMonitoring(PUBLIC_KEY);
+
+    expect(result.started).toBe(false);
+    expect(result.state).toBe("open");
+    expect(result.retryAfterMs).toBeGreaterThanOrEqual(0);
+    expect(streamOptions).toBeNull();
+  });
+
+  it("records stream errors against the breaker", () => {
+    const breaker = getBreaker("https://horizon-testnet.stellar.org", { failureThreshold: 1 });
+    startMonitoring(PUBLIC_KEY);
+
+    streamOptions.onerror(new Error("upstream unavailable"));
+
+    expect(breaker.state).toBe("open");
   });
 });

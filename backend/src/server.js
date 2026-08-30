@@ -300,6 +300,22 @@ app.use((err, req, res, next) => {
   const status = err.status || 500;
   const message = sanitizeMessage(err.message) || "Internal Server Error";
   logger.error({ status, message }, "Request error");
+
+  if (err.code === "HORIZON_CIRCUIT_OPEN" && err.retryAfterSeconds) {
+    res.set("Retry-After", String(err.retryAfterSeconds));
+    return res.status(status).json({
+      error: message,
+      code: err.code,
+      retryAfterMs: err.retryAfterMs,
+      retryAfterSeconds: err.retryAfterSeconds,
+      horizon: {
+        origin: err.origin,
+        network: err.network,
+        state: err.state,
+      },
+    });
+  }
+
   res.status(status).json({ error: message });
 });
 

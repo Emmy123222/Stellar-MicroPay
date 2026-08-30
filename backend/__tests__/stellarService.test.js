@@ -31,12 +31,14 @@ jest.mock("@stellar/stellar-sdk", () => {
 });
 
 const stellarService = require("../src/services/stellarService");
+const { resetAllBreakers, getBreaker } = require("../src/services/horizonCircuitBreaker");
 
 describe("stellarService", () => {
   const validPublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetAllBreakers();
     stellarService.clearAccountCache();
     mockPaymentsCursor.mockImplementation(() => ({ call: mockPaymentsCall }));
     mockPaymentsOrder.mockImplementation(() => ({ cursor: mockPaymentsCursor, call: mockPaymentsCall }));
@@ -284,6 +286,38 @@ describe("stellarService", () => {
         expect(err.message).toContain("Account not found");
         expect(err.message).toContain("Use Friendbot on testnet");
       }
+    });
+  });
+
+  describe("Horizon circuit breaker (#840)", () => {
+    it("fails fast with retry guidance when the circuit is open", async () => {
+      const breaker = getBreaker("https://horizon-testnet.stellar.org", { failureThreshold: 1 });
+      breaker.recordFailure();
+
+      await expect(stellarService.getAccount(validPublicKey)).rejects.toMatchObject({
+        code: "HORIZON_CIRCUIT_OPEN",
+        status: 503,
+        network: "testnet",
+        state: "open",
+      });
+      expect(mockLoadAccount).not.toHaveBeenCalled();
+    });
+
+    it("does not serve cached account data while the circuit is open", async () => {
+      mockLoadAccount.mockResolvedValue({
+        sequence: "1",
+        subentry_count: 0,
+        balances: [{ asset_type: "native", balance: "10.0000000" }],
+      });
+
+      await stellarService.getAccount(validPublicKey);
+      const breaker = getBreaker("https://horizon-testnet.stellar.org", { failureThreshold: 1 });
+      breaker.recordFailure();
+
+      await expect(stellarService.getAccount(validPublicKey)).rejects.toMatchObject({
+        code: "HORIZON_CIRCUIT_OPEN",
+      });
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -376,10 +376,32 @@ const PATHS = {
               schema: {
                 type: "object",
                 properties: {
-                  status: { type: "string", example: "ok" },
+                  status: { type: "string", example: "ok", enum: ["ok", "degraded"] },
                   service: { type: "string", example: "stellar-micropay-api" },
-                  network: { type: "string", example: "testnet" },
+                  network: { type: "string", example: "testnet", enum: ["testnet", "mainnet"] },
                   timestamp: { type: "string", format: "date-time" },
+                  horizon: {
+                    type: "object",
+                    properties: {
+                      url: { type: "string", example: "https://horizon-testnet.stellar.org" },
+                      network: { type: "string", enum: ["testnet", "mainnet"] },
+                      activeStreams: { type: "integer", example: 0 },
+                      openOrigins: { type: "array", items: { type: "string" } },
+                      halfOpenOrigins: { type: "array", items: { type: "string" } },
+                      circuits: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            origin: { type: "string" },
+                            network: { type: "string", enum: ["testnet", "mainnet"] },
+                            state: { type: "string", enum: ["closed", "open", "half_open"] },
+                            retryAfterMs: { type: "integer", nullable: true },
+                          },
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
