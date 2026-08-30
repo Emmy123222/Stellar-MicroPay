@@ -54,6 +54,56 @@ curl -X GET http://localhost:4000/api/v1/accounts/resolve/alice
 
 ---
 
+## Soroban event schema versioning
+
+Contract events use event-data schema version `1`. The first item in every
+non-indexed event data tuple is `schema_version: u32`; event names and indexed
+topics remain stable across payload revisions. Indexers should select a decoder
+from this field and reject or quarantine versions they do not understand.
+
+| Event | Indexed topics | Version 1 event data |
+|-------|----------------|----------------------|
+| `init` | `(init)` | `(1, admin)` |
+| `tip` | `(tip, from, to)` | `(1, amount)` |
+| `receipt` | `(receipt, from)` | `(1, receipt_index)` |
+| `escrow_create` | `(escrow_create, escrow_id)` | `(1, from, to, amount, release_ledger)` |
+| `escrow_claim` | `(escrow_claim, escrow_id)` | `(1, to, amount)` |
+| `escrow_cancel` | `(escrow_cancel, escrow_id)` | `(1, from, amount)` |
+| `stream_open` | `(stream_open, stream_id)` | `(1, payer, recipients, weights, rate_per_ledger, deposit)` |
+| `stream_claim` | `(stream_claim, stream_id)` | `(1, recipient, amount)` |
+| `stream_topup` | `(stream_topup, stream_id)` | `(1, payer, amount, total_deposited)` |
+| `stream_pause` | `(stream_pause, stream_id)` | `(1, payer, paused_at_ledger)` |
+| `stream_resume` | `(stream_resume, stream_id)` | `(1, payer, pause_length)` |
+| `stream_close` | `(stream_close, stream_id)` | `(1, paid_to_recipients, payer_refund)` |
+| `migrate` | `(migrate)` | `(1, from_storage_version, to_storage_version)` |
+
+### JavaScript decoding example
+
+```ts
+import { scValToNative } from "@stellar/stellar-sdk";
+
+function decodeMicroPayEvent(event) {
+  const topics = event.topic.map(scValToNative);
+  const [schemaVersion, ...payload] = scValToNative(event.value);
+
+  if (schemaVersion !== 1) {
+    throw new Error(`Unsupported MicroPay event schema: ${schemaVersion}`);
+  }
+
+  return { name: topics[0], indexedTopics: topics.slice(1), payload };
+}
+```
+
+For example, `escrow_claim` decodes to indexed topics `[escrow_id]` and
+payload `[to, amount]`; `stream_close` decodes to indexed topics `[stream_id]`
+and payload `[paid_to_recipients, payer_refund]`.
+
+The layout is network-independent. Testnet and mainnet emit the same schema;
+indexers must configure the correct network passphrase, RPC endpoint, and
+deployed contract ID for each network and must not merge their cursors.
+
+---
+
 ## Response conventions
 
 Most JSON endpoints use one of these shapes:

@@ -15,7 +15,7 @@ extern crate std;
 #[cfg(test)]
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token, vec, Address, Env, Symbol,
+    token, vec, Address, Env,
 };
 
 #[cfg(test)]
@@ -194,7 +194,7 @@ fn benchmark_mint_receipt() {
 
     let payer = Address::generate(&env);
     let payee = Address::generate(&env);
-    let memo = Symbol::new(&env, "Rent");
+    let memo = soroban_sdk::String::from_str(&env, "Rent");
 
     env.budget().reset_default();
     let _id = client.mint_receipt(&payer, &payee, &1_000, &memo);

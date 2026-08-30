@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, token, Address, Env, String, Symbol,
 };
 
 #[contracterror]
@@ -10,6 +10,9 @@ pub enum ContractError {
     AlreadyInitialized = 1,
     SchemaAlreadyCurrent = 2,
     SchemaDowngrade = 3,
+    EscrowClaimTooEarly = 4,
+    EscrowCancelTooLate = 5,
+    ReceiptMemoTooLong = 6,
 }
 
 const PERSISTENT_LIFETIME_THRESHOLD: u32 = 100_000;
@@ -20,7 +23,15 @@ const PERSISTENT_BUMP_AMOUNT: u32 = 500_000;
 /// Bump this whenever a stored struct (`Stream`, `Escrow`, …) or a `DataKey`
 /// variant changes shape, and add the corresponding step to the migration
 /// table in the contract README (#562).
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
+
+/// Version of every event data payload emitted by this contract. Event names
+/// and indexed topics stay stable; only the non-indexed data tuple is
+/// versioned so indexers can select the correct decoder (#798).
+pub const EVENT_SCHEMA_VERSION: u32 = 1;
+
+/// Maximum UTF-8 byte length accepted for a receipt memo (#797).
+pub const MAX_RECEIPT_MEMO_BYTES: u32 = 256;
 
 /// Smallest deposit `open_stream` accepts, in stroops (0.001 XLM against the
 /// native SAC).
@@ -55,6 +66,19 @@ pub struct ReceiptMetadata {
     pub to: Address,
     pub amount: i128,
     pub timestamp: u64,
+    pub memo: String,
+    pub ledger: u32,
+}
+
+/// Receipt layout used through storage schema v3. It remains readable via
+/// `get_legacy_receipt` while new records are written under `ReceiptRecordV2`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LegacyReceiptMetadata {
+    pub from: Address,
+    pub to: Address,
+    pub amount: i128,
+    pub timestamp: u64,
     pub memo: Symbol,
     pub ledger: u32,
 }
@@ -80,6 +104,9 @@ pub enum DataKey {
     EscrowRecipientCount(Address),
     /// Maps `(recipient, index)` → global escrow id (#796).
     EscrowRecipientIndex(Address, u32),
+    /// UTF-8 receipt layout introduced in storage schema v4 (#797). Appended
+    /// to preserve the encoded discriminants of every existing key variant.
+    ReceiptRecordV2(Address, u32),
 }
 
 #[contracttype]
@@ -354,7 +381,10 @@ impl MicroPayContract {
 
         // Emit an init event so off-chain indexers can detect an initialised
         // contract without polling get_admin() (#258).
-        env.events().publish((Symbol::new(&env, "init"),), admin);
+        env.events().publish(
+            (Symbol::new(&env, "init"),),
+            (EVENT_SCHEMA_VERSION, admin),
+        );
         Ok(())
     }
 
@@ -429,8 +459,10 @@ impl MicroPayContract {
 
         // Clone `from` into the event tuple so the owned binding is not moved
         // out before the borrow checker is done with it (#202).
-        env.events()
-            .publish((Symbol::new(&env, "tip"), from.clone(), to.clone()), amount);
+        env.events().publish(
+            (Symbol::new(&env, "tip"), from.clone(), to.clone()),
+            (EVENT_SCHEMA_VERSION, amount),
+        );
 
         // Interactions: external token transfer after all state is persisted.
         let token = token::Client::new(&env, &token_address);
@@ -493,10 +525,19 @@ impl MicroPayContract {
         val
     }
 
-    pub fn mint_receipt(env: Env, from: Address, to: Address, amount: i128, memo: Symbol) -> u32 {
+    pub fn mint_receipt(
+        env: Env,
+        from: Address,
+        to: Address,
+        amount: i128,
+        memo: String,
+    ) -> Result<u32, ContractError> {
         from.require_auth();
         if amount <= 0 {
             panic!("Receipt amount must be positive");
+        }
+        if memo.len() > MAX_RECEIPT_MEMO_BYTES {
+            return Err(ContractError::ReceiptMemoTooLong);
         }
         let count: u32 = env
             .storage()
@@ -515,9 +556,9 @@ impl MicroPayContract {
 
         env.storage()
             .persistent()
-            .set(&DataKey::ReceiptRecord(from.clone(), count), &receipt);
+            .set(&DataKey::ReceiptRecordV2(from.clone(), count), &receipt);
         env.storage().persistent().extend_ttl(
-            &DataKey::ReceiptRecord(from.clone(), count),
+            &DataKey::ReceiptRecordV2(from.clone(), count),
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
         );
@@ -531,9 +572,11 @@ impl MicroPayContract {
             PERSISTENT_BUMP_AMOUNT,
         );
 
-        env.events()
-            .publish((Symbol::new(&env, "receipt"), from), count);
-        count
+        env.events().publish(
+            (Symbol::new(&env, "receipt"), from),
+            (EVENT_SCHEMA_VERSION, count),
+        );
+        Ok(count)
     }
 
     pub fn get_receipt_count(env: Env, payer: Address) -> u32 {
@@ -550,12 +593,30 @@ impl MicroPayContract {
     }
 
     pub fn get_receipt(env: Env, payer: Address, index: u32) -> ReceiptMetadata {
-        let key = DataKey::ReceiptRecord(payer, index);
+        let key = DataKey::ReceiptRecordV2(payer, index);
         let val: ReceiptMetadata = env
             .storage()
             .persistent()
             .get(&key)
             .expect("Receipt not found");
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        val
+    }
+
+    /// Read a receipt created before storage schema v4. Legacy Symbol memos
+    /// cannot represent arbitrary UTF-8 and are intentionally kept in their
+    /// original type rather than converted lossy on-chain (#797).
+    pub fn get_legacy_receipt(env: Env, payer: Address, index: u32) -> LegacyReceiptMetadata {
+        let key = DataKey::ReceiptRecord(payer, index);
+        let val: LegacyReceiptMetadata = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("Legacy receipt not found");
         env.storage().persistent().extend_ttl(
             &key,
             PERSISTENT_LIFETIME_THRESHOLD,
@@ -601,18 +662,21 @@ impl MicroPayContract {
 
         index_escrow_accounts(&env, &from, &to, next_id);
 
-        env.events()
-            .publish((Symbol::new(&env, "escrow_create"), next_id), (from, to, amount, release_ledger));
+        env.events().publish(
+            (Symbol::new(&env, "escrow_create"), next_id),
+            (EVENT_SCHEMA_VERSION, from, to, amount, release_ledger),
+        );
         next_id
     }
 
-    pub fn claim_escrow(env: Env, id: u32) {
+    /// Claim is valid inclusively from `release_ledger` onward (#793).
+    pub fn claim_escrow(env: Env, id: u32) -> Result<(), ContractError> {
         let mut escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).expect("escrow not found");
         if escrow.status != EscrowStatus::Pending {
             panic!("escrow is not pending");
         }
         if env.ledger().sequence() < escrow.release_ledger {
-            panic!("release_ledger not reached");
+            return Err(ContractError::EscrowClaimTooEarly);
         }
         // Only the recipient can claim.
         escrow.to.require_auth();
@@ -623,21 +687,26 @@ impl MicroPayContract {
         env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
         let to_clone = escrow.to.clone();
-        env.events()
-            .publish((Symbol::new(&env, "escrow_claim"), id), (escrow.to, escrow.amount));
+        env.events().publish(
+            (Symbol::new(&env, "escrow_claim"), id),
+            (EVENT_SCHEMA_VERSION, escrow.to, escrow.amount),
+        );
 
         // Interactions: external token transfer after state is persisted.
         let token = token::Client::new(&env, &escrow.token);
         token.transfer(&env.current_contract_address(), &to_clone, &escrow.amount);
+        Ok(())
     }
 
-    pub fn cancel_escrow(env: Env, id: u32) {
+    /// Cancel is valid only before `release_ledger`; at the boundary claim is
+    /// the sole valid settlement operation (#793).
+    pub fn cancel_escrow(env: Env, id: u32) -> Result<(), ContractError> {
         let mut escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).expect("escrow not found");
         if escrow.status != EscrowStatus::Pending {
             panic!("escrow is not pending");
         }
         if env.ledger().sequence() >= escrow.release_ledger {
-            panic!("release_ledger already reached — cancellation is no longer allowed");
+            return Err(ContractError::EscrowCancelTooLate);
         }
         // Only the creator can cancel.
         escrow.from.require_auth();
@@ -648,12 +717,15 @@ impl MicroPayContract {
         env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
         let from_clone = escrow.from.clone();
-        env.events()
-            .publish((Symbol::new(&env, "escrow_cancel"), id), (escrow.from, escrow.amount));
+        env.events().publish(
+            (Symbol::new(&env, "escrow_cancel"), id),
+            (EVENT_SCHEMA_VERSION, escrow.from, escrow.amount),
+        );
 
         // Interactions: external token transfer after state is persisted.
         let token = token::Client::new(&env, &escrow.token);
         token.transfer(&env.current_contract_address(), &from_clone, &escrow.amount);
+        Ok(())
     }
 
     pub fn get_escrow(env: Env, id: u32) -> Escrow {
@@ -874,7 +946,14 @@ impl MicroPayContract {
 
         env.events().publish(
             (Symbol::new(&env, "stream_open"), stream_id),
-            (payer, recipients, weights, rate_per_ledger, deposit),
+            (
+                EVENT_SCHEMA_VERSION,
+                payer,
+                recipients,
+                weights,
+                rate_per_ledger,
+                deposit,
+            ),
         );
         stream_id
     }
@@ -905,8 +984,10 @@ impl MicroPayContract {
         let token = token::Client::new(&env, &stream.token);
         token.transfer(&env.current_contract_address(), &recipient, &amount);
 
-        env.events()
-            .publish((Symbol::new(&env, "stream_claim"), stream_id), (recipient, amount));
+        env.events().publish(
+            (Symbol::new(&env, "stream_claim"), stream_id),
+            (EVENT_SCHEMA_VERSION, recipient, amount),
+        );
         amount
     }
 
@@ -932,7 +1013,7 @@ impl MicroPayContract {
 
         env.events().publish(
             (Symbol::new(&env, "stream_topup"), stream_id),
-            (payer, amount, stream.deposited),
+            (EVENT_SCHEMA_VERSION, payer, amount, stream.deposited),
         );
     }
 
@@ -957,7 +1038,7 @@ impl MicroPayContract {
 
         env.events().publish(
             (Symbol::new(&env, "stream_pause"), stream_id),
-            (payer, stream.paused_at_ledger),
+            (EVENT_SCHEMA_VERSION, payer, stream.paused_at_ledger),
         );
     }
 
@@ -984,7 +1065,7 @@ impl MicroPayContract {
 
         env.events().publish(
             (Symbol::new(&env, "stream_resume"), stream_id),
-            (payer, pause_length),
+            (EVENT_SCHEMA_VERSION, payer, pause_length),
         );
     }
 
@@ -1031,8 +1112,10 @@ impl MicroPayContract {
             token.transfer(&contract_address, &payer, &refund);
         }
 
-        env.events()
-            .publish((Symbol::new(&env, "stream_close"), stream_id), (owed, refund));
+        env.events().publish(
+            (Symbol::new(&env, "stream_close"), stream_id),
+            (EVENT_SCHEMA_VERSION, owed, refund),
+        );
     }
 
     pub fn get_stream(env: Env, stream_id: u32) -> Stream {
@@ -1132,7 +1215,7 @@ impl MicroPayContract {
 
         env.events().publish(
             (Symbol::new(&env, "migrate"),),
-            (from_version, SCHEMA_VERSION),
+            (EVENT_SCHEMA_VERSION, from_version, SCHEMA_VERSION),
         );
         Ok(SCHEMA_VERSION)
     }
@@ -1188,7 +1271,7 @@ mod tests {
                 (
                     contract_id.clone(),
                     (Symbol::new(&env, "init"),).into_val(&env),
-                    admin.into_val(&env),
+                    (EVENT_SCHEMA_VERSION, admin).into_val(&env),
                 ),
             ]
         );
@@ -1227,7 +1310,7 @@ mod tests {
 
         env.mock_all_auths();
 
-        let memo = Symbol::new(&env, "Rent");
+        let memo = String::from_str(&env, "Rent");
         let receipt_id = client.mint_receipt(&payer, &payee, &1000, &memo);
         assert_eq!(receipt_id, 0);
 
@@ -1255,12 +1338,58 @@ mod tests {
 
         env.mock_all_auths();
 
-        let id1 = client.mint_receipt(&payer, &payee1, &500, &Symbol::new(&env, "Coffee"));
-        let id2 = client.mint_receipt(&payer, &payee2, &1500, &Symbol::new(&env, "Invoice"));
+        let id1 = client.mint_receipt(&payer, &payee1, &500, &String::from_str(&env, "Coffee"));
+        let id2 = client.mint_receipt(&payer, &payee2, &1500, &String::from_str(&env, "Invoice"));
 
         assert_eq!(id1, 0);
         assert_eq!(id2, 1);
         assert_eq!(client.get_receipt_count(&payer), 2);
+    }
+
+    #[test]
+    fn test_receipt_memo_accepts_unicode_and_exact_byte_cap() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        let payer = Address::generate(&env);
+        let payee = Address::generate(&env);
+        env.mock_all_auths();
+
+        let unicode = String::from_str(&env, "Café ☕ — 谢谢");
+        let unicode_id = client.mint_receipt(&payer, &payee, &100, &unicode);
+        assert_eq!(client.get_receipt(&payer, &unicode_id).memo, unicode);
+
+        let max_bytes = [b'x'; MAX_RECEIPT_MEMO_BYTES as usize];
+        let max_memo = String::from_bytes(&env, &max_bytes);
+        let max_id = client.mint_receipt(&payer, &payee, &100, &max_memo);
+        assert_eq!(client.get_receipt(&payer, &max_id).memo.len(), MAX_RECEIPT_MEMO_BYTES);
+    }
+
+    #[test]
+    fn test_receipt_memo_rejects_more_than_byte_cap() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        let payer = Address::generate(&env);
+        let payee = Address::generate(&env);
+        env.mock_all_auths();
+
+        let too_many_bytes = [b'x'; MAX_RECEIPT_MEMO_BYTES as usize + 1];
+        let result = client.try_mint_receipt(
+            &payer,
+            &payee,
+            &100,
+            &String::from_bytes(&env, &too_many_bytes),
+        );
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            ContractError::ReceiptMemoTooLong
+        );
+        assert_eq!(client.get_receipt_count(&payer), 0);
     }
 
     #[test]
@@ -1450,8 +1579,8 @@ mod tests {
         let release_ledger = env.ledger().sequence() + 10;
         let id = client.create_escrow(&token_id, &from, &to, &amount, &release_ledger);
 
-        // Fast-forward past release.
-        advance_ledger(&env, release_ledger + 1);
+        // Claim is valid at the inclusive release boundary.
+        advance_ledger(&env, release_ledger);
         client.claim_escrow(&id);
 
         assert_eq!(token.balance(&to), amount);
@@ -1482,7 +1611,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "release_ledger not reached")]
     fn test_claim_escrow_rejected_before_release_ledger() {
         let env = Env::default();
         let contract_id = env.register_contract(None, MicroPayContract);
@@ -1496,7 +1624,12 @@ mod tests {
         let token_id = create_token(&env, &admin, &from, 100);
         let release = env.ledger().sequence() + 50;
         let id = client.create_escrow(&token_id, &from, &to, &100, &release);
-        client.claim_escrow(&id);
+        advance_ledger(&env, release - 1);
+        let result = client.try_claim_escrow(&id);
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            ContractError::EscrowClaimTooEarly
+        );
     }
 
     #[test]
@@ -1548,7 +1681,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "release_ledger already reached")]
     fn test_cancel_escrow_rejected_after_release_ledger() {
         let env = Env::default();
         let contract_id = env.register_contract(None, MicroPayContract);
@@ -1562,8 +1694,19 @@ mod tests {
         let token_id = create_token(&env, &admin, &from, 100);
         let release = env.ledger().sequence() + 5;
         let id = client.create_escrow(&token_id, &from, &to, &100, &release);
+        advance_ledger(&env, release);
+        let at_release = client.try_cancel_escrow(&id);
+        assert_eq!(
+            at_release.unwrap_err().unwrap(),
+            ContractError::EscrowCancelTooLate
+        );
+
         advance_ledger(&env, release + 1);
-        client.cancel_escrow(&id);
+        let after_release = client.try_cancel_escrow(&id);
+        assert_eq!(
+            after_release.unwrap_err().unwrap(),
+            ContractError::EscrowCancelTooLate
+        );
     }
 
     #[test]
@@ -1870,7 +2013,14 @@ mod tests {
         let recipient2 = Address::generate(&env);
         let token = token::Client::new(&env, &token_id);
 
-        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+        let id = client.open_stream(
+            &token_id,
+            &payer,
+            &soroban_sdk::vec![&env, recipient1.clone(), recipient2.clone()],
+            &soroban_sdk::vec![&env, 1u32, 1u32],
+            &RATE,
+            &DEPOSIT,
+        );
 
         // Accrue some balance, then partially claim it.
         advance_by(&env, 10);
@@ -1885,10 +2035,11 @@ mod tests {
 
         let after_topup = client.get_stream(&id);
         assert_eq!(after_topup.deposited, DEPOSIT * 2);
-        assert_eq!(claimed_of(&after_topup), RATE * 10);
+        assert_eq!(total_claimed(&after_topup.recipients), RATE * 10);
         // The top-up must not change what's claimable right now — the
         // extended runway only shows up as ledgers advance.
-        assert_eq!(client.get_claimable(&id, &recipient), 0);
+        assert_eq!(client.get_claimable(&id, &recipient1), 0);
+        assert_eq!(client.get_claimable(&id, &recipient2), 0);
 
         advance_by(&env, 5);
         let second_claim1 = client.claim_stream(&id, &recipient1);
@@ -1897,14 +2048,17 @@ mod tests {
         assert_eq!(second_claim2, (RATE * 5) / 2);
 
         let final_stream = client.get_stream(&id);
-        assert_eq!(claimed_of(&final_stream), RATE * 15);
-        assert_eq!(token.balance(&recipient), claimed_of(&final_stream));
+        assert_eq!(total_claimed(&final_stream.recipients), RATE * 15);
+        assert_eq!(
+            token.balance(&recipient1) + token.balance(&recipient2),
+            total_claimed(&final_stream.recipients)
+        );
 
         // Reconciliation: claimed + whatever remains locked in the contract
         // for this stream equals the total ever deposited, exactly.
         let remaining_in_contract = token.balance(&contract_id);
         assert_eq!(
-            claimed_of(&final_stream) + remaining_in_contract,
+            total_claimed(&final_stream.recipients) + remaining_in_contract,
             after_topup.deposited
         );
     }
@@ -1959,7 +2113,7 @@ mod tests {
                 (
                     contract_id,
                     (Symbol::new(&env, "stream_close"), id).into_val(&env),
-                    (streamed, refund).into_val(&env),
+                    (EVENT_SCHEMA_VERSION, streamed, refund).into_val(&env),
                 ),
             ]
         );
