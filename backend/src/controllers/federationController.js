@@ -5,7 +5,11 @@
 
 "use strict";
 
-const axios = require("axios");
+const {
+  buildDiscoveryUrl,
+  parseSecureUrl,
+  secureGet,
+} = require("../services/secureHttpClient");
 const usernameService = require("../services/usernameService");
 
 /**
@@ -146,8 +150,8 @@ async function forwardFederation(query, type) {
   const domain = parts[1];
 
   // Fetch stellar.toml from the domain
-  const tomlUrl = `https://${domain}/.well-known/stellar.toml`;
-  const tomlResponse = await axios.get(tomlUrl, { timeout: 5000 });
+  const tomlUrl = buildDiscoveryUrl(domain);
+  const tomlResponse = await secureGet(tomlUrl, { timeout: 5000, responseType: "text" });
   const tomlContent = tomlResponse.data;
 
   // Parse TOML to find FEDERATION_SERVER
@@ -157,8 +161,10 @@ async function forwardFederation(query, type) {
   }
 
   // Make request to external federation server
-  const federationUrl = `${federationServer}?q=${encodeURIComponent(query)}&type=${type}`;
-  const response = await axios.get(federationUrl, { timeout: 5000 });
+  const federationUrl = parseSecureUrl(federationServer);
+  federationUrl.searchParams.set("q", query);
+  federationUrl.searchParams.set("type", type);
+  const response = await secureGet(federationUrl, { timeout: 5000 });
 
   return response.data;
 }
