@@ -61,6 +61,7 @@ describe("tipsController", () => {
         asset: "XLM",
         memo: "Great work!",
         txHash: "abc123hash",
+        operationIndex: 0,
       });
 
       expect(res.status).toHaveBeenCalledWith(201);
@@ -108,6 +109,7 @@ describe("tipsController", () => {
         asset: "XLM",
         memo: "",
         txHash: "",
+        operationIndex: 0,
       });
     });
 
@@ -125,6 +127,78 @@ describe("tipsController", () => {
       await tipsController.recordTip(req, res, next);
 
       expect(next).toHaveBeenCalledWith(validationError);
+    });
+  });
+
+  describe("Idempotent tip recording", () => {
+    it("returns 200 with the existing record when tipsService reports a duplicate", async () => {
+      req.body = {
+        senderPublicKey: "GABC123456789012345678901234567890123456789012345678",
+        creatorPublicKey: "GDEF456789012345678901234567890123456789012345678901",
+        amount: "10.5",
+        txHash: "abc123hash",
+        operationIndex: 0,
+      };
+
+      const existingTip = {
+        id: 1,
+        senderPublicKey: req.body.senderPublicKey,
+        creatorPublicKey: req.body.creatorPublicKey,
+        amount: req.body.amount,
+        txHash: req.body.txHash,
+        operationIndex: 0,
+        isDuplicate: true,
+        timestamp: new Date().toISOString(),
+      };
+
+      tipsService.validateTipInput.mockImplementation(() => {});
+      tipsService.recordTip.mockReturnValue(existingTip);
+
+      await tipsController.recordTip(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        data: existingTip,
+        message: "Tip already recorded",
+      });
+    });
+
+    it("passes operationIndex through to tipsService.recordTip", async () => {
+      req.body = {
+        senderPublicKey: "GABC123456789012345678901234567890123456789012345678",
+        creatorPublicKey: "GDEF456789012345678901234567890123456789012345678901",
+        amount: "10.5",
+        txHash: "abc123hash",
+        operationIndex: 2,
+      };
+
+      tipsService.validateTipInput.mockImplementation(() => {});
+      tipsService.recordTip.mockReturnValue({ id: 1, isDuplicate: false });
+
+      await tipsController.recordTip(req, res, next);
+
+      expect(tipsService.recordTip).toHaveBeenCalledWith(
+        expect.objectContaining({ operationIndex: 2 })
+      );
+    });
+
+    it("defaults operationIndex to 0 when omitted", async () => {
+      req.body = {
+        senderPublicKey: "GABC123456789012345678901234567890123456789012345678",
+        creatorPublicKey: "GDEF456789012345678901234567890123456789012345678901",
+        amount: "10.5",
+        txHash: "abc123hash",
+      };
+
+      tipsService.validateTipInput.mockImplementation(() => {});
+      tipsService.recordTip.mockReturnValue({ id: 1, isDuplicate: false });
+
+      await tipsController.recordTip(req, res, next);
+
+      expect(tipsService.recordTip).toHaveBeenCalledWith(
+        expect.objectContaining({ operationIndex: 0 })
+      );
     });
   });
 
