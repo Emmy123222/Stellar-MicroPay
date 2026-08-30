@@ -576,6 +576,9 @@ impl MicroPayContract {
         if amount <= 0 {
             panic!("amount must be positive");
         }
+        if from == to {
+            panic!("escrow parties must be distinct");
+        }
         if release_ledger <= env.ledger().sequence() {
             panic!("release_ledger must be in the future");
         }
@@ -1433,6 +1436,22 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "escrow parties must be distinct")]
+    fn test_create_escrow_rejects_same_sender_and_recipient() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let from = Address::generate(&env);
+        env.mock_all_auths();
+        let token_id = create_token(&env, &admin, &from, 100);
+        let release = env.ledger().sequence() + 50;
+        client.create_escrow(&token_id, &from, &from, &100i128, &release);
+    }
+
+    #[test]
     fn test_claim_escrow_transfers_to_recipient_after_release() {
         let env = Env::default();
         let contract_id = env.register_contract(None, MicroPayContract);
@@ -1855,6 +1874,53 @@ mod tests {
         assert_eq!(client.get_claimable(&id, &recipient), DEPOSIT);
         advance_by(&env, 10);
         assert_eq!(client.get_claimable(&id, &recipient), DEPOSIT + RATE * 10);
+    }
+
+    #[test]
+    fn test_top_up_while_paused_extends_runway_without_accruing() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, recipient) =
+            stream_fixture(&env, DEPOSIT * 2);
+        let token = token::Client::new(&env, &token_id);
+
+        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+        advance_by(&env, 20);
+        client.pause_stream(&id, &payer);
+        let claimable_at_pause = client.get_claimable(&id, &recipient);
+
+        advance_by(&env, 100);
+        client.top_up_stream(&id, &payer, &DEPOSIT);
+
+        assert_eq!(client.get_claimable(&id, &recipient), claimable_at_pause);
+        assert_eq!(client.get_stream(&id).deposited, DEPOSIT * 2);
+        assert_eq!(token.balance(&contract_id), DEPOSIT * 2);
+
+        client.resume_stream(&id, &payer);
+        advance_by(&env, 10);
+        assert_eq!(
+            client.get_claimable(&id, &recipient),
+            claimable_at_pause + RATE * 10
+        );
+    }
+
+    #[test]
+    fn test_top_up_while_paused_then_close_refunds_unstreamed_topup() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, recipient) =
+            stream_fixture(&env, DEPOSIT * 2);
+        let token = token::Client::new(&env, &token_id);
+
+        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+        advance_by(&env, 20);
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 100);
+        client.top_up_stream(&id, &payer, &DEPOSIT);
+        client.close_stream(&id, &payer);
+
+        let streamed = RATE * 20;
+        assert_eq!(token.balance(&recipient), streamed);
+        assert_eq!(token.balance(&payer), DEPOSIT * 2 - streamed);
+        assert_eq!(token.balance(&contract_id), 0);
     }
 
     /// #556 — claim_stream and top_up_stream both land in the same ledger

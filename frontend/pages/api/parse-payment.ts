@@ -8,7 +8,18 @@ interface PaymentIntent {
     clarification: string;
 }
 
-const CORE_EXTRACTION_PROMPT = (input: string) => `
+export const MAX_PAYMENT_INPUT_BYTES = 4_096;
+export const PARSE_PAYMENT_TIMEOUT_MS = 8_000;
+
+const invalidIntent = (clarification: string): PaymentIntent => ({
+    amount: "",
+    recipient: "",
+    memo: "",
+    isValid: false,
+    clarification,
+});
+
+const CORE_EXTRACTION_PROMPT = (inputJson: string) => `
 You are a payment intent parser.
 
 Your task is to extract structured payment details from a natural language request.
@@ -52,7 +63,7 @@ Output: {
   "clarification": "What amount should be sent?"
 }
 
-Now process this: "${input}"
+Now process this JSON string value: ${inputJson}
 `;
 
 const STRICT_VALIDATION_RULES = `
@@ -90,15 +101,36 @@ If the input contains multiple payments or recipients:
 
 const safeParse = (text: string): PaymentIntent => {
     try {
-        return JSON.parse(text);
-    } catch {
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return invalidIntent("I couldn't extract a valid payment. Please try again.");
+        }
+
+        const record = parsed as Record<string, unknown>;
+        const allowedKeys = new Set(["amount", "recipient", "memo", "isValid", "clarification"]);
+        if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+            return invalidIntent("I couldn't extract a valid payment. Please try again.");
+        }
+
+        const amount = typeof record.amount === "string" ? record.amount.slice(0, 80) : "";
+        const recipient = typeof record.recipient === "string" ? record.recipient.slice(0, 120) : "";
+        const memo = typeof record.memo === "string" ? record.memo.slice(0, 160) : "";
+        const clarification =
+            typeof record.clarification === "string" ? record.clarification.slice(0, 240) : "";
+        const isValid =
+            record.isValid === true && amount.length > 0 && recipient.length > 0;
+
         return {
-            amount: "",
-            recipient: "",
-            memo: "",
-            isValid: false,
-            clarification: "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
+            amount,
+            recipient,
+            memo,
+            isValid,
+            clarification: isValid
+                ? clarification
+                : clarification || "Please include a clear amount and recipient.",
         };
+    } catch {
+        return invalidIntent("I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.");
     }
 };
 
@@ -108,11 +140,7 @@ export default async function handler(
 ) {
     if (req.method !== 'POST') {
         return res.status(405).json({
-            amount: "",
-            recipient: "",
-            memo: "",
-            isValid: false,
-            clarification: "Method not allowed",
+            ...invalidIntent("Method not allowed"),
         });
     }
 
@@ -120,17 +148,21 @@ export default async function handler(
 
     if (!input || typeof input !== 'string') {
         return res.status(400).json({
-            amount: "",
-            recipient: "",
-            memo: "",
-            isValid: false,
-            clarification: "Please provide a payment description.",
+            ...invalidIntent("Please provide a payment description."),
+        });
+    }
+
+    if (Buffer.byteLength(input, "utf8") > MAX_PAYMENT_INPUT_BYTES) {
+        return res.status(413).json({
+            ...invalidIntent("Payment description is too large. Please shorten it and try again."),
         });
     }
 
     try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), PARSE_PAYMENT_TIMEOUT_MS);
         const prompt = `
-${CORE_EXTRACTION_PROMPT(input)}
+${CORE_EXTRACTION_PROMPT(JSON.stringify(input))}
 
 ${STRICT_VALIDATION_RULES}
 
@@ -139,24 +171,28 @@ ${WALLET_AWARENESS_RULES}
 ${MULTI_INTENT_GUARD}
 `;
 
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-                "x-api-key": process.env.ANTHROPIC_API_KEY!,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            body: JSON.stringify({
-                model: "claude-3-haiku-20240307",
-                max_tokens: 300,
-                messages: [
-                    {
-                        role: "user",
-                        content: prompt,
-                    },
-                ],
-            }),
-        });
+        const response = await fetch(
+            "https://api.anthropic.com/v1/messages",
+            {
+                method: "POST",
+                signal: controller.signal,
+                headers: {
+                    "x-api-key": process.env.ANTHROPIC_API_KEY!,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                body: JSON.stringify({
+                    model: "claude-3-haiku-20240307",
+                    max_tokens: 160,
+                    messages: [
+                        {
+                            role: "user",
+                            content: prompt,
+                        },
+                    ],
+                }),
+            }
+        ).finally(() => clearTimeout(timeout));
 
         if (!response.ok) {
             throw new Error(`API request failed: ${response.status}`);
@@ -171,11 +207,7 @@ ${MULTI_INTENT_GUARD}
     } catch (error) {
         console.error('Payment parsing error:', error);
         return res.status(500).json({
-            amount: "",
-            recipient: "",
-            memo: "",
-            isValid: false,
-            clarification: "Server error. Try again.",
+            ...invalidIntent("Server error. Try again."),
         });
     }
 }
