@@ -6,11 +6,12 @@
 "use strict";
 
 const express = require("express");
+
 const router = express.Router();
+const accountController = require("../controllers/accountController");
+const { verifyJWT } = require("../middleware/auth");
 const { strictLimiter, sensitiveLimiter } = require("../middleware/rateLimit");
 const { sanitizePublicKey, sanitizeUsername } = require("../middleware/sanitization");
-const { verifyJWT } = require("../middleware/auth");
-const accountController = require("../controllers/accountController");
 
 /**
  * Restrict account-data routes to the authenticated account holder (#278).

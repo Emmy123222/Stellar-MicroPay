@@ -174,10 +174,13 @@ export function getLocaleDisplayName(locale: Locale): string {
 }
 
 /**
- * Check if locale is RTL (right-to-left)
+ * Check if locale is RTL right-to-left)
  * Currently all supported locales are LTR, but this prepares for future RTL support
  */
 export function isRTL(locale: Locale): boolean {
   const rtlLocales: Locale[] = [];
   return rtlLocales.includes(locale);
 }
+
+// Re-export the canonical translation hook from the I18n context
+export { useTranslation } from '../contexts/I18nContext';

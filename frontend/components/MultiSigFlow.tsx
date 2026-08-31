@@ -28,6 +28,7 @@ import {
   submitTransaction,
   isValidStellarAddress,
   NETWORK_PASSPHRASE,
+  getNetworkConfig,
 } from "../lib/stellar";
 import { signTransactionWithWallet } from "../lib/wallet";
 
@@ -39,7 +40,10 @@ export const MULTISIG_THRESHOLD_XLM = 100;
 /** Configurable delay for signature reminder (in milliseconds) */
 const REMINDER_DELAY_MS = parseInt(process.env.NEXT_PUBLIC_MULTISIG_REMINDER_DELAY_MS || "300000"); // Default 5 minutes
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+/** Draft expiry TTL (24 hours) */
+const DRAFT_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
+// ─── Types ────────────────────────────────────────────────────────────────----
 
 type Step = "build" | "sign" | "share" | "collect" | "submit" | "success";
 
@@ -78,6 +82,18 @@ interface MultiSigFlowProps {
   defaultCosignerXDRs?: string[];
 }
 
+interface MultiSigDraft {
+  step: Step;
+  destination: string;
+  amount: string;
+  memo: string;
+  threshold: number;
+  unsignedXDR: string | null;
+  initiatorSignedXDR: string | null;
+  cosignerXDRs: string[];
+  updatedAt: number;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Extract the last-4-byte hint (hex) from each signature in a signed XDR. */
@@ -96,6 +112,49 @@ function extractHints(signedXDRs: string[]): string[] {
   return hints;
 }
 
+function getDraftStorageKey(publicKey: string): string {
+  const network = getNetworkConfig().network;
+  return `stellar-micropay:multisig-draft:${network}:${publicKey || "anonymous"}`;
+}
+
+export function loadMultiSigDraft(publicKey: string): MultiSigDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(getDraftStorageKey(publicKey));
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as MultiSigDraft;
+    if (Date.now() - draft.updatedAt > DRAFT_EXPIRY_MS) {
+      localStorage.removeItem(getDraftStorageKey(publicKey));
+      return null;
+    }
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+export function saveMultiSigDraft(publicKey: string, draft: Omit<MultiSigDraft, "updatedAt">): void {
+  if (typeof window === "undefined") return;
+  try {
+    const payload: MultiSigDraft = {
+      ...draft,
+      updatedAt: Date.now(),
+    };
+    localStorage.setItem(getDraftStorageKey(publicKey), JSON.stringify(payload));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function clearMultiSigDraft(publicKey: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(getDraftStorageKey(publicKey));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function MultiSigFlow({
@@ -104,25 +163,38 @@ export default function MultiSigFlow({
   prefill,
   onSuccess,
   cosigners = [],
-  defaultStep = "build",
+  defaultStep,
   defaultThreshold = 2,
   defaultInitiatorSignedXDR = null,
   defaultCosignerXDRs = [],
 }: MultiSigFlowProps) {
-  const [step, setStep] = useState<Step>(defaultStep);
+  // Load persisted draft if available and no explicit defaults override it
+  const savedDraft = defaultStep ? null : loadMultiSigDraft(publicKey);
+
+  const [step, setStep] = useState<Step>(defaultStep ?? savedDraft?.step ?? "build");
 
   // Build step
-  const [destination, setDestination] = useState(prefill?.destination ?? "");
-  const [amount, setAmount] = useState(prefill?.amount ?? "");
-  const [memo, setMemo] = useState(prefill?.memo ?? "");
-  const [threshold, setThreshold] = useState(defaultThreshold);
+  const [destination, setDestination] = useState(
+    prefill?.destination ?? savedDraft?.destination ?? ""
+  );
+  const [amount, setAmount] = useState(
+    prefill?.amount ?? savedDraft?.amount ?? ""
+  );
+  const [memo, setMemo] = useState(
+    prefill?.memo ?? savedDraft?.memo ?? ""
+  );
+  const [threshold, setThreshold] = useState(
+    savedDraft?.threshold ?? defaultThreshold
+  );
 
   // Transaction state
-  const [unsignedXDR, setUnsignedXDR] = useState<string | null>(null);
+  const [unsignedXDR, setUnsignedXDR] = useState<string | null>(savedDraft?.unsignedXDR ?? null);
   const [initiatorSignedXDR, setInitiatorSignedXDR] = useState<string | null>(
-    defaultInitiatorSignedXDR
+    savedDraft?.initiatorSignedXDR ?? defaultInitiatorSignedXDR
   );
-  const [cosignerXDRs, setCosignerXDRs] = useState<string[]>(defaultCosignerXDRs);
+  const [cosignerXDRs, setCosignerXDRs] = useState<string[]>(
+    savedDraft?.cosignerXDRs ?? defaultCosignerXDRs
+  );
   const [pastedXDR, setPastedXDR] = useState("");
 
   // UI state
@@ -135,7 +207,43 @@ export default function MultiSigFlow({
   const [liveMessage, setLiveMessage] = useState("");
   const stepPanelRef = useRef<HTMLDivElement>(null);
   const stepHeadingId = useId();
-  const previousStepRef = useRef<Step>(defaultStep);
+  const previousStepRef = useRef<Step>(step);
+
+  // Persist draft on state changes (when step is build, sign, share, or collect)
+  useEffect(() => {
+    if (step === "success") {
+      clearMultiSigDraft(publicKey);
+      return;
+    }
+    if (step === "build" && !destination && !amount && !unsignedXDR) {
+      clearMultiSigDraft(publicKey);
+      return;
+    }
+    saveMultiSigDraft(publicKey, {
+      step,
+      destination,
+      amount,
+      memo,
+      threshold,
+      unsignedXDR,
+      initiatorSignedXDR,
+      cosignerXDRs,
+    });
+  }, [publicKey, step, destination, amount, memo, threshold, unsignedXDR, initiatorSignedXDR, cosignerXDRs]);
+
+  const handleExplicitDiscard = () => {
+    clearMultiSigDraft(publicKey);
+    setStep("build");
+    setDestination(prefill?.destination ?? "");
+    setAmount(prefill?.amount ?? "");
+    setMemo(prefill?.memo ?? "");
+    setThreshold(defaultThreshold);
+    setUnsignedXDR(null);
+    setInitiatorSignedXDR(null);
+    setCosignerXDRs([]);
+    setError(null);
+    setTxHash(null);
+  };
 
   const balance = parseFloat(xlmBalance);
   const amountNum = parseFloat(amount);
@@ -169,43 +277,19 @@ export default function MultiSigFlow({
     announce(`Signatures collected: ${signaturesCollected} of ${threshold}`);
   }, [announce, signaturesCollected, threshold]);
 
-  useEffect(() => {
-    if (!canBuild && (destination || amount)) {
-      if (!isValidDest) {
-        announce("Recipient address is invalid.");
-      } else if (!isValidAmt) {
-        announce("Amount is invalid or exceeds your balance.");
-      }
-    }
-  }, [announce, amount, canBuild, destination, isValidAmt, isValidDest]);
-
-  // ── Step 1: Build ──────────────────────────────────────────────────────────
-
+  // Step 1: Build Transaction
   const handleBuild = async () => {
-    if (!canBuild) return;
     setLoading(true);
     setError(null);
     try {
-      const tx = await buildPaymentTransaction({
-        fromPublicKey: publicKey,
-        toPublicKey: destination,
-        amount: amountNum.toFixed(7),
-        memo: memo.trim() || undefined,
+      const xdrResult = await buildPaymentTransaction({
+        publicKey,
+        destination,
+        amount,
+        memo,
       });
-      setUnsignedXDR(tx.toXDR());
+      setUnsignedXDR(xdrResult);
       setStep("sign");
-      
-      // Register multi-sig reminder if cosigners are provided
-      if (cosigners.length > 0 && unsignedXDR) {
-        try {
-          // In a real implementation, this would call the backend API
-          // For now, we'll simulate the reminder scheduling locally
-          scheduleLocalReminder(unsignedXDR, [publicKey, ...cosigners], threshold);
-          setReminderScheduled(true);
-        } catch (err) {
-          console.warn("Failed to schedule multi-sig reminder:", err);
-        }
-      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to build transaction");
     } finally {
@@ -213,542 +297,547 @@ export default function MultiSigFlow({
     }
   };
 
-  // ── Step 2: Initiator signs first ─────────────────────────────────────────
-
-  const handleInitiatorSign = async () => {
+  // Step 2: Sign with Initiator Wallet
+  const handleSignInitiator = async () => {
     if (!unsignedXDR) return;
     setLoading(true);
     setError(null);
     try {
       const { signedXDR, error: signError } = await signTransactionWithWallet(unsignedXDR);
-      if (signError || !signedXDR) throw new Error(signError || "Signing rejected");
+      if (signError || !signedXDR) {
+        setError(signError || "Failed to sign transaction");
+        return;
+      }
       setInitiatorSignedXDR(signedXDR);
       setStep("share");
-      
-      // Mark initiator as signed in reminder tracking
-      if (reminderScheduled) {
-        markSignerSigned(unsignedXDR, publicKey);
-      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Signing failed");
+      setError(err instanceof Error ? err.message : "Wallet signing failed");
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Step 3: Share URL ──────────────────────────────────────────────────────
-
-  const shareableUrl =
-    typeof window !== "undefined" && unsignedXDR
-      ? `${window.location.origin}/multi-sig-sign?xdr=${encodeURIComponent(unsignedXDR)}`
-      : "";
-
-  const handleCopyUrl = async () => {
-    await navigator.clipboard.writeText(shareableUrl);
+  // Step 3: Copy share link / unsigned XDR
+  const handleCopyShareLink = () => {
+    if (!unsignedXDR) return;
+    const shareUrl = `${window.location.origin}/multi-sig-sign?xdr=${encodeURIComponent(unsignedXDR)}&threshold=${threshold}`;
+    navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // ── Step 4: Collect co-signer XDRs ────────────────────────────────────────
+  const handleCopyXDR = () => {
+    if (!unsignedXDR) return;
+    navigator.clipboard.writeText(unsignedXDR);
+    setXdrCopied(true);
+    setTimeout(() => setXdrCopied(false), 2000);
+  };
 
+  // Step 4: Add Co-signer XDR
   const handleAddCosignerXDR = () => {
-    const trimmed = pastedXDR.trim();
-    if (!trimmed) return;
-    // Basic validation — must parse as a Transaction
-    try {
-      new Transaction(trimmed, NETWORK_PASSPHRASE);
-    } catch {
-      setError("Invalid signed XDR — please paste the full string from the co-signer.");
-      return;
-    }
-    setCosignerXDRs((prev) => [...prev, trimmed]);
-    setPastedXDR("");
+    if (!pastedXDR.trim()) return;
     setError(null);
-    
-    // Mark a signer as signed (in a real implementation, we'd extract the signer public key from the XDR)
-    if (reminderScheduled && unsignedXDR) {
-      // For now, we'll just increment a counter since we can't easily extract the signer from XDR
-      markSignerSigned(unsignedXDR, "cosigner");
+    try {
+      const trimmed = pastedXDR.trim();
+      // Basic validation: try instantiating Transaction
+      new Transaction(trimmed, NETWORK_PASSPHRASE);
+      if (allSignedXDRs.includes(trimmed)) {
+        setError("This signed XDR has already been added.");
+        return;
+      }
+      setCosignerXDRs((prev) => [...prev, trimmed]);
+      setPastedXDR("");
+    } catch {
+      setError("Invalid signed transaction XDR.");
     }
   };
 
-  const handleRemoveCosignerXDR = (index: number) => {
-    setCosignerXDRs((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  // ── Step 5: Submit ─────────────────────────────────────────────────────────
-
+  // Step 5: Submit combined XDR
   const handleSubmit = async () => {
-    if (!unsignedXDR || !thresholdMet) return;
+    if (!unsignedXDR) return;
     setLoading(true);
     setError(null);
     try {
-      const combinedXDR = await collectSignatures(unsignedXDR, allSignedXDRs);
-      const result = await submitTransaction(combinedXDR);
-      setTxHash(result.hash);
+      const combined = collectSignatures(unsignedXDR, allSignedXDRs);
+      const hash = await submitTransaction(combined);
+      setTxHash(hash);
       setStep("success");
+      clearMultiSigDraft(publicKey);
       onSuccess?.();
-      
-      // Cancel reminder since transaction is submitted
-      if (reminderScheduled && unsignedXDR) {
-        cancelReminder(unsignedXDR);
-      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Submission failed");
+      setError(err instanceof Error ? err.message : "Failed to submit multi-sig transaction");
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Reset ──────────────────────────────────────────────────────────────────
+  // Reminder timer setup
+  useEffect(() => {
+    if (step === "share" || step === "collect") {
+      const timer = setTimeout(() => {
+        setReminderScheduled(true);
+      }, REMINDER_DELAY_MS);
+      return () => clearTimeout(timer);
+    }
+  }, [step]);
 
-  const handleReset = () => {
-    setStep("build");
-    setDestination(prefill?.destination ?? "");
-    setAmount(prefill?.amount ?? "");
-    setMemo(prefill?.memo ?? "");
-    setThreshold(2);
-    setUnsignedXDR(null);
-    setInitiatorSignedXDR(null);
-    setCosignerXDRs([]);
-    setPastedXDR("");
-    setError(null);
-    setTxHash(null);
-    setReminderScheduled(false);
-    
-    // Cancel any pending reminder
-    if (unsignedXDR) {
-      cancelReminder(unsignedXDR);
-    }
-  };
-
-  // ── Local reminder tracking (client-side simulation) ────────────────────────
-  
-  const reminderTimers = new Map<string, NodeJS.Timeout>();
-  
-  function scheduleLocalReminder(unsignedXDR: string, signers: string[], threshold: number) {
-    // Clear any existing timer for this XDR
-    if (reminderTimers.has(unsignedXDR)) {
-      clearTimeout(reminderTimers.get(unsignedXDR)!);
-    }
-    
-    const timer = setTimeout(() => {
-      // In a real implementation, this would call the backend webhook service
-      console.log(`[Multi-sig Reminder] Signature pending for transaction. Signers: ${signers.join(", ")}, Threshold: ${threshold}`);
-      // Show a notification to the user
-      if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-        new Notification("Multi-Sig Signature Pending", {
-          body: "A multi-sig transaction is waiting for your signature.",
-        });
-      }
-    }, REMINDER_DELAY_MS);
-    
-    reminderTimers.set(unsignedXDR, timer);
-  }
-  
-  function markSignerSigned(unsignedXDR: string, signerPublicKey: string) {
-    // In a real implementation, this would call the backend API
-    console.log(`[Multi-sig] Signer marked as signed: ${signerPublicKey}`);
-  }
-  
-  function cancelReminder(unsignedXDR: string) {
-    if (reminderTimers.has(unsignedXDR)) {
-      clearTimeout(reminderTimers.get(unsignedXDR)!);
-      reminderTimers.delete(unsignedXDR);
-      console.log(`[Multi-sig] Reminder cancelled for transaction`);
-    }
-  }
-  
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const initiatorHints = initiatorSignedXDR ? extractHints([initiatorSignedXDR]) : [];
+  const cosignerHints = extractHints(cosignerXDRs);
 
   return (
-    <div className="card animate-fade-in border-stellar-400/20">
-      <h2 className="font-display text-lg font-semibold text-white mb-1 flex items-center gap-2">
-        <MultiSigIcon className="w-5 h-5 text-stellar-400" />
-        Multi-Signature Payment
-      </h2>
-      <p className="text-xs text-slate-500 mb-5">
-        Requires {threshold} signatures before funds are released.
-        {amountNum >= MULTISIG_THRESHOLD_XLM && (
-          <span className="ml-1 text-amber-400">
-            High-value payment detected (≥ {MULTISIG_THRESHOLD_XLM} XLM).
-          </span>
-        )}
-      </p>
+    <div className="w-full max-w-2xl mx-auto">
+      {/* Discard Draft Option */}
+      {step !== "build" && step !== "success" && (
+        <div className="flex justify-end mb-2">
+          <button
+            type="button"
+            onClick={handleExplicitDiscard}
+            className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+          >
+            Discard draft
+          </button>
+        </div>
+      )}
 
-      {/* Accessible step indicator (#825) */}
-      <nav aria-label="Multi-signature payment progress" className="mb-6 overflow-x-auto pb-1">
-        <ol className="flex items-center list-none m-0 p-0">
-          {MULTISIG_FLOW_STEPS.map((flowStep, i) => {
-            const isComplete = i < stepIndex;
-            const isCurrent = i === stepIndex;
+      {/* Step Progress Stepper */}
+      <nav aria-label="Multi-signature payment progress" className="mb-8">
+        <ol className="flex items-center justify-between relative">
+          {MULTISIG_FLOW_STEPS.map((s, idx) => {
+            const isActive = step === s || (step === "success" && s === "submit");
+            const isCompleted = stepIndex > idx || step === "success";
+
             return (
-              <li
-                key={flowStep}
-                className="flex items-center flex-shrink-0"
-                aria-current={isCurrent ? "step" : undefined}
-              >
+              <li key={s} className="flex flex-col items-center relative z-10">
                 <div
                   className={clsx(
-                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
-                    isComplete
-                      ? "bg-stellar-500 text-black"
-                      : isCurrent
-                      ? "bg-stellar-400 text-black ring-2 ring-stellar-400/30"
-                      : "bg-white/10 text-slate-500"
+                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all",
+                    isActive
+                      ? "bg-stellar-500 text-white ring-4 ring-stellar-500/20"
+                      : isCompleted
+                      ? "bg-emerald-500 text-white"
+                      : "bg-white/10 text-slate-400"
                   )}
-                  aria-hidden="true"
+                  {...(isActive ? { "aria-current": "step" } : {})}
                 >
-                  {isComplete ? <CheckSmallIcon className="w-3.5 h-3.5" /> : i + 1}
-                </div>
-                <span
-                  className={clsx(
-                    "ml-1 text-xs hidden sm:block",
-                    isCurrent ? "text-stellar-300" : "text-slate-500"
-                  )}
-                >
-                  {STEP_LABELS[flowStep]}
+                  {idx + 1}
+                },
+                <span className={clsx("text-xs mt-1", isActive ? "text-white font-medium" : "text-slate-400")}>
+                  {STEP_LABELS[s]}
                 </span>
-                {i < MULTISIG_FLOW_STEPS.length - 1 && (
-                  <div
-                    className={clsx(
-                      "w-6 h-px mx-2",
-                      isComplete ? "bg-stellar-500" : "bg-white/10"
-                    )}
-                    aria-hidden="true"
-                  />
-                )}
               </li>
             );
           })}
         </ol>
       </nav>
 
+      {/* Live announcement region for accessibility */} 
+      <div className="sr-only" aria-live="polite" role="status">
+        {liveMessage}
+        {`Signatures collected: ${signaturesCollected} of ${threshold}`}
+      </div>
+
+      {/* Step Panel */}
       <div
         ref={stepPanelRef}
         tabIndex={-1}
+        role="region"
         aria-labelledby={stepHeadingId}
-        className="outline-none"
+        className="card p-6 outline-none focus:ring-2 focus:ring-stellar-500/50"
       >
-        <h3 id={stepHeadingId} className="sr-only">
-          {step === "success" ? "Complete" : STEP_LABELS[step as MultiSigFlowStep]}
-        </h3>
+        {error && (
+          <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            {error}
+          </div>
+        )} 
 
-      {/* ── Step: Build ── */}
-      {step === "build" && (
-        <div className="space-y-4">
+        {reminderScheduled && (step === "share" || step === "collect") && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm flex items-center justify-between">
+            <span>Reminder: Co-signer signatures are still pending after {Math.round(REMINDER_DELAY_MS / 60000)} minutes.</span>
+            <button
+              onClick={() => setReminderScheduled(false)}
+              className="text-xs underline text-amber-200 hover:text-white"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* ── STEP 1: BUILD ─────────────────────────────────────────── */}
+        {step === "build" && (
           <div>
-            <label className="label">Recipient Address</label>
-            <input
-              type="text"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="G..."
-              className={clsx("input-field font-mono text-sm", destination && !isValidDest && "border-red-500/50")}
-            />
-          </div>
-          <div>
-            <label className="label">Amount (XLM)</label>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.0"
-              min="0"
-              step="0.0000001"
-              className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
-            />
-            {amountNum >= MULTISIG_THRESHOLD_XLM && (
-              <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
-                <WarnIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                High-value payment — multi-sig required.
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="label">Memo (optional)</label>
-            <input
-              type="text"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              placeholder="Payment description"
-              className="input-field"
-            />
-          </div>
-          <div>
-            <label className="label">
-              Required Signatures
-              <span className="ml-1 text-slate-500 font-normal">(minimum 2)</span>
-            </label>
-            <input
-              type="number"
-              value={threshold}
-              onChange={(e) => setThreshold(Math.max(2, parseInt(e.target.value) || 2))}
-              min="2"
-              className="input-field"
-            />
-          </div>
-          <button
-            onClick={handleBuild}
-            disabled={!canBuild || loading}
-            className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
-          >
-            {loading ? <Spinner /> : null}
-            {loading ? "Building..." : "Build Transaction"}
-          </button>
-        </div>
-      )}
-
-      {/* ── Step: Sign (initiator) ── */}
-      {step === "sign" && (
-        <div className="space-y-4">
-          <div className="rounded-xl bg-white/5 border border-white/10 p-4 space-y-2 text-sm">
-            <Row label="To" value={destination} mono />
-            <Row label="Amount" value={`${amountNum.toFixed(7)} XLM`} />
-            {memo && <Row label="Memo" value={memo} />}
-            <Row label="Threshold" value={`${threshold} signatures`} />
-          </div>
-          <p className="text-slate-400 text-sm">
-            Sign first with your own Freighter wallet. Co-signers will add their signatures next.
-          </p>
-          <button
-            onClick={handleInitiatorSign}
-            disabled={loading}
-            className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
-          >
-            {loading ? <Spinner /> : <FreighterIcon className="w-4 h-4" />}
-            {loading ? "Waiting for Freighter..." : "Sign with Freighter"}
-          </button>
-          <button onClick={handleReset} className="text-xs text-slate-500 hover:text-slate-300 w-full text-center transition-colors">
-            ← Start over
-          </button>
-        </div>
-      )}
-
-      {/* ── Step: Share ── */}
-      {step === "share" && (
-        <div className="space-y-4">
-          <p className="text-slate-300 text-sm">
-            Your signature has been added. Share this link with your co-signers so they can sign in their own browser.
-          </p>
-          <div className="rounded-xl bg-white/5 border border-white/10 p-3">
-            <p className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Co-signer URL</p>
-            <p className="font-mono text-xs text-slate-300 break-all">{shareableUrl}</p>
-          </div>
-          <button
-            onClick={handleCopyUrl}
-            className="btn-secondary w-full py-2.5 flex items-center justify-center gap-2"
-          >
-            {copied ? <CheckSmallIcon className="w-4 h-4 text-green-400" /> : <CopyIcon className="w-4 h-4" />}
-            {copied ? "Copied!" : "Copy Link"}
-          </button>
-          <button
-            onClick={() => setStep("collect")}
-            className="btn-primary w-full py-2.5"
-          >
-            Collect Co-Signer Signatures →
-          </button>
-        </div>
-      )}
-
-      {/* ── Step: Collect ── */}
-      {step === "collect" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-slate-300 text-sm">
-              Signatures: <span className="font-bold text-white">{signaturesCollected}</span> / {threshold}
-            </p>
-            {thresholdMet && (
-              <span className="text-xs text-green-400 font-medium">Threshold met ✓</span>
-            )}
-          </div>
-
-          {/* Signature hints */}
-          {allSignedXDRs.length > 0 && (
-            <div className="rounded-xl bg-white/5 border border-white/10 p-3 space-y-1">
-              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-2">Collected Signatures</p>
-              {extractHints(allSignedXDRs).map((hint, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">
-                    {i === 0 ? "You (initiator)" : `Co-signer ${i}`}
-                  </span>
-                  <code className="text-xs text-stellar-300 font-mono">{hint}</code>
-                  {i > 0 && (
-                    <button
-                      onClick={() => handleRemoveCosignerXDR(i - 1)}
-                      className="text-red-400 hover:text-red-300 text-xs ml-2"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!thresholdMet && (
-            <>
+            <h3 id={stepHeadingId} className="font-display text-lg font-semibold text-white mb-4">
+              Build Multi-Signature Payment
+            </h3>
+            <div className="space-y-4">
               <div>
-                <label className="label">Paste Signed XDR from Co-Signer</label>
-                <textarea
-                  value={pastedXDR}
-                  onChange={(e) => setPastedXDR(e.target.value)}
-                  placeholder="AAAA..."
-                  className="input-field h-24 font-mono text-xs"
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Recipient Address
+                </label>
+                <input
+                  type="text"
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value.trim())}
+                  placeholder="G..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 font-mono text-sm focus:outline-none focus:border-stellar-500"
+                />
+                {destination && !isValidDest && (
+                  <p className="text-xs text-red-400 mt-1">Invalid Stellar address format</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Amount (XLM)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="100"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 font-mono text-sm focus:outline-none focus:border-stellar-500"
+                />
+                <div className="flex justify-between text-xs text-slate-400 mt-1">
+                  <span>Available: {xlmBalance} XLM</span>
+                  <span>Threshold: ≥ {MULTISIG_THRESHOLD_XLM} XLM</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Memo (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={memo}
+                  onChange={(e) => setMemo(e.target.value)}
+                  placeholder="Payment memo"
+                  maxLength={28}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-stellar-500"
                 />
               </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Required Signatures Threshold
+                </label>
+                <input
+                  type="number"
+                  min="2"
+                  max="10"
+                  value={threshold}
+                  onChange={(e) => setThreshold(parseInt(e.target.value) || 2)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-stellar-500"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Minimum 2 signers required for multi-signature transactions.
+                </p>
+              </div>
+
               <button
-                onClick={handleAddCosignerXDR}
-                disabled={!pastedXDR.trim()}
-                className="btn-secondary w-full py-2.5"
+                type="button"
+                disabled={!canBuild || loading}
+                onClick={handleBuild}
+                className="w-full bg-stellar-500 hover:bg-stellar-600 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors mt-6"
               >
-                Add Signature
+                {loading ? "Building Transaction..." : "Build Transaction →"}
               </button>
-            </>
-          )}
+            </div>
+          </div>
+        )}
 
-          {thresholdMet && (
+        {/* ── STEP 2: SIGN ──────────────────────────────────────────── */}
+        {step === "sign" && (
+          <div>
+            <h3 id={stepHeadingId} className="font-display text-lg font-semibold text-white mb-4">
+              Sign with Your Wallet
+            </h3>
+            <p className="text-sm text-slate-300 mb-6">
+              Review the transaction details below and sign first with your Freighter wallet.
+            </p>
+
+            <div className="bg-white/5 p-4 rounded-xl mb-6 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Destination:</span>
+                <span className="font-mono text-white truncate max-w-xs" title={destination}>{destination}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Amount:</span>
+                <span className="font-mono text-white">{amount} XLM</span>
+              </div>
+              {memo && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Memo:</span>
+                  <span className="text-white">{memo}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-400">Threshold:</span>
+                <span className="text-white">{threshold} signatures</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setStep("build")}
+                className="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleSignInitiator}
+                className="flex-1 bg-stellar-500 hover:bg-stellar-600 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                {loading ? "Signing..." : "Sign Transaction"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 3: SHARE ─────────────────────────────────────────── */}
+        {step === "share" && (
+          <div>
+            <h3 id={stepHeadingId} className="font-display text-lg font-semibold text-white mb-4">
+              Share with Co-Signers
+            </h3>
+            <p className="text-sm text-slate-300 mb-6">
+              Send the share link or unsigned XDR to your co-signers so they can review and sign the transaction in their own browser.
+            </p>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Co-Signer Share Link
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={unsignedXDR ? `${typeof window !== "undefined" ? window.location.origin : ""}/multi-sig-sign?xdr=${encodeURIComponent(unsignedXDR)}&threshold=${threshold}` : ""}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white font-mono text-xs focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyShareLink}
+                    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm transition-colors whitespace-nowrap"
+                  >
+                    {copied ? "Copied!" : "Copy Link"}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Unsigned Transaction XDR
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={unsignedXDR ?? ""}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white font-mono text-xs focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyXDR}
+                    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm transition-colors whitespace-nowrap"
+                  >
+                    {xdrCopied ? "Copied!" : "Copy XDR"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setStep("sign")}
+                className="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep("collect")}
+                className="flex-1 bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                Collect Co-Signer Signatures →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 4: COLLECT ───────────────────────────────────────── */}
+        {step === "collect" && (
+          <div>
+            <h3 id={stepHeadingId} className="font-display text-lg font-semibold text-white mb-4">
+              Collect Co-Signer Signatures
+            </h3>
+            <p className="text-sm text-slate-300 mb-6">
+              Paste each co-signer&apos;s signed XDR below. Once you have met the threshold of {threshold} signatures, you can submit the transaction.
+            </p>
+
+            <div className="mb-6">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-slate-400">Signatures Collected:</span>
+                <span className={clsx("font-mono font-semibold", thresholdMet ? "text-emerald-400" : "text-amber-400")}>
+                  {signaturesCollected} of {threshold}
+                </span>
+              </div>
+              <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
+                <div
+                  className={clsx("h-full transition-all", thresholdMet ? "bg-emerald-500" : "bg-stellar-500")}
+                  style={{ width: `${Math.min(100, (signaturesCollected / threshold) * 100)}%` }}
+                />
+              </div>
+
+              {/* Signature Hints */}
+              <div className="mt-4 space-y-2">
+                <p className="text-xs text-slate-400">Signed hints:</p>
+                <div className="flex flex-wrap gap-2">
+                  {initiatorHints.map((hint, i) => (
+                    <span key={`init-${i}`} className="bg-stellar-500/10 border border-stellar-500/20 text-stellar-300 text-xs font-mono px-2.5 py-1 rounded-lg">
+                      Initiator: ...{hint}
+                    </span>
+                  ))}
+                  {cosignerHints.map((hint, i) => (
+                    <span key={`co-${i}`} className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-mono px-2.5 py-1 rounded-lg">
+                      Co-Signer {i + 1}: ...{hint}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Paste Co-Signer Signed XDR
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={pastedXDR}
+                    onChange={(e) => setPastedXDR(e.target.value.trim())}
+                    placeholder="AAAA..."
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white font-mono text-xs focus:outline-none focus:border-stellar-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCosignerXDR}
+                    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm transition-colors whitespace-nowrap"
+                  >
+                    Add Signature
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setStep("share")}
+                className="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                disabled={!thresholdMet}
+                onClick={() => setStep("submit")}
+                className="flex-1 bg-stellar-500 hover:bg-stellar-600 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                Proceed to Submit →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 5: SUBMIT ────────────────────────────────────────── */}
+        {step === "submit" && (
+          <div>
+            <h3 id={stepHeadingId} className="font-display text-lg font-semibold text-white mb-4">
+              Submit Multi-Signature Transaction
+            </h3>
+            <p className="text-sm text-slate-300 mb-6">
+              All required signatures have been collected. Submit the combined transaction to the Stellar network.
+            </p>
+
+            <div className="bg-white/5 p-4 rounded-xl mb-6 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Destination:</span>
+                <span className="font-mono text-white truncate max-w-xs" title={destination}>{destination}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Amount:</span>
+                <span className="font-mono text-white">{amount} XLM</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Signatures Collected:</span>
+                <span className="font-mono text-emerald-400">{signaturesCollected} of {threshold}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setStep("collect")}
+                className="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleSubmit}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                {loading ? "Submitting..." : "Submit to Stellar"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── SUCCESS ───────────────────────────────────────────────── */}
+        {step === "success" && (
+          <div className="text-center py-6">
+            <div className="w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4">
+              ✓
+            </div>
+            <h3 id={stepHeadingId} className="font-display text-xl font-semibold text-white mb-2">
+              Transaction Successful!
+            </h3>
+            <p className="text-sm text-slate-300 mb-6">
+              The multi-signature payment has been successfully submitted to Stellar Horizon.
+            </p>
+            {txHash && (
+              <div className="mb-6 p-3 bg-white/5 rounded-xl font-mono text-xs text-slate-300 break-all">
+                Tx Hash: {txHash}
+              </div>
+            )}
             <button
-              onClick={() => setStep("submit")}
-              className="btn-primary w-full py-2.5"
+              type="button"
+              onClick={() => {
+                clearMultiSigDraft(publicKey);
+                setStep("build");
+                setDestination("");
+                setAmount("");
+                setMemo("");
+                setUnsignedXDR(null);
+                setInitiatorSignedXDR(null);
+                setCosignerXDRs([]);
+                setTxHash(null);
+              }}
+              className="bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-2.5 px-6 rounded-xl transition-colors"
             >
-              Proceed to Submit →
+              Start New Payment
             </button>
-          )}
-        </div>
-      )}
-
-      {/* ── Step: Submit ── */}
-      {step === "submit" && (
-        <div className="space-y-4">
-          <div className="rounded-xl bg-white/5 border border-white/10 p-4 space-y-2 text-sm">
-            <Row label="To" value={destination} mono />
-            <Row label="Amount" value={`${amountNum.toFixed(7)} XLM`} />
-            {memo && <Row label="Memo" value={memo} />}
-            <Row label="Signatures" value={`${signaturesCollected} / ${threshold}`} />
           </div>
-          <p className="text-slate-400 text-sm">
-            All required signatures have been collected. Submit the transaction to the Stellar network.
-          </p>
-          <button
-            onClick={handleSubmit}
-            disabled={loading || !thresholdMet}
-            className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
-          >
-            {loading ? <Spinner /> : null}
-            {loading ? "Submitting..." : "Submit to Stellar Network"}
-          </button>
-          <button onClick={() => setStep("collect")} className="text-xs text-slate-500 hover:text-slate-300 w-full text-center transition-colors">
-            ← Back to signatures
-          </button>
-        </div>
-      )}
-
-      {/* ── Step: Success ── */}
-      {step === "success" && txHash && (
-        <div className="text-center space-y-4">
-          <div className="mx-auto w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center">
-            <CheckSmallIcon className="w-7 h-7 text-green-400" />
-          </div>
-          <p className="font-display text-lg font-semibold text-white">Transaction submitted!</p>
-          <p className="text-slate-400 text-sm">
-            The multi-signature payment has been confirmed on the Stellar network.
-          </p>
-          <a
-            href={`https://stellar.expert/explorer/testnet/tx/${txHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary w-full py-2.5 flex items-center justify-center gap-2"
-          >
-            View on Explorer <ExternalLinkIcon className="w-4 h-4" />
-          </a>
-          <button onClick={handleReset} className="btn-primary w-full py-2.5">
-            New Multi-Sig Payment
-          </button>
-        </div>
-      )}
-
+        )}
       </div>
-
-      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        {liveMessage}
-      </p>
-
-      {error && (
-        <p className="text-red-400 text-sm mt-4 flex items-start gap-1.5">
-          <WarnIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          {error}
-        </p>
-      )}
     </div>
-  );
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <span className="text-slate-400 flex-shrink-0">{label}</span>
-      <span className={clsx("text-slate-200 text-right break-all", mono && "font-mono text-xs")}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function Spinner() {
-  return (
-    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-  );
-}
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
-
-function MultiSigIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-    </svg>
-  );
-}
-
-function CheckSmallIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-    </svg>
-  );
-}
-
-function CopyIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-    </svg>
-  );
-}
-
-function WarnIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-    </svg>
-  );
-}
-
-function FreighterIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18-3a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3m18-3V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6m18 0v3M3 9h18" />
-    </svg>
-  );
-}
-
-function ExternalLinkIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-    </svg>
   );
 }

@@ -11,6 +11,8 @@ jest.mock("@/lib/stellar", () => ({
   explorerUrl: jest.fn((hash) => `https://testnet.expert.stellar.org/tx/${hash}`),
   isValidStellarAddress: jest.fn((addr) => addr.startsWith("G") && addr.length === 56),
   isValidFederationAddress: jest.fn((addr) => addr.includes("*")),
+  isStellarName: jest.fn(() => false),
+  resolveStellarName: jest.fn(),
   resolveFederationAddress: jest.fn(),
   submitTransaction: jest.fn(),
   fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })),
@@ -52,10 +54,10 @@ jest.mock("@/components/MultiSigFlow", () => ({
   MULTISIG_THRESHOLD_XLM: 1000,
 }));
 
-// Now import the component and get mock references
 import SendPaymentForm from "../components/SendPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
+import { TEST_PUBLIC_KEY_A, TEST_PUBLIC_KEY_B } from "./fixtures/stellar";
 
 const mockBuildPaymentTransaction = stellarModule.buildPaymentTransaction as jest.Mock;
 const mockIsValidStellarAddress = stellarModule.isValidStellarAddress as jest.Mock;
@@ -65,13 +67,13 @@ const mockSignTransactionWithWallet = walletModule.signTransactionWithWallet as 
 
 describe("SendPaymentForm", () => {
   const defaultProps = {
-    publicKey: "GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ",
+    publicKey: TEST_PUBLIC_KEY_A,
     xlmBalance: "100.0000000",
     usdcBalance: "50.0000000",
     onSuccess: jest.fn(),
   };
 
-  const validDestination = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const validDestination = TEST_PUBLIC_KEY_B;
 
   beforeEach(() => {
     jest.clearAllMocks();
