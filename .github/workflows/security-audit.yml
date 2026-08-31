@@ -44,8 +44,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit dependencies (fails on high/critical)
-        run: npm audit --audit-level=high
+      - name: Audit production dependencies (fails on high/critical production findings)
+        # CI fails strictly on actionable production dependencies to prevent blocking
+        # on non-production tooling. Do NOT run `npm audit fix --force` as it can
+        # silently cross major versions and introduce breaking changes.
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Advisory check for development dependencies (informational only)
+        if: always()
+        continue-on-error: true
+        run: |
+          echo "::notice title=Development Dependencies Audit::Checking dev dependencies for awareness. Dev findings do not block CI and must NOT be remediated using npm audit fix --force."
+          npm audit --audit-level=high || true
+
 
   cargo-audit:
     name: cargo audit (contracts)

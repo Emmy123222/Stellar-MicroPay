@@ -63,9 +63,14 @@ const nextConfig = {
 };
 
 export default withSentryConfig(nextConfig, {
-  // Suppress Sentry CLI output during builds
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  release: process.env.SENTRY_RELEASE || process.env.GITHUB_SHA || "dev",
   silent: true,
-  // Disable source map upload unless SENTRY_AUTH_TOKEN is set
   disableServerWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
   disableClientWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
+  sourcemaps: {
+    disable: !process.env.SENTRY_AUTH_TOKEN,
+  },
 });

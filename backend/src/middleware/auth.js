@@ -5,6 +5,7 @@
 "use strict";
 
 const jwt = require("jsonwebtoken");
+
 const logger = require("../utils/logger");
 
 const DEFAULT_JWT_SECRET = "stellar_micropay_secret_key";

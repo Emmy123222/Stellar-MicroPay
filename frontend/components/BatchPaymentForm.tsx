@@ -12,15 +12,17 @@ import { formatXLMPrecise, parseBatchRecipientsCSV } from "@/utils/format";
 
 const MAX_RECIPIENTS = 10;
 
-type RecipientStatus = "idle" | "pending" | "success" | "failed";
+export type RecipientStatus = "idle" | "pending" | "success" | "failed";
+export type ColumnErrorKey = "address" | "amount" | "memo";
 
-type BatchRecipient = {
+export type BatchRecipient = {
   id: string;
   address: string;
   amount: string;
   memo: string;
   status: RecipientStatus;
   error?: string;
+  fieldErrors?: Partial<Record<ColumnErrorKey, string>>;
   transactionHash?: string;
 };
 
@@ -61,6 +63,7 @@ export default function BatchPaymentForm({
   const [isProcessing, setIsProcessing] = useState(false);
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [showInvalidOnly, setShowInvalidOnly] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const xlmBalanceValue = parseFloat(xlmBalance || "0");
@@ -78,9 +81,13 @@ export default function BatchPaymentForm({
     [recipients]
   );
 
-  const hasFailed = recipients.some((recipient) => recipient.status === "failed");
+  const invalidRecipients = recipients.filter(
+    (recipient) => recipient.status === "failed" || Boolean(recipient.error)
+  );
+  const hasFailed = invalidRecipients.length > 0;
   const hasPending = recipients.some((recipient) => recipient.status === "pending");
   const hasSuccess = recipients.some((recipient) => recipient.status === "success");
+
   const canSubmit =
     !isProcessing &&
     recipients.some(
@@ -96,9 +103,36 @@ export default function BatchPaymentForm({
     update: Partial<BatchRecipient>
   ) => {
     setRecipients((current) =>
-      current.map((recipient) =>
-        recipient.id === id ? { ...recipient, ...update } : recipient
-      )
+      current.map((recipient) => {
+        if (recipient.id !== id) return recipient;
+        const updated = { ...recipient, ...update };
+
+        // If user edited a field with errors, clear that field error to keep valid edits intact (#744)
+        if (updated.fieldErrors) {
+          const nextFieldErrors = { ...updated.fieldErrors };
+          if ("address" in update) delete nextFieldErrors.address;
+          if ("amount" in update) delete nextFieldErrors.amount;
+          if ("memo" in update) delete nextFieldErrors.memo;
+
+          const remainingKeys = Object.keys(nextFieldErrors) as ColumnErrorKey[];
+          if (remainingKeys.length === 0) {
+            updated.fieldErrors = undefined;
+            updated.error = undefined;
+            if (updated.status === "failed") updated.status = "idle";
+          } else {
+            updated.fieldErrors = nextFieldErrors;
+            updated.error =
+              nextFieldErrors.address ||
+              nextFieldErrors.amount ||
+              nextFieldErrors.memo;
+          }
+        } else if (updated.status === "failed") {
+          updated.status = "idle";
+          updated.error = undefined;
+        }
+
+        return updated;
+      })
     );
   };
 
@@ -125,15 +159,24 @@ export default function BatchPaymentForm({
     const skipped = rows.length - accepted.length;
 
     const imported = accepted.map((row) => {
-      // A row can be malformed (missing/invalid columns) or structurally fine
-      // but still unusable — flag either way instead of dropping the row.
-      const error =
-        row.error ??
-        (!isValidStellarAddress(row.address)
-          ? "Invalid Stellar address."
-          : row.address === publicKey
-            ? "Recipient address cannot be the same as your wallet."
-            : null);
+      const fieldErrors: Partial<Record<ColumnErrorKey, string>> = {};
+      let error = row.error ?? null;
+
+      if (!isValidStellarAddress(row.address)) {
+        fieldErrors.address = "Invalid Stellar address.";
+        if (!error) error = "Invalid Stellar address.";
+      } else if (row.address === publicKey) {
+        fieldErrors.address = "Recipient address cannot be the same as your wallet.";
+        if (!error) error = "Recipient address cannot be the same as your wallet.";
+      }
+
+      const parsedAmount = parseFloat(row.amount);
+      if (!row.amount || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        fieldErrors.amount = row.error?.includes("Amount")
+          ? row.error
+          : "Amount must be a number greater than 0.";
+        if (!error) error = fieldErrors.amount;
+      }
 
       return createRecipient({
         address: row.address,
@@ -141,6 +184,7 @@ export default function BatchPaymentForm({
         memo: truncateMemoText(row.memo),
         status: error ? "failed" : "idle",
         error: error ?? undefined,
+        fieldErrors: Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined,
       });
     });
 
@@ -164,7 +208,6 @@ export default function BatchPaymentForm({
 
   const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    // Reset the input so re-picking the same file fires another change event.
     event.target.value = "";
     if (!file) return;
 
@@ -180,17 +223,36 @@ export default function BatchPaymentForm({
   };
 
   const validateRecipient = (recipient: BatchRecipient) => {
+    const fieldErrors: Partial<Record<ColumnErrorKey, string>> = {};
     const amount = parseFloat(recipient.amount);
-    if (!isValidStellarAddress(recipient.address)) {
-      return "Invalid Stellar address.";
+
+    if (!recipient.address.trim()) {
+      fieldErrors.address = "Recipient address is required.";
+    } else if (!isValidStellarAddress(recipient.address)) {
+      fieldErrors.address = "Invalid Stellar address.";
+    } else if (recipient.address === publicKey) {
+      fieldErrors.address = "Recipient address cannot be the same as your wallet.";
     }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return "Amount must be greater than 0.";
+
+    if (!recipient.amount.trim() || !Number.isFinite(amount) || amount <= 0) {
+      fieldErrors.amount = "Amount must be greater than 0.";
     }
-    if (recipient.address === publicKey) {
-      return "Recipient address cannot be the same as your wallet.";
+
+    if (recipient.memo) {
+      const encoded = new TextEncoder().encode(recipient.memo);
+      if (encoded.length > STELLAR_MEMO_TEXT_MAX_BYTES) {
+        fieldErrors.memo = `Memo exceeds maximum ${STELLAR_MEMO_TEXT_MAX_BYTES} bytes.`;
+      }
     }
-    return null;
+
+    const primaryError =
+      fieldErrors.address || fieldErrors.amount || fieldErrors.memo || null;
+
+    return {
+      isValid: !primaryError,
+      error: primaryError,
+      fieldErrors,
+    };
   };
 
   const processRows = async (retryOnlyFailed = false) => {
@@ -204,20 +266,22 @@ export default function BatchPaymentForm({
       if (recipient.status === "success") {
         continue;
       }
-      if (retryOnlyFailed && recipient.status !== "failed") {
+      if (retryOnlyFailed && recipient.status !== "failed" && !recipient.error) {
         continue;
       }
 
-      const validationError = validateRecipient(recipient);
-      if (validationError) {
+      const { isValid, error, fieldErrors } = validateRecipient(recipient);
+      if (!isValid) {
         recipient.status = "failed";
-        recipient.error = validationError;
+        recipient.error = error || undefined;
+        recipient.fieldErrors = fieldErrors;
         setRecipients([...nextRecipients]);
         continue;
       }
 
       recipient.status = "pending";
       recipient.error = undefined;
+      recipient.fieldErrors = undefined;
       setRecipients([...nextRecipients]);
 
       try {
@@ -242,6 +306,7 @@ export default function BatchPaymentForm({
 
         recipient.status = "success";
         recipient.error = undefined;
+        recipient.fieldErrors = undefined;
         recipient.transactionHash = result.hash;
         setRecipients([...nextRecipients]);
 
@@ -277,6 +342,7 @@ export default function BatchPaymentForm({
   };
 
   const recipientCount = recipients.length;
+  const displayedRecipients = showInvalidOnly ? invalidRecipients : recipients;
 
   return (
     <div className="card animate-fade-in border-stellar-400/20">
@@ -317,6 +383,42 @@ export default function BatchPaymentForm({
         CSV columns: address, amount, memo (header row optional).
       </p>
 
+      {/* Row Filtering Controls (#744) */}
+      {hasFailed && (
+        <div className="mb-4 flex items-center justify-between p-3 rounded-2xl bg-white/5 border border-white/10">
+          <span className="text-xs text-slate-300 font-medium">
+            Filter rows:
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowInvalidOnly(false)}
+              className={`px-3 py-1 text-xs rounded-full font-medium transition ${
+                !showInvalidOnly
+                  ? "bg-stellar-500 text-white"
+                  : "bg-white/5 text-slate-300 hover:bg-white/10"
+              }`}
+              aria-pressed={!showInvalidOnly}
+            >
+              All ({recipients.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowInvalidOnly(true)}
+              className={`px-3 py-1 text-xs rounded-full font-medium transition ${
+                showInvalidOnly
+                  ? "bg-rose-500 text-white"
+                  : "bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/20"
+              }`}
+              aria-pressed={showInvalidOnly}
+              aria-label="Filter to invalid rows"
+            >
+              Invalid only ({invalidRecipients.length})
+            </button>
+          </div>
+        </div>
+      )}
+
       {importMessage && (
         <div className="mb-4 rounded-2xl border border-slate-700 bg-slate-800/70 px-4 py-3 text-sm text-slate-200">
           {importMessage}
@@ -324,100 +426,172 @@ export default function BatchPaymentForm({
       )}
 
       <div className="space-y-4">
-        {recipients.map((recipient, index) => (
-          <div
-            key={recipient.id}
-            className="rounded-3xl border border-white/10 bg-white/5 p-4"
-          >
-            <div className="flex flex-col gap-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className="label">Recipient address</span>
-                  <input
-                    type="text"
-                    value={recipient.address}
-                    onChange={(event) =>
-                      updateRecipient(recipient.id, {
-                        address: event.target.value,
-                      })
-                    }
-                    disabled={isProcessing}
-                    className="input-field w-full"
-                    placeholder="G..."
-                  />
-                </label>
-                <label className="block">
-                  <span className="label">Amount (XLM)</span>
-                  <input
-                    type="number"
-                    step="0.0000001"
-                    min="0"
-                    value={recipient.amount}
-                    onChange={(event) =>
-                      updateRecipient(recipient.id, {
-                        amount: event.target.value,
-                      })
-                    }
-                    disabled={isProcessing}
-                    className="input-field w-full"
-                    placeholder="0.5"
-                  />
-                </label>
-              </div>
-
-              <label className="block">
-                <span className="label">Memo (optional)</span>
-                <input
-                  type="text"
-                  value={recipient.memo}
-                  onChange={(event) =>
-                    updateRecipient(recipient.id, {
-                      memo: truncateMemoText(event.target.value),
-                    })
-                  }
-                  disabled={isProcessing}
-                  className="input-field w-full"
-                  placeholder="Payment note"
-                  maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
-                />
-              </label>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-slate-300">
-                  Status: 
-                  {recipient.status === "idle" && (
-                    <span className="text-slate-400">Waiting</span>
-                  )}
-                  {recipient.status === "pending" && (
-                    <span className="text-amber-300">Processing</span>
-                  )}
-                  {recipient.status === "success" && (
-                    <span className="text-emerald-400">Sent ✓</span>
-                  )}
-                  {recipient.status === "failed" && (
-                    <span className="text-rose-400">Failed</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveRecipient(recipient.id)}
-                    disabled={isProcessing || recipients.length <= 1}
-                    className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-
-              {recipient.error && (
-                <div className="rounded-2xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-sm text-rose-100">
-                  {recipient.error}
-                </div>
-              )}
-            </div>
+        {showInvalidOnly && displayedRecipients.length === 0 ? (
+          <div className="p-6 text-center rounded-3xl border border-white/10 bg-white/5 text-sm text-slate-300">
+            All invalid rows have been resolved!
+            <button
+              type="button"
+              onClick={() => setShowInvalidOnly(false)}
+              className="ml-2 text-stellar-400 hover:underline font-medium"
+            >
+              Show all rows ({recipients.length})
+            </button>
           </div>
-        ))}
+        ) : (
+          displayedRecipients.map((recipient) => {
+            const rowIndex = recipients.findIndex((r) => r.id === recipient.id);
+            const rowNumber = rowIndex + 1;
+
+            return (
+              <div
+                key={recipient.id}
+                data-testid={`recipient-row-${rowNumber}`}
+                className={`rounded-3xl border p-4 transition ${
+                  recipient.status === "failed" || recipient.error
+                    ? "border-rose-500/30 bg-rose-500/5"
+                    : "border-white/10 bg-white/5"
+                }`}
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between text-xs text-slate-400 font-medium">
+                    <span>Row #{rowNumber}</span>
+                    {recipient.status === "failed" && (
+                      <span className="text-rose-400">Needs attention</span>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="label">Recipient address</span>
+                      <input
+                        type="text"
+                        value={recipient.address}
+                        onChange={(event) =>
+                          updateRecipient(recipient.id, {
+                            address: event.target.value,
+                          })
+                        }
+                        disabled={isProcessing}
+                        aria-invalid={Boolean(recipient.fieldErrors?.address)}
+                        aria-label={`Row ${rowNumber} Recipient address`}
+                        className={`input-field w-full ${
+                          recipient.fieldErrors?.address ? "border-rose-500/50" : ""
+                        }`}
+                        placeholder="G..."
+                      />
+                      {recipient.fieldErrors?.address && (
+                        <p
+                          role="alert"
+                          data-testid={`row-${rowNumber}-address-error`}
+                          className="mt-1 text-xs text-rose-400"
+                        >
+                          Row {rowNumber} (Address): {recipient.fieldErrors.address}
+                        </p>
+                      )}
+                    </label>
+                    <label className="block">
+                      <span className="label">Amount (XLM)</span>
+                      <input
+                        type="number"
+                        step="0.0000001"
+                        min="0"
+                        value={recipient.amount}
+                        onChange={(event) =>
+                          updateRecipient(recipient.id, {
+                            amount: event.target.value,
+                          })
+                        }
+                        disabled={isProcessing}
+                        aria-invalid={Boolean(recipient.fieldErrors?.amount)}
+                        aria-label={`Row ${rowNumber} Amount (XLM)`}
+                        className={`input-field w-full ${
+                          recipient.fieldErrors?.amount ? "border-rose-500/50" : ""
+                        }`}
+                        placeholder="0.5"
+                      />
+                      {recipient.fieldErrors?.amount && (
+                        <p
+                          role="alert"
+                          data-testid={`row-${rowNumber}-amount-error`}
+                          className="mt-1 text-xs text-rose-400"
+                        >
+                          Row {rowNumber} (Amount): {recipient.fieldErrors.amount}
+                        </p>
+                      )}
+                    </label>
+                  </div>
+
+                  <label className="block">
+                    <span className="label">Memo (optional)</span>
+                    <input
+                      type="text"
+                      value={recipient.memo}
+                      onChange={(event) =>
+                        updateRecipient(recipient.id, {
+                          memo: truncateMemoText(event.target.value),
+                        })
+                      }
+                      disabled={isProcessing}
+                      aria-invalid={Boolean(recipient.fieldErrors?.memo)}
+                      aria-label={`Row ${rowNumber} Memo`}
+                      className={`input-field w-full ${
+                        recipient.fieldErrors?.memo ? "border-rose-500/50" : ""
+                      }`}
+                      placeholder="Payment note"
+                      maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
+                    />
+                    {recipient.fieldErrors?.memo && (
+                      <p
+                        role="alert"
+                        data-testid={`row-${rowNumber}-memo-error`}
+                        className="mt-1 text-xs text-rose-400"
+                      >
+                        Row {rowNumber} (Memo): {recipient.fieldErrors.memo}
+                      </p>
+                    )}
+                  </label>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm text-slate-300">
+                      Status:{" "}
+                      {recipient.status === "idle" && (
+                        <span className="text-slate-400">Waiting</span>
+                      )}
+                      {recipient.status === "pending" && (
+                        <span className="text-amber-300">Processing</span>
+                      )}
+                      {recipient.status === "success" && (
+                        <span className="text-emerald-400">Sent ✓</span>
+                      )}
+                      {recipient.status === "failed" && (
+                        <span className="text-rose-400">Failed</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRecipient(recipient.id)}
+                        disabled={isProcessing || recipients.length <= 1}
+                        className="text-xs text-slate-400 hover:text-white disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {recipient.error && (
+                    <div
+                      role="alert"
+                      className="rounded-2xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-sm text-rose-100"
+                    >
+                      {recipient.error}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
 
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-center">
           <button

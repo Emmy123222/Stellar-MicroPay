@@ -9,14 +9,14 @@
 
 "use strict";
 
-const store = require("./webhookStore");
-const { deliverWebhook } = require("./webhookDelivery");
 const {
   startMonitoring,
   stopMonitoring,
   ensureMonitored,
   resumeAllMonitors,
 } = require("./paymentMonitor");
+const { deliverWebhook } = require("./webhookDelivery");
+const store = require("./webhookStore");
 
 /**
  * Register a webhook and immediately start (or confirm) monitoring.
@@ -33,14 +33,41 @@ function registerWebhook(publicKey, url, secret) {
   return webhook;
 }
 
+/**
+ * Delete a webhook by id.
+ * When the deleted webhook was the last one for its account, the live
+ * Horizon SSE stream is closed and removed from activeStreams.
+ *
+ * @param {string} id
+ * @returns {boolean} true if deleted, false if not found
+ */
+function deleteWebhook(id) {
+  const webhook = store.getWebhookById(id);
+  if (!webhook) return false;
+
+  const { publicKey } = webhook;
+  const deleted = store.deleteWebhook(id);
+
+  if (deleted) {
+    const remaining = store.getWebhooksByPublicKey(publicKey);
+    if (remaining.length === 0) {
+      stopMonitoring(publicKey);
+    }
+  }
+
+  return deleted;
+}
+
 module.exports = {
   // composed registration (store + monitor)
   registerWebhook,
 
+  // composed deletion (store + monitor cleanup)
+  deleteWebhook,
+
   // store pass-throughs
   getWebhooksByPublicKey: store.getWebhooksByPublicKey,
   getWebhookById:         store.getWebhookById,
-  deleteWebhook:          store.deleteWebhook,
   getAllWebhooks:          store.getAllWebhooks,
 
   // delivery
