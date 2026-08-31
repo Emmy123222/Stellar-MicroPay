@@ -7,9 +7,10 @@
  */
 "use strict";
 
+const { Utils, Keypair } = require("@stellar/stellar-sdk");
 const express = require("express");
 const jwt     = require("jsonwebtoken");
-const { Utils, Keypair } = require("@stellar/stellar-sdk");
+
 const {
   JWT_SECRET,
   SIGN_OPTIONS,

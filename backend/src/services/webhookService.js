@@ -9,14 +9,14 @@
 
 "use strict";
 
-const store = require("./webhookStore");
-const { deliverWebhook } = require("./webhookDelivery");
 const {
   startMonitoring,
   stopMonitoring,
   ensureMonitored,
   resumeAllMonitors,
 } = require("./paymentMonitor");
+const { deliverWebhook } = require("./webhookDelivery");
+const store = require("./webhookStore");
 
 /**
  * Register a webhook and immediately start (or confirm) monitoring.

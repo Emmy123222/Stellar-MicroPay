@@ -1,5 +1,8 @@
 "use strict";
 
+const pino = require("pino");
+const logger = pino({ name: "scheduled-transaction-service" });
+
 require("dotenv").config();
 
 // In-memory storage for scheduled transactions
