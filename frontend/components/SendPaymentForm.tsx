@@ -153,8 +153,7 @@ function SendPaymentForm({
   const [resolvedPaymentDestination, setResolvedPaymentDestination] = useState<string | null>(null);
   // SNS-specific state: live resolution preview as the user types
   const [snsResolving, setSnsResolving] = useState(false);
-  const [snsResolved, setSnsResolved] = useState<string | null>(null);
-  const [snsError, setSnsError] = useState<string | null>(null);
+  const [snsResolvedAddress, setSnsResolvedAddress] = useState<string | null>(null);
   const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
   const [showCustomAssetForm, setShowCustomAssetForm] = useState(false);
@@ -443,13 +442,18 @@ function SendPaymentForm({
   }, [destination]);
 
   // Pre-validate destination account existence on the Stellar network (#294)
-  useEffect(() => {
-    if (!isValidStellarAddress(destination)) {
+  const destinationValidationRequestRef = useRef(0);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const validateDestinationAccount = useCallback((rawAddress: string) => {
+    const trimmedAddress = rawAddress.trim();
+    if (!isValidStellarAddress(trimmedAddress)) {
       setDestAccountWarning(null);
       setIsCheckingDest(false);
       return;
     }
 
+    const requestId = (destinationValidationRequestRef.current += 1);
     setIsCheckingDest(true);
     setDestAccountWarning(null);
     server.loadAccount(trimmedAddress)
@@ -533,10 +537,9 @@ function SendPaymentForm({
   const isMemoValid = memoBytes <= 28;
   
   const canSubmit =
-    (isValidDest || isFederationDestination || isUsernameDestination || (isStellarName(trimmedDestination) && !!snsResolved)) &&
+    (isValidDest || isFederationDestination || isUsernameDestination || (isStellarName(trimmedDestination) && !!snsResolvedAddress)) &&
     !isResolvingDestination &&
     !snsResolving &&
-    !snsError &&
     !destinationResolutionError &&
     isValidAmt &&
     status === "idle" &&
@@ -582,8 +585,8 @@ function SendPaymentForm({
     setIsResolvingDestination(true);
     try {
       // If we already resolved the SNS name in the preview, reuse it
-      if (isStellarName(trimmedDestination) && snsResolved) {
-        return snsResolved;
+      if (isStellarName(trimmedDestination) && snsResolvedAddress) {
+        return snsResolvedAddress;
       }
 
       if (isStellarName(trimmedDestination)) {
@@ -1018,35 +1021,6 @@ function SendPaymentForm({
                 setSnsResolvedAddress(null);
                 setDestAccountWarning(null);
                 setIsContactsDropdownOpen(true);
-
-                // SNS live resolution: trigger for federation/SNS patterns
-                const trimmed = val.trim();
-                const looksLikeRawAddress = trimmed.startsWith("G") && trimmed.length === 56;
-                if (isStellarName(trimmed) && !looksLikeRawAddress) {
-                  // Clear previous SNS state
-                  setSnsResolved(null);
-                  setSnsError(null);
-                  if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
-                  setSnsResolving(true);
-                  snsDebounceRef.current = setTimeout(() => {
-                    resolveStellarName(trimmed)
-                      .then((address) => {
-                        setSnsResolved(address);
-                        setSnsError(null);
-                      })
-                      .catch((err: unknown) => {
-                        setSnsResolved(null);
-                        setSnsError(err instanceof Error ? err.message : "Name not found or invalid");
-                      })
-                      .finally(() => setSnsResolving(false));
-                  }, 600);
-                } else {
-                  // Not an SNS name — clear SNS state
-                  if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
-                  setSnsResolving(false);
-                  setSnsResolved(null);
-                  setSnsError(null);
-                }
               }}
               onFocus={() => setIsContactsDropdownOpen(true)}
               placeholder="G... address or alice.xlm"
@@ -1069,15 +1043,6 @@ function SendPaymentForm({
                 Resolving…
               </div>
             )}
-            {!snsResolving && snsResolved && (
-              <p className="mt-1.5 text-xs text-slate-400">
-                Resolves to: <span className="font-mono text-stellar-300">{snsResolved}</span> ✓
-              </p>
-            )}
-            {!snsResolving && snsError && (
-              <p className="mt-1.5 text-xs text-red-400">{snsError}</p>
-            )}
-
             {destinationResolutionError && (
               <p className="mt-2 text-xs text-red-400">{destinationResolutionError}</p>
             )}

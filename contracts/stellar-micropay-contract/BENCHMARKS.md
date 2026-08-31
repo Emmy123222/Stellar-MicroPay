@@ -1,7 +1,7 @@
 # Stellar MicroPay Contract — Resource & Gas Cost Benchmarks
 
-Measured with the Soroban test-environment budget tracker (`env.budget()`).
-Each function was called once in isolation after `env.budget().reset_default()`.
+Measured with the Soroban test-environment cost estimator (`env.cost_estimate().budget()`).
+Each function was called once in isolation after `env.cost_estimate().budget().reset_default()`.
 
 Run the benchmarks yourself:
 

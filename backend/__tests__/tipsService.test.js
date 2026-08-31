@@ -9,11 +9,18 @@
 
 const tipsService = require("../src/services/tipsService");
 
-const KEY_A = "G" + "A".repeat(55); // 56 chars
-const KEY_B = "G" + "B".repeat(55); // 56 chars
-const KEY_C = "G" + "C".repeat(55); // 56 chars
-const KEY_D = "G" + "D".repeat(55); // 56 chars
-const KEY_E = "G" + "E".repeat(55); // 56 chars
+const {
+  createDeterministicPublicKey,
+  TEST_PUBLIC_KEY_A,
+  TEST_PUBLIC_KEY_B,
+  TEST_PUBLIC_KEY_C,
+} = require("./fixtures/stellar");
+
+const KEY_A = TEST_PUBLIC_KEY_A;
+const KEY_B = TEST_PUBLIC_KEY_B;
+const KEY_C = TEST_PUBLIC_KEY_C;
+const KEY_D = createDeterministicPublicKey(4);
+const KEY_E = createDeterministicPublicKey(5);
 
 describe("tipsService", () => {
   beforeEach(() => {

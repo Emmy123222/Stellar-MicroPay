@@ -147,6 +147,22 @@ function formatSnapshotTime(savedAt: number) {
   });
 }
 
+function getRealtimePaymentKey(payment: PaymentRecord): string {
+  const candidate = payment as PaymentRecord & {
+    pagingToken?: string;
+    transactionId?: string;
+    transactionHash?: string;
+    id?: string;
+  };
+  return (
+    candidate.pagingToken ??
+    candidate.transactionId ??
+    candidate.transactionHash ??
+    candidate.id ??
+    `${payment.createdAt}:${payment.amount}:${payment.type}`
+  );
+}
+
 // ─── Dashboard widget drag-to-reorder (#622) ────────────────────────────────
 
 const DASHBOARD_WIDGET_IDS = ["stats", "monthlySpending", "thirtyDayVolume", "analytics"] as const;
@@ -355,6 +371,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const realtimeSourceRef = useRef<EventSource | null>(null);
   const realtimePollRef = useRef<number | null>(null);
   const latestPaymentIdRef = useRef<string | null>(null);
+  const seenRealtimePaymentIdsRef = useRef<Set<string>>(new Set());
+  const notificationEnabledRef = useRef(notificationEnabled);
+  const bubbleTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    notificationEnabledRef.current = notificationEnabled;
+  }, [notificationEnabled]);
 
 
   // Fetch username for connected wallet
@@ -917,6 +940,87 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     }
   };
 
+  const primeRealtimeCursor = useCallback(async () => {
+    if (!publicKey) return;
+
+    try {
+      const recent = await getRecentPaymentsForStats(publicKey, 1);
+      if (recent.length > 0) {
+        const key = getRealtimePaymentKey(recent[0]);
+        latestPaymentIdRef.current = key;
+        seenRealtimePaymentIdsRef.current.add(key);
+      }
+    } catch (error) {
+      console.error("Failed to prime realtime payment cursor:", error);
+    }
+  }, [publicKey]);
+
+  const handleRealtimePayment = useCallback((payment: PaymentRecord) => {
+    const key = getRealtimePaymentKey(payment);
+    if (!key || seenRealtimePaymentIdsRef.current.has(key)) return;
+
+    seenRealtimePaymentIdsRef.current.add(key);
+    latestPaymentIdRef.current = key;
+    setRefreshKey((k) => k + 1);
+
+    if (payment.type === "sent") {
+      return;
+    }
+
+    setIncomingPayment(payment);
+    setBubbleMessage(`You received ${payment.amount} XLM`);
+    setShowBubble(true);
+    if (bubbleTimeoutRef.current !== null) {
+      window.clearTimeout(bubbleTimeoutRef.current);
+    }
+    bubbleTimeoutRef.current = window.setTimeout(() => setShowBubble(false), 3000);
+
+    if (
+      notificationEnabledRef.current &&
+      document.hidden &&
+      "serviceWorker" in navigator &&
+      Notification.permission === "granted"
+    ) {
+      navigator.serviceWorker.ready
+        .then((registration) =>
+          registration.showNotification("Stellar Pay", {
+            body: `You received ${payment.amount} XLM`,
+            icon: "/favicon.svg",
+            badge: "/favicon.svg",
+          })
+        )
+        .catch((err) => console.error("Realtime payment notification failed:", err));
+    }
+  }, []);
+
+  const stopPollingFallback = useCallback(() => {
+    if (realtimePollRef.current !== null) {
+      window.clearInterval(realtimePollRef.current);
+      realtimePollRef.current = null;
+    }
+  }, []);
+
+  const startPollingFallback = useCallback(() => {
+    stopPollingFallback();
+
+    const poll = async () => {
+      if (!publicKey) return;
+      try {
+        const recent = await getRecentPaymentsForStats(publicKey, 5);
+        recent.forEach((payment) => {
+          handleRealtimePayment(payment);
+        });
+      } catch (error) {
+        console.error("Realtime payment polling failed:", error);
+      }
+    };
+
+    void poll();
+    realtimePollRef.current = window.setInterval(() => {
+      void poll();
+    }, 10000);
+  }, [handleRealtimePayment, publicKey, stopPollingFallback]);
+
   // Real-time payment streaming for the connected wallet.
   // On incoming payment: show OS notification when page is hidden,
   // in-app bubble when page is visible.
@@ -971,6 +1075,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     return () => {
       cancelled = true;
       stopPollingFallback();
+      if (bubbleTimeoutRef.current !== null) {
+        window.clearTimeout(bubbleTimeoutRef.current);
+        bubbleTimeoutRef.current = null;
+      }
+      seenRealtimePaymentIdsRef.current.clear();
+      latestPaymentIdRef.current = null;
       realtimeSourceRef.current?.close();
       realtimeSourceRef.current = null;
       eventSource?.close();

@@ -206,6 +206,13 @@ fn paused_ledgers_total(stream: &Stream, current_ledger: u32) -> u32 {
     }
 }
 
+fn effective_elapsed_ledgers(stream: &Stream, current_ledger: u32) -> u32 {
+    let paused = paused_ledgers_total(stream, current_ledger);
+    current_ledger
+        .saturating_sub(stream.start_ledger)
+        .saturating_sub(paused)
+}
+
 /// Total amount streamed to *all* recipients combined, as of `current_ledger`.
 ///
 /// Cap the accrual window at the ledger where the deposit runs out. That
@@ -213,8 +220,7 @@ fn paused_ledgers_total(stream: &Stream, current_ledger: u32) -> u32 {
 /// overflow i128) and enforces `total_streamed <= deposited` structurally
 /// rather than by an after-the-fact clamp.
 fn total_streamed_amount(stream: &Stream, current_ledger: u32) -> i128 {
-    let paused = paused_ledgers_total(stream, current_ledger);
-    let elapsed_ledgers = current_ledger.saturating_sub(stream.start_ledger).saturating_sub(paused);
+    let elapsed_ledgers = effective_elapsed_ledgers(stream, current_ledger);
 
     let funded_ledgers = stream.deposited / stream.rate_per_ledger;
     let elapsed_ledgers = if i128::from(elapsed_ledgers) > funded_ledgers {
@@ -273,33 +279,21 @@ fn extend_persistent_ttl<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(env: &E
 
 fn append_escrow_sender_index(env: &Env, sender: &Address, escrow_id: u32) {
     let count_key = DataKey::EscrowSenderCount(sender.clone());
-    let count: u32 = env
-        .storage()
-        .persistent()
-        .get(&count_key)
-        .unwrap_or(0);
+    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
     let index_key = DataKey::EscrowSenderIndex(sender.clone(), count);
     env.storage().persistent().set(&index_key, &escrow_id);
     extend_persistent_ttl(env, &index_key);
-    env.storage()
-        .persistent()
-        .set(&count_key, &(count + 1));
+    env.storage().persistent().set(&count_key, &(count + 1));
     extend_persistent_ttl(env, &count_key);
 }
 
 fn append_escrow_recipient_index(env: &Env, recipient: &Address, escrow_id: u32) {
     let count_key = DataKey::EscrowRecipientCount(recipient.clone());
-    let count: u32 = env
-        .storage()
-        .persistent()
-        .get(&count_key)
-        .unwrap_or(0);
+    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
     let index_key = DataKey::EscrowRecipientIndex(recipient.clone(), count);
     env.storage().persistent().set(&index_key, &escrow_id);
     extend_persistent_ttl(env, &index_key);
-    env.storage()
-        .persistent()
-        .set(&count_key, &(count + 1));
+    env.storage().persistent().set(&count_key, &(count + 1));
     extend_persistent_ttl(env, &count_key);
 }
 
@@ -381,10 +375,8 @@ impl MicroPayContract {
 
         // Emit an init event so off-chain indexers can detect an initialised
         // contract without polling get_admin() (#258).
-        env.events().publish(
-            (Symbol::new(&env, "init"),),
-            (EVENT_SCHEMA_VERSION, admin),
-        );
+        env.events()
+            .publish((Symbol::new(&env, "init"),), (EVENT_SCHEMA_VERSION, admin));
         Ok(())
     }
 
@@ -645,7 +637,11 @@ impl MicroPayContract {
         let token = token::Client::new(&env, &token_address);
         token.transfer(&from, &env.current_contract_address(), &amount);
 
-        let next_id: u32 = env.storage().persistent().get(&DataKey::EscrowCount).unwrap_or(0);
+        let next_id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::EscrowCount)
+            .unwrap_or(0);
         let escrow = Escrow {
             id: next_id,
             from: from.clone(),
@@ -655,10 +651,22 @@ impl MicroPayContract {
             release_ledger,
             status: EscrowStatus::Pending,
         };
-        env.storage().persistent().set(&DataKey::Escrow(next_id), &escrow);
-        env.storage().persistent().extend_ttl(&DataKey::Escrow(next_id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
-        env.storage().persistent().set(&DataKey::EscrowCount, &(next_id + 1));
-        env.storage().persistent().extend_ttl(&DataKey::EscrowCount, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(next_id), &escrow);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Escrow(next_id),
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::EscrowCount, &(next_id + 1));
+        env.storage().persistent().extend_ttl(
+            &DataKey::EscrowCount,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
 
         index_escrow_accounts(&env, &from, &to, next_id);
 
@@ -671,7 +679,11 @@ impl MicroPayContract {
 
     /// Claim is valid inclusively from `release_ledger` onward (#793).
     pub fn claim_escrow(env: Env, id: u32) -> Result<(), ContractError> {
-        let mut escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).expect("escrow not found");
+        let mut escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(id))
+            .expect("escrow not found");
         if escrow.status != EscrowStatus::Pending {
             panic!("escrow is not pending");
         }
@@ -683,8 +695,14 @@ impl MicroPayContract {
 
         // Checks-Effects: persist state BEFORE external token transfer.
         escrow.status = EscrowStatus::Released;
-        env.storage().persistent().set(&DataKey::Escrow(id), &escrow);
-        env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(id), &escrow);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Escrow(id),
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
 
         let to_clone = escrow.to.clone();
         env.events().publish(
@@ -701,7 +719,11 @@ impl MicroPayContract {
     /// Cancel is valid only before `release_ledger`; at the boundary claim is
     /// the sole valid settlement operation (#793).
     pub fn cancel_escrow(env: Env, id: u32) -> Result<(), ContractError> {
-        let mut escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).expect("escrow not found");
+        let mut escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(id))
+            .expect("escrow not found");
         if escrow.status != EscrowStatus::Pending {
             panic!("escrow is not pending");
         }
@@ -713,8 +735,14 @@ impl MicroPayContract {
 
         // Checks-Effects: persist state BEFORE external token transfer.
         escrow.status = EscrowStatus::Cancelled;
-        env.storage().persistent().set(&DataKey::Escrow(id), &escrow);
-        env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(id), &escrow);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Escrow(id),
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
 
         let from_clone = escrow.from.clone();
         env.events().publish(
@@ -729,13 +757,24 @@ impl MicroPayContract {
     }
 
     pub fn get_escrow(env: Env, id: u32) -> Escrow {
-        let escrow: Escrow = env.storage().persistent().get(&DataKey::Escrow(id)).expect("escrow not found");
-        env.storage().persistent().extend_ttl(&DataKey::Escrow(id), PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        let escrow: Escrow = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(id))
+            .expect("escrow not found");
+        env.storage().persistent().extend_ttl(
+            &DataKey::Escrow(id),
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
         escrow
     }
 
     pub fn get_escrow_count(env: Env) -> u32 {
-        env.storage().persistent().get(&DataKey::EscrowCount).unwrap_or(0)
+        env.storage()
+            .persistent()
+            .get(&DataKey::EscrowCount)
+            .unwrap_or(0)
     }
 
     /// Escrows created by `sender`, paginated by offset (#796).
@@ -1082,6 +1121,13 @@ impl MicroPayContract {
         }
 
         let current_ledger = env.ledger().sequence();
+        if stream.paused {
+            let pause_length = current_ledger.saturating_sub(stream.paused_at_ledger);
+            stream.paused_ledgers = stream.paused_ledgers.saturating_add(pause_length);
+            stream.paused = false;
+            stream.paused_at_ledger = 0;
+        }
+
         let total_streamed = total_streamed_amount(&stream, current_ledger);
         let weight_total = total_weight(&stream.recipients);
 
@@ -1243,7 +1289,7 @@ mod tests {
     #[test]
     fn test_initialize() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1257,7 +1303,7 @@ mod tests {
         use soroban_sdk::{testutils::Events, vec, IntoVal};
 
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1282,7 +1328,7 @@ mod tests {
     #[test]
     fn test_double_initialize_returns_error() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1299,7 +1345,7 @@ mod tests {
     #[test]
     fn test_mint_receipt() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1326,7 +1372,7 @@ mod tests {
     #[test]
     fn test_receipt_count_tracks_multiple_mints() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1364,7 +1410,10 @@ mod tests {
         let max_bytes = [b'x'; MAX_RECEIPT_MEMO_BYTES as usize];
         let max_memo = String::from_bytes(&env, &max_bytes);
         let max_id = client.mint_receipt(&payer, &payee, &100, &max_memo);
-        assert_eq!(client.get_receipt(&payer, &max_id).memo.len(), MAX_RECEIPT_MEMO_BYTES);
+        assert_eq!(
+            client.get_receipt(&payer, &max_id).memo.len(),
+            MAX_RECEIPT_MEMO_BYTES
+        );
     }
 
     #[test]
@@ -1395,7 +1444,7 @@ mod tests {
     #[test]
     fn test_tip_totals_start_at_zero() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1408,7 +1457,9 @@ mod tests {
 
     // ── Helper: deploy a SAC token, mint `amount` to `to`, return token address ──
     fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
-        let token_id = env.register_stellar_asset_contract(admin.clone());
+        let token_id = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
         let sac = token::StellarAssetClient::new(env, &token_id);
         sac.mint(to, &amount);
         token_id
@@ -1417,7 +1468,7 @@ mod tests {
     #[test]
     fn test_send_tip_stores_record() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1441,7 +1492,7 @@ mod tests {
     #[test]
     fn test_send_tip_increments_totals() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1465,7 +1516,7 @@ mod tests {
     #[should_panic]
     fn test_send_tip_unauthorized() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1496,7 +1547,7 @@ mod tests {
     #[test]
     fn test_create_escrow_locks_funds_and_returns_id() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
@@ -1529,7 +1580,7 @@ mod tests {
     #[should_panic(expected = "release_ledger must be in the future")]
     fn test_create_escrow_rejects_past_release_ledger() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1548,7 +1599,7 @@ mod tests {
     #[should_panic(expected = "amount must be positive")]
     fn test_create_escrow_rejects_non_positive_amount() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1564,7 +1615,7 @@ mod tests {
     #[test]
     fn test_claim_escrow_transfers_to_recipient_after_release() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1613,7 +1664,7 @@ mod tests {
     #[test]
     fn test_claim_escrow_rejected_before_release_ledger() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1635,7 +1686,7 @@ mod tests {
     #[test]
     fn test_cancel_escrow_returns_funds_to_creator() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1683,7 +1734,7 @@ mod tests {
     #[test]
     fn test_cancel_escrow_rejected_after_release_ledger() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1713,7 +1764,7 @@ mod tests {
     #[should_panic(expected = "escrow is not pending")]
     fn test_double_claim_rejected() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -1797,7 +1848,10 @@ mod tests {
         assert_eq!(sender_ids.get(0).unwrap(), claim_id);
         assert_eq!(sender_ids.get(1).unwrap(), cancel_id);
         assert_eq!(client.get_escrow(&claim_id).status, EscrowStatus::Released);
-        assert_eq!(client.get_escrow(&cancel_id).status, EscrowStatus::Cancelled);
+        assert_eq!(
+            client.get_escrow(&cancel_id).status,
+            EscrowStatus::Cancelled
+        );
     }
 
     #[test]
@@ -1832,7 +1886,13 @@ mod tests {
         assert_eq!(client.migrate(&admin), SCHEMA_VERSION);
         assert_eq!(client.get_escrow_sender_count(&from), 1);
         assert_eq!(client.get_escrow_recipient_count(&to), 1);
-        assert_eq!(client.list_escrow_ids_for_sender(&from, &0, &10).get(0).unwrap(), id);
+        assert_eq!(
+            client
+                .list_escrow_ids_for_sender(&from, &0, &10)
+                .get(0)
+                .unwrap(),
+            id
+        );
     }
 
     // ── Streaming payment tests ─────────────────────────────────────────────
@@ -1850,8 +1910,14 @@ mod tests {
     fn stream_fixture(
         env: &Env,
         funding: i128,
-    ) -> (Address, MicroPayContractClient<'_>, Address, Address, Address) {
-        let contract_id = env.register_contract(None, MicroPayContract);
+    ) -> (
+        Address,
+        MicroPayContractClient<'_>,
+        Address,
+        Address,
+        Address,
+    ) {
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
         client.initialize(&admin);
@@ -1981,8 +2047,7 @@ mod tests {
     #[test]
     fn test_top_up_stream() {
         let env = Env::default();
-        let (contract_id, client, token_id, payer, recipient) =
-            stream_fixture(&env, DEPOSIT * 2);
+        let (contract_id, client, token_id, payer, recipient) = stream_fixture(&env, DEPOSIT * 2);
         let token = token::Client::new(&env, &token_id);
 
         let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
@@ -2008,8 +2073,7 @@ mod tests {
     #[test]
     fn test_claim_and_top_up_same_ledger() {
         let env = Env::default();
-        let (contract_id, client, token_id, payer, recipient1) =
-            stream_fixture(&env, DEPOSIT * 2);
+        let (contract_id, client, token_id, payer, recipient1) = stream_fixture(&env, DEPOSIT * 2);
         let recipient2 = Address::generate(&env);
         let token = token::Client::new(&env, &token_id);
 
@@ -2221,7 +2285,9 @@ mod tests {
         let env = Env::default();
         let (_, client, token_id, payer, recipient) = stream_fixture(&env, DEPOSIT);
         // Deposit clears the minimum, but this rate drains it in 10 ledgers.
-        open_single_stream(&env, &client, &token_id, &payer, &recipient, 1_000i128, 10_000i128);
+        open_single_stream(
+            &env, &client, &token_id, &payer, &recipient, 1_000i128, 10_000i128,
+        );
     }
 
     #[test]
@@ -2230,7 +2296,9 @@ mod tests {
         let env = Env::default();
         let (_, client, token_id, payer, recipient) = stream_fixture(&env, DEPOSIT);
         // rate > deposit funds zero whole ledgers.
-        open_single_stream(&env, &client, &token_id, &payer, &recipient, 20_000i128, 10_000i128);
+        open_single_stream(
+            &env, &client, &token_id, &payer, &recipient, 20_000i128, 10_000i128,
+        );
     }
 
     #[test]
@@ -2238,7 +2306,15 @@ mod tests {
         let env = Env::default();
         let (_, client, token_id, payer, recipient) = stream_fixture(&env, MIN_STREAM_DEPOSIT);
         // 10_000 / 166 == 60 ledgers, exactly MIN_STREAM_DURATION_LEDGERS.
-        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, 166i128, MIN_STREAM_DEPOSIT);
+        let id = open_single_stream(
+            &env,
+            &client,
+            &token_id,
+            &payer,
+            &recipient,
+            166i128,
+            MIN_STREAM_DEPOSIT,
+        );
         assert_eq!(client.get_stream(&id).deposited, MIN_STREAM_DEPOSIT);
     }
 
@@ -2507,6 +2583,43 @@ mod tests {
         assert_eq!(token.balance(&recipient), streamed);
         assert_eq!(token.balance(&payer), DEPOSIT - streamed);
         assert_eq!(token.balance(&contract_id), 0);
+
+        let stream = client.get_stream(&id);
+        assert_eq!(stream.paused_ledgers, 400);
+        assert!(!stream.paused);
+    }
+
+    #[test]
+    fn test_multiple_pause_intervals() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, recipient) = stream_fixture(&env, DEPOSIT);
+        let token = token::Client::new(&env, &token_id);
+
+        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+        advance_by(&env, 10);
+
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 100);
+        client.resume_stream(&id, &payer);
+
+        advance_by(&env, 10);
+
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 200);
+
+        // Close while on the second pause.
+        client.close_stream(&id, &payer);
+
+        // 10 + 10 = 20 ledgers of active streaming.
+        let streamed = RATE * 20;
+        assert_eq!(token.balance(&recipient), streamed);
+        assert_eq!(token.balance(&payer), DEPOSIT - streamed);
+        assert_eq!(token.balance(&contract_id), 0);
+
+        let stream = client.get_stream(&id);
+        // 100 + 200 = 300 ledgers of paused time.
+        assert_eq!(stream.paused_ledgers, 300);
+        assert!(!stream.paused);
     }
 
     #[test]
@@ -2556,7 +2669,7 @@ mod tests {
     #[test]
     fn test_initialize_sets_schema_version() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         client.initialize(&Address::generate(&env));
 
@@ -2566,7 +2679,7 @@ mod tests {
     #[test]
     fn test_migrate_stamps_unversioned_instance() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -2585,7 +2698,7 @@ mod tests {
     #[test]
     fn test_migrate_rejects_current_version() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -2617,17 +2730,14 @@ mod tests {
 
         let result = client.try_migrate(&admin);
         assert!(result.is_err(), "migrate downgrade must fail");
-        assert_eq!(
-            result.unwrap_err().unwrap(),
-            ContractError::SchemaDowngrade,
-        );
+        assert_eq!(result.unwrap_err().unwrap(), ContractError::SchemaDowngrade,);
     }
 
     #[test]
     #[should_panic(expected = "Unauthorized")]
     fn test_migrate_requires_admin() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
@@ -2676,13 +2786,13 @@ mod tests {
 
         for seed in 1..=8u64 {
             let env = Env::default();
-            let (contract_id, client, token_id, payer, recipient) =
-                stream_fixture(&env, FUNDING);
+            let (contract_id, client, token_id, payer, recipient) = stream_fixture(&env, FUNDING);
             let token = token::Client::new(&env, &token_id);
 
             let mut ids = [0u32; STREAMS];
             for id_slot in ids.iter_mut() {
-                *id_slot = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+                *id_slot =
+                    open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
             }
             let mut closed = [false; STREAMS];
             let mut paused = [false; STREAMS];

@@ -1191,18 +1191,24 @@ Register Horizon SSE listeners that POST to your URL when payments are received.
 **Outbound webhook payload** (POST to your `url`)
 ```json
 {
-  "event": "payment.received",
+  "eventId": "12345",
+  "attempt": 1,
+  "createdAt": "2026-08-27T10:00:00Z",
+  "network": "testnet",
+  "event": "payment_received",
   "publicKey": "GABC...",
-  "payment": {
-    "id": "...",
-    "from": "G...",
-    "to": "G...",
-    "amount": "10.0000000",
-    "asset": "XLM",
-    "createdAt": "2025-01-01T12:00:00Z"
-  }
+  "amount": "10.0000000",
+  "asset": "XLM",
+  "from": "G...",
+  "transactionHash": "...",
+  "ledger": 123456,
+  "timestamp": "2026-08-27T10:00:00Z"
 }
 ```
+
+**Consumer Idempotency**:
+Consumers should use the `eventId` to deduplicate webhook events and safely handle retries (should they occur). The `eventId` is globally unique for each stellar event and network, preventing duplicate processing if the webhook is delivered multiple times for the same occurrence.
+
 
 Header: `X-Webhook-Signature` — HMAC-SHA256 hex of the JSON body using `secret`.
 
