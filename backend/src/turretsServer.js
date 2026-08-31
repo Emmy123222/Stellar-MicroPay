@@ -5,10 +5,11 @@
 
 "use strict";
 
-const express = require("express");
 const cors = require("cors");
+const express = require("express");
 const helmet = require("helmet");
 const morgan = require("morgan");
+
 const turretsRoutes = require("./routes/turrets");
 const { startRunner } = require("./services/turretsService");
 

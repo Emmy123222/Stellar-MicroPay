@@ -1,5 +1,6 @@
 node_modules/
 .next/
 .env
+target/
 secrets/*.txt
 !secrets/.gitkeep

@@ -93,6 +93,22 @@ test('network stats render without errors', async ({ page }) => {
   expect(pageErrors).toEqual([]);
 });
 
+test('network graph exposes health metrics and keyboard-accessible samples', async ({ page }) => {
+  await page.goto('/network');
+
+  const health = page.getByRole('region', { name: 'Network health' });
+  await expect(health).toContainText('Testnet');
+  await expect(health).toContainText('Network-wide statistics');
+  await expect(health).toContainText('Horizon API');
+  await expect(health).toContainText('1,000,000');
+  await expect(health).toContainText('Operational');
+
+  const sample = page.getByRole('button', { name: /Latency/ }).first();
+  await expect(sample).toBeAttached();
+  await sample.focus();
+  await expect(sample).toBeFocused();
+});
+
 test('network page shows an error state when Horizon requests fail', async ({ page }) => {
   await page.unroute('**/horizon-testnet.stellar.org/ledgers**');
   await page.route('**/horizon-testnet.stellar.org/ledgers**', (route) => {

@@ -12,15 +12,22 @@ const mockBuildSellOffer = jest.fn();
 const mockBuildBuyOffer = jest.fn();
 const mockSubmitTransaction = jest.fn();
 
-jest.mock("@/lib/stellar", () => ({
-  buildPathPaymentStrictSendTransaction: (...args: unknown[]) =>
-    mockBuildPathPaymentStrictSend(...args),
-  fetchStrictSendQuote: (...args: unknown[]) => mockFetchStrictSendQuote(...args),
-  buildSellOfferTransaction: (...args: unknown[]) => mockBuildSellOffer(...args),
-  buildBuyOfferTransaction: (...args: unknown[]) => mockBuildBuyOffer(...args),
-  submitTransaction: (...args: unknown[]) => mockSubmitTransaction(...args),
-  NETWORK_PASSPHRASE: "Test SDF Network ; September 2015",
-}));
+jest.mock("@/lib/stellar", () => {
+  const { Asset } = jest.requireActual("@stellar/stellar-sdk");
+  const USDC_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+  return {
+    buildPathPaymentStrictSendTransaction: (...args: unknown[]) =>
+      mockBuildPathPaymentStrictSend(...args),
+    fetchStrictSendQuote: (...args: unknown[]) => mockFetchStrictSendQuote(...args),
+    buildSellOfferTransaction: (...args: unknown[]) => mockBuildSellOffer(...args),
+    buildBuyOfferTransaction: (...args: unknown[]) => mockBuildBuyOffer(...args),
+    submitTransaction: (...args: unknown[]) => mockSubmitTransaction(...args),
+    NETWORK_PASSPHRASE: "Test SDF Network ; September 2015",
+    USDC: new Asset("USDC", USDC_ISSUER),
+    walletBalanceToAsset: (balance: { asset: string }) =>
+      balance.asset === "native" ? Asset.native() : new Asset("USDC", USDC_ISSUER),
+  };
+});
 
 const mockSignTransaction = jest.fn();
 jest.mock("@stellar/freighter-api", () => ({

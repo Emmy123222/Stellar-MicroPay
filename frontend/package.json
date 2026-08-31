@@ -14,7 +14,9 @@
     "test:e2e:report": "playwright show-report",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "size": "size-limit"
+    "size": "size-limit",
+    "bundle-report": "node scripts/bundle-budget.mjs",
+    "test:bundle-report": "node --test scripts/bundle-budget.test.mjs"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
@@ -23,7 +25,7 @@
     "@sentry/nextjs": "^10.71.0",
     "@stellar/freighter-api": "^3.1.0",
     "@stellar/stellar-sdk": "^15.1.0",
-    "axios": "^1.6.8",
+    "axios": "^1.20.0",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "next": "14.2.35",
@@ -51,7 +53,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/react-window": "^1.8.8",
-    "autoprefixer": "^10.0.1",
+    "autoprefixer": "^10.5.4",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
     "eslint-import-resolver-typescript": "^3.6.0",
@@ -59,13 +61,16 @@
     "fast-check": "^3.22.0",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.3.0",
-    "postcss": "^8",
+    "postcss": "^8.5.26",
     "size-limit": "^13.0.1",
     "storybook": "^8.6.18",
     "tailwindcss": "^3.4.1",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5"
+  },
+  "overrides": {
+    "axios": "$axios"
   },
   "engines": {
     "node": "20.19.5"
