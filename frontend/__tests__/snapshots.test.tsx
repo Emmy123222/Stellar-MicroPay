@@ -70,9 +70,14 @@ jest.mock("@/lib/stellar", () => ({
   resolveStellarName: jest.fn(() => Promise.resolve("GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZZZ")),
   clearNameCache: jest.fn(),
   submitTransaction: jest.fn(),
-  getNetworkConfig: jest.fn(() => ({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" })),
+  getNetworkConfig: jest.fn(() => ({
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+  })),
   fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })),
-  getBalances: jest.fn(() => Promise.resolve([{ asset: "native", balance: "100.0000000", assetCode: "XLM" }])),
+  getBalances: jest.fn(() =>
+    Promise.resolve([{ asset: "native", balance: "100.0000000", assetCode: "XLM" }])
+  ),
   getPaymentHistory: jest.fn(() => Promise.resolve({ payments: [], hasMore: false })),
   getXLMBalance: jest.fn(() => Promise.resolve("100.0000000")),
   getUSDCBalance: jest.fn(() => Promise.resolve(null)),
@@ -187,9 +192,7 @@ describe("SendPaymentForm snapshot", () => {
 describe("TransactionList snapshot", () => {
   it("renders empty state", () => {
     const { container } = render(
-      <TransactionList
-        publicKey="GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ"
-      />
+      <TransactionList publicKey="GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ" />
     );
     expect(container).toMatchSnapshot();
   });

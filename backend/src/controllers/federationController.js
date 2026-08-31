@@ -114,7 +114,7 @@ async function resolveStellarAddress(stellarAddress, req) {
 async function resolveAccountId(accountId) {
   // First check local usernames
   const allUsernames = usernameService.getAllUsernames();
-  const match = allUsernames.find(user => user.publicKey === accountId);
+  const match = allUsernames.find((user) => user.publicKey === accountId);
 
   if (match) {
     const domain = getPrimaryFederationDomain();

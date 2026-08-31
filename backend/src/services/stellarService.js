@@ -139,10 +139,16 @@ async function getAccount(publicKey) {
         "Account not found. It may not be funded yet. Use Friendbot on testnet."
       );
       error.status = 404;
-      logger.error({ err: error, publicKey: publicKey.replace(/[\r\n]/g, "") }, "Account not found");
+      logger.error(
+        { err: error, publicKey: publicKey.replace(/[\r\n]/g, "") },
+        "Account not found"
+      );
       throw error;
     }
-    logger.error({ err, publicKey: publicKey.replace(/[\r\n]/g, "") }, "Error loading account from Horizon");
+    logger.error(
+      { err, publicKey: publicKey.replace(/[\r\n]/g, "") },
+      "Error loading account from Horizon"
+    );
     throw err;
   }
 }
@@ -188,7 +194,10 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
         memo = tx.memo;
       }
     } catch (err) {
-      logger.error({ err, transactionHash: op.transaction_hash }, "Failed to fetch memo for transaction");
+      logger.error(
+        { err, transactionHash: op.transaction_hash },
+        "Failed to fetch memo for transaction"
+      );
       // memo is optional
     }
 
@@ -246,11 +255,9 @@ async function normalizePaymentOperation(op, publicKey) {
 
   let assetCode;
   if (isPathPayment && !isSent) {
-    assetCode =
-      op.dest_asset_type === "native" ? "XLM" : op.dest_asset_code || "UNKNOWN";
+    assetCode = op.dest_asset_type === "native" ? "XLM" : op.dest_asset_code || "UNKNOWN";
   } else {
-    assetCode =
-      op.asset_type === "native" ? "XLM" : op.asset_code || "UNKNOWN";
+    assetCode = op.asset_type === "native" ? "XLM" : op.asset_code || "UNKNOWN";
   }
 
   const amount = isPathPayment && !isSent ? op.dest_amount : op.amount;

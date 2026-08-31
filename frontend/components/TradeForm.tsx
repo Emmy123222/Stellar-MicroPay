@@ -46,7 +46,12 @@ function applySlippage(destinationAmount: string, slippagePercent: number): stri
   return Math.max(0, quoted * (1 - slippagePercent / 100)).toFixed(7);
 }
 
-export default function TradeForm({ publicKey, onTradeComplete, onError, onSuccess }: TradeFormProps) {
+export default function TradeForm({
+  publicKey,
+  onTradeComplete,
+  onError,
+  onSuccess,
+}: TradeFormProps) {
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [sellingAsset, setSellingAsset] = useState<"XLM" | "USDC">("XLM");
@@ -154,7 +159,6 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
           destMin: applySlippage(liveQuote.destinationAmount, slippagePercent),
           path: liveQuote.path,
         });
-
       } else {
         // Limit order
         if (side === "sell") {
@@ -187,20 +191,19 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
 
       // Submit transaction
       const result = await submitTransaction(signed.signedTxXdr);
-      
+
       onSuccess(
-        orderType === "market" 
-          ? "Market order executed successfully!" 
+        orderType === "market"
+          ? "Market order executed successfully!"
           : `${side === "sell" ? "Sell" : "Buy"} order placed successfully!`
       );
-      
+
       onTradeComplete();
-      
+
       // Reset form
       setAmount("");
       setPrice("");
       setQuote(null);
-
     } catch (error) {
       console.error("Trade failed:", error);
       onError(error instanceof Error ? error.message : "Trade failed");
@@ -247,9 +250,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
         {/* Asset Selection */}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              You Pay
-            </label>
+            <label className="block text-sm font-medium text-slate-300 mb-2">You Pay</label>
             <div className="flex gap-2">
               <select
                 value={sellingAsset}
@@ -283,9 +284,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              You Receive
-            </label>
+            <label className="block text-sm font-medium text-slate-300 mb-2">You Receive</label>
             <div className="flex gap-2">
               <select
                 value={buyingAsset}
@@ -371,9 +370,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
 
             {isQuoting && <p className="text-xs text-slate-500">Fetching best price…</p>}
 
-            {!isQuoting && quoteError && (
-              <p className="text-xs text-amber-400">{quoteError}</p>
-            )}
+            {!isQuoting && quoteError && <p className="text-xs text-amber-400">{quoteError}</p>}
 
             {!isQuoting && quote && (
               <div className="rounded-lg bg-cosmos-800/60 border border-stellar-500/10 px-3 py-2 text-xs space-y-1">
@@ -404,9 +401,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                 type="button"
                 onClick={() => setSide("buy")}
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
-                  side === "buy"
-                    ? "bg-emerald-500 text-white"
-                    : "text-slate-400 hover:text-white"
+                  side === "buy" ? "bg-emerald-500 text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
                 Buy Order
@@ -415,9 +410,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
                 type="button"
                 onClick={() => setSide("sell")}
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
-                  side === "sell"
-                    ? "bg-red-500 text-white"
-                    : "text-slate-400 hover:text-white"
+                  side === "sell" ? "bg-red-500 text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
                 Sell Order
@@ -437,7 +430,11 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
           }
           className="w-full btn-primary"
         >
-          {isLoading ? "Processing..." : orderType === "market" ? "Execute Market Order" : `${side === "buy" ? "Place Buy" : "Place Sell"} Order`}
+          {isLoading
+            ? "Processing..."
+            : orderType === "market"
+              ? "Execute Market Order"
+              : `${side === "buy" ? "Place Buy" : "Place Sell"} Order`}
         </button>
       </form>
     </div>

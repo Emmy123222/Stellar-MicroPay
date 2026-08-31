@@ -1,25 +1,25 @@
 module.exports = {
-  extends: ['@commitlint/config-conventional'],
+  extends: ["@commitlint/config-conventional"],
   rules: {
-    'subject-case': [2, 'never', ['UPPER_CASE']],
-    'subject-empty': [2, 'never'],
-    'subject-full-stop': [2, 'never', '.'],
-    'type-case': [2, 'always', 'lower-case'],
-    'type-empty': [2, 'never'],
-    'type-enum': [
+    "subject-case": [2, "never", ["UPPER_CASE"]],
+    "subject-empty": [2, "never"],
+    "subject-full-stop": [2, "never", "."],
+    "type-case": [2, "always", "lower-case"],
+    "type-empty": [2, "never"],
+    "type-enum": [
       2,
-      'always',
+      "always",
       [
-        'chore',    // build, deps, tooling
-        'ci',       // CI/CD configuration
-        'docs',     // documentation
-        'feat',     // new feature
-        'fix',      // bug fix
-        'perf',     // performance improvement
-        'refactor', // code refactoring
-        'revert',   // revert previous commit
-        'style',    // formatting, linting
-        'test',     // tests
+        "chore", // build, deps, tooling
+        "ci", // CI/CD configuration
+        "docs", // documentation
+        "feat", // new feature
+        "fix", // bug fix
+        "perf", // performance improvement
+        "refactor", // code refactoring
+        "revert", // revert previous commit
+        "style", // formatting, linting
+        "test", // tests
       ],
     ],
   },

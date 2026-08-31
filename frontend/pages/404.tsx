@@ -39,9 +39,7 @@ export default function Custom404() {
         </div>
 
         {/* 404 number */}
-        <h1 className="font-display text-7xl md:text-8xl font-bold text-gradient mb-4">
-          404
-        </h1>
+        <h1 className="font-display text-7xl md:text-8xl font-bold text-gradient mb-4">404</h1>
 
         {/* Error message */}
         <h2 className="font-display text-2xl font-semibold text-white mb-4">
@@ -49,7 +47,7 @@ export default function Custom404() {
         </h2>
 
         <p className="text-slate-400 text-base mb-8 leading-relaxed">
-          {`The stellar path you're looking for seems to have drifted into deep space.`} 
+          {`The stellar path you're looking for seems to have drifted into deep space.`}
           <br />
           {`Let's get you back to safety.`}
         </p>

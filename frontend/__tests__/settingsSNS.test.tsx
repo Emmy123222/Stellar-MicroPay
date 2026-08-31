@@ -19,7 +19,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 // network calls or rely on browser-only state so tests stay deterministic.
 
 jest.mock("@/lib/stellar", () => ({
-  getNetworkConfig: jest.fn(() => ({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" })),
+  getNetworkConfig: jest.fn(() => ({
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+  })),
   setNetworkConfig: jest.fn(),
   shortenAddress: jest.fn((addr: string) => addr?.slice(0, 6) + "..."),
   server: { loadAccount: jest.fn() },
@@ -105,9 +108,7 @@ describe("SettingsPage — Stellar Name Service section", () => {
 
   it("renders the 'Stellar Name Service' heading", () => {
     render(<SettingsPage {...defaultProps} />);
-    expect(
-      screen.getByRole("heading", { name: /Stellar Name Service/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Stellar Name Service/i })).toBeInTheDocument();
   });
 
   it("mentions .xlm names in the description", () => {
@@ -131,7 +132,11 @@ describe("SettingsPage — Stellar Name Service section", () => {
     render(<SettingsPage {...defaultProps} />);
     const link = screen
       .getAllByRole("link")
-      .find((el) => el.getAttribute("href")?.includes("stellarnames.org") && el.textContent?.includes("Register"));
+      .find(
+        (el) =>
+          el.getAttribute("href")?.includes("stellarnames.org") &&
+          el.textContent?.includes("Register")
+      );
 
     expect(link).toBeDefined();
     expect(link).toHaveAttribute("target", "_blank");
@@ -147,9 +152,7 @@ describe("SettingsPage — Stellar Name Service section", () => {
   it("shows the user's wallet address in the section when connected", () => {
     render(<SettingsPage {...defaultProps} />);
     // The public key should appear somewhere in the SNS section
-    expect(
-      screen.getAllByText(/GAAZI4/i).length
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/GAAZI4/i).length).toBeGreaterThan(0);
   });
 
   it("does not render the SNS card inside the mainnet warning modal", () => {

@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+**/dist/
+**/.next/
+
+# Rust / Soroban contracts
+contracts/target/
+Cargo.lock
+
+# Auto-generated files
+backend/src/openapi-generated.json
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
+
+# Lock files
+package-lock.json
+**/package-lock.json
+
+# Misc
+.git/
+coverage/
+*.min.js
+*.min.css

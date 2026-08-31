@@ -7,19 +7,11 @@
  */
 "use strict";
 
-const { Utils, Keypair } = require("@stellar/stellar-sdk");
 const express = require("express");
-const jwt     = require("jsonwebtoken");
-
-const {
-  JWT_SECRET,
-  SIGN_OPTIONS,
-  VERIFY_OPTIONS,
-  extractToken,
-  verifyJWT,
-} = require("../middleware/auth");
+const jwt = require("jsonwebtoken");
+const { Utils, Keypair } = require("@stellar/stellar-sdk");
+const { JWT_SECRET, SIGN_OPTIONS, VERIFY_OPTIONS, extractToken } = require("../middleware/auth");
 const { csrfOriginCheck } = require("../middleware/csrf");
-const tokenFamilyStore = require("../services/tokenFamilyStore");
 
 const router = express.Router();
 
@@ -30,20 +22,14 @@ const ACCESS_TOKEN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 function cookieOptions() {
   return {
     httpOnly: true,
-    secure:   process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    maxAge:   ACCESS_TOKEN_MAX_AGE_MS,
+    maxAge: ACCESS_TOKEN_MAX_AGE_MS,
   };
 }
 
-// Every issued token belongs to a rotation family (`fam`) and carries a unique
-// id (`jti`). Refresh rotates `jti` within the family; presenting a `jti` that
-// isn't the family's current one means an already-rotated token was reused.
-function issueToken(publicKey, { familyId, jti }) {
-  return jwt.sign({ publicKey, fam: familyId }, JWT_SECRET, {
-    ...SIGN_OPTIONS,
-    jwtid: jti,
-  });
+function issueToken(publicKey) {
+  return jwt.sign({ publicKey }, JWT_SECRET, SIGN_OPTIONS);
 }
 
 const HOME_DOMAIN = process.env.HOME_DOMAIN || "localhost:4000";
@@ -70,7 +56,7 @@ router.get("/", (req, res) => {
   }
 
   try {
-    const keypair   = getServerKeypair();
+    const keypair = getServerKeypair();
     const challenge = Utils.buildChallengeTx(
       keypair,
       account,
@@ -92,7 +78,7 @@ router.post("/", (req, res) => {
   }
 
   try {
-    const keypair   = getServerKeypair();
+    const keypair = getServerKeypair();
     const accountId = Utils.verifyChallengeTx(
       transaction,
       keypair.publicKey(),
@@ -101,8 +87,7 @@ router.post("/", (req, res) => {
       ""
     );
 
-    const { familyId, jti } = tokenFamilyStore.createFamily(accountId);
-    const token = issueToken(accountId, { familyId, jti });
+    const token = issueToken(accountId);
 
     res.cookie("jwt", token, cookieOptions());
 
@@ -149,54 +134,13 @@ router.post("/refresh", csrfOriginCheck(), (req, res) => {
   if (typeof decoded.exp === "number") {
     const expiredForMs = Date.now() - decoded.exp * 1000;
     if (expiredForMs > REFRESH_GRACE_MS) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: token expired, please re-authenticate" });
+      return res.status(401).json({ error: "Unauthorized: token expired, please re-authenticate" });
     }
   }
 
-  // Tokens issued before token-family tracking existed carry no `fam`/`jti`
-  // claims — there's no family to validate against, so they can't be safely
-  // rotated and must re-authenticate instead.
-  const familyId = decoded.fam;
-  const jti = decoded.jti;
-  if (!familyId || !jti) {
-    return res
-      .status(401)
-      .json({ error: "Unauthorized: token missing family, please re-authenticate" });
-  }
-
-  const family = tokenFamilyStore.getFamily(familyId);
-  if (!family || family.revoked) {
-    return res
-      .status(401)
-      .json({ error: "Unauthorized: session revoked, please re-authenticate" });
-  }
-
-  if (family.currentJti !== jti) {
-    // A previously-rotated token was presented again — a strong signal of
-    // refresh-token theft. Kill the entire family, not just this token.
-    tokenFamilyStore.revokeFamily(familyId);
-    return res.status(401).json({
-      error: "Unauthorized: token reuse detected, session revoked",
-      code: "token_reuse_detected",
-    });
-  }
-
-  const newJti = tokenFamilyStore.rotateFamily(familyId);
-  const newToken = issueToken(decoded.publicKey, { familyId, jti: newJti });
+  const newToken = issueToken(decoded.publicKey);
   res.cookie("jwt", newToken, cookieOptions());
   return res.json({ success: true, token: newToken });
-});
-
-// POST /api/auth/logout-all — revoke every active token family for the
-// authenticated user ("log out of all devices"). Subsequent refresh attempts
-// with any of that user's tokens will fail.
-router.post("/logout-all", verifyJWT, (req, res) => {
-  const revokedCount = tokenFamilyStore.revokeAllFamiliesForUser(req.user.publicKey);
-  const { maxAge: _maxAge, ...clearOptions } = cookieOptions();
-  res.clearCookie("jwt", clearOptions);
-  return res.json({ success: true, revokedFamilies: revokedCount });
 });
 
 module.exports = router;

@@ -166,7 +166,7 @@ function getHistory(req, res, next) {
 
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
-    
+
     const paginatedData = history.slice(startIndex, endIndex);
 
     res.json({
@@ -176,8 +176,8 @@ function getHistory(req, res, next) {
         total: history.length,
         page,
         limit,
-        pages: Math.ceil(history.length / limit)
-      }
+        pages: Math.ceil(history.length / limit),
+      },
     });
   } catch (err) {
     next(err);

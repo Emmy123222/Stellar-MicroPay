@@ -145,7 +145,7 @@ export default function PaymentRequestGenerator() {
                   "px-3 rounded font-medium text-xs transition-all shrink-0",
                   copied
                     ? "bg-emerald-500 text-white"
-                    : "bg-stellar-400 text-black hover:bg-stellar-300",
+                    : "bg-stellar-400 text-black hover:bg-stellar-300"
                 )}
               >
                 {copied ? "Copied!" : "Copy"}
@@ -154,12 +154,7 @@ export default function PaymentRequestGenerator() {
 
             {showQR && (
               <div className="mt-4 flex flex-col items-center bg-white p-3 rounded-lg mx-auto w-fit">
-                <QRCodeCanvas
-                  value={generatedLink}
-                  size={140}
-                  ref={canvasRef}
-                  includeMargin
-                />
+                <QRCodeCanvas value={generatedLink} size={140} ref={canvasRef} includeMargin />
                 <button
                   onClick={downloadQR}
                   className="mt-3 text-[10px] bg-slate-100 hover:bg-slate-200 text-black px-3 py-1 rounded font-bold uppercase transition-colors"

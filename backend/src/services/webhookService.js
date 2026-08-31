@@ -67,8 +67,8 @@ module.exports = {
 
   // store pass-throughs
   getWebhooksByPublicKey: store.getWebhooksByPublicKey,
-  getWebhookById:         store.getWebhookById,
-  getAllWebhooks:          store.getAllWebhooks,
+  getWebhookById: store.getWebhookById,
+  getAllWebhooks: store.getAllWebhooks,
 
   // delivery
   deliverWebhook,

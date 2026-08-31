@@ -26,7 +26,7 @@ export const isValidPaymentAmount = (
 
 // Extract numeric value from amount string (e.g., "50 XLM" -> "50")
 export const extractAmountFromString = (amountStr: string): string => {
-  const numericAmount = amountStr.replace(/[^\d.]/g, '');
+  const numericAmount = amountStr.replace(/[^\d.]/g, "");
   return numericAmount;
 };
 
@@ -36,14 +36,16 @@ export const parsePaymentAmount = (input: string): { amount: string; currency: s
   if (match) {
     return {
       amount: match[1],
-      currency: match[2].toUpperCase()
+      currency: match[2].toUpperCase(),
     };
   }
-  return { amount: '', currency: '' };
+  return { amount: "", currency: "" };
 };
 
 // Validate a Stellar address or federation address format
-export const validateStellarDestination = (destination: string): { valid: boolean; error?: string } => {
+export const validateStellarDestination = (
+  destination: string
+): { valid: boolean; error?: string } => {
   if (!destination) {
     return { valid: false, error: "Destination is required" };
   }

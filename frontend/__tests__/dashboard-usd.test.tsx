@@ -29,7 +29,9 @@ jest.mock("@/components/SendPaymentForm", () => ({
 }));
 
 jest.mock("@/lib/stellar", () => ({
-  getBalances: jest.fn().mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
+  getBalances: jest
+    .fn()
+    .mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
   getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
   getAccountReserveInfo: jest.fn().mockResolvedValue(null),
   getUSDCBalance: jest.fn().mockResolvedValue(null),
@@ -52,9 +54,7 @@ jest.mock("@/lib/stellar", () => ({
 
 const PUBLIC_KEY = "GABC1234567890ABCDEF";
 
-function mockDashboardFetch(
-  coinGeckoResponse: Promise<Response>
-): jest.Mock {
+function mockDashboardFetch(coinGeckoResponse: Promise<Response>): jest.Mock {
   return jest.fn((input: RequestInfo | URL) => {
     const url = String(input);
 
@@ -116,9 +116,7 @@ describe("Dashboard USD price display", () => {
   });
 
   it("hides USD line when CoinGecko fails", async () => {
-    global.fetch = mockDashboardFetch(
-      Promise.reject(new Error("Network error"))
-    );
+    global.fetch = mockDashboardFetch(Promise.reject(new Error("Network error")));
 
     render(<Dashboard />);
 

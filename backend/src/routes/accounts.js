@@ -19,9 +19,7 @@ const { sanitizePublicKey, sanitizeUsername } = require("../middleware/sanitizat
  */
 function requireOwnAccount(req, res, next) {
   if (req.user?.publicKey !== req.params.publicKey) {
-    return res
-      .status(403)
-      .json({ error: "Forbidden: you may only access your own account data" });
+    return res.status(403).json({ error: "Forbidden: you may only access your own account data" });
   }
   next();
 }
@@ -31,19 +29,38 @@ function requireOwnAccount(req, res, next) {
  * Resolve a username to a Stellar public key.
  * Must be registered before /:publicKey or Express matches it as a key.
  */
-router.get("/resolve/:username", sensitiveLimiter, sanitizeUsername, accountController.resolveUsername);
+router.get(
+  "/resolve/:username",
+  sensitiveLimiter,
+  sanitizeUsername,
+  accountController.resolveUsername
+);
 
 /**
  * GET /api/accounts/:publicKey
  * Fetch account info and balances from Horizon.
  */
-router.get("/:publicKey", sensitiveLimiter, verifyJWT, sanitizePublicKey, requireOwnAccount, accountController.getAccount);
+router.get(
+  "/:publicKey",
+  sensitiveLimiter,
+  verifyJWT,
+  sanitizePublicKey,
+  requireOwnAccount,
+  accountController.getAccount
+);
 
 /**
  * GET /api/accounts/:publicKey/balance
  * Fetch just the XLM balance for an account.
  */
-router.get("/:publicKey/balance", sensitiveLimiter, verifyJWT, sanitizePublicKey, requireOwnAccount, accountController.getBalance);
+router.get(
+  "/:publicKey/balance",
+  sensitiveLimiter,
+  verifyJWT,
+  sanitizePublicKey,
+  requireOwnAccount,
+  accountController.getBalance
+);
 
 /**
  * POST /api/accounts/register

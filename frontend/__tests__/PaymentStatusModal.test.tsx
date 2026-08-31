@@ -57,9 +57,9 @@ describe("PaymentStatusModal", () => {
     it("renders building state correctly", async () => {
       const user = userEvent.setup();
       render(<ModalHarness status="building" />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Processing payment")).toBeInTheDocument();
       expect(screen.getByText("Building")).toBeInTheDocument();
       expect(screen.getByText("In progress")).toBeInTheDocument();
@@ -73,9 +73,9 @@ describe("PaymentStatusModal", () => {
         building: { startedAt: Date.now() - 1000, completedAt: Date.now() - 500, error: null },
       };
       render(<ModalHarness status="signing" stepTimings={stepTimings} />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Processing payment")).toBeInTheDocument();
       expect(screen.getByText("Signing")).toBeInTheDocument();
       expect(screen.getByText("In progress")).toBeInTheDocument();
@@ -91,9 +91,9 @@ describe("PaymentStatusModal", () => {
         signing: { startedAt: Date.now() - 1500, completedAt: Date.now() - 1000, error: null },
       };
       render(<ModalHarness status="submitting" stepTimings={stepTimings} />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Processing payment")).toBeInTheDocument();
       expect(screen.getByText("Submitting")).toBeInTheDocument();
       expect(screen.getByText("In progress")).toBeInTheDocument();
@@ -108,9 +108,9 @@ describe("PaymentStatusModal", () => {
         submitting: { startedAt: Date.now() - 2000, completedAt: Date.now() - 1500, error: null },
       };
       render(<ModalHarness status="confirming" stepTimings={stepTimings} />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Processing payment")).toBeInTheDocument();
       expect(screen.getByText("Confirming")).toBeInTheDocument();
       expect(screen.getByText("In progress")).toBeInTheDocument();
@@ -128,18 +128,20 @@ describe("PaymentStatusModal", () => {
         confirming: { startedAt: Date.now() - 2500, completedAt: Date.now() - 2000, error: null },
       };
       render(
-        <ModalHarness 
-          status="success" 
-          txHash="ABC123DEF456" 
+        <ModalHarness
+          status="success"
+          txHash="ABC123DEF456"
           explorerHref="https://stellar.expert/tx/ABC123DEF456"
           stepTimings={stepTimings}
         />
       );
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Complete")).toBeInTheDocument();
-      expect(screen.getByText("Your transaction has been confirmed on the Stellar network.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Your transaction has been confirmed on the Stellar network.")
+      ).toBeInTheDocument();
       expect(screen.getByText("Transaction confirmed")).toBeInTheDocument();
       expect(screen.getByText("ABC123DEF456")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /View on Stellar Expert/i })).toBeInTheDocument();
@@ -157,9 +159,9 @@ describe("PaymentStatusModal", () => {
         confirming: { startedAt: Date.now() - 2500, completedAt: Date.now() - 2000, error: null },
       };
       render(<ModalHarness status="success" stepTimings={stepTimings} />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       const completedCaptions = screen.getAllByText("Completed");
       expect(completedCaptions).toHaveLength(4);
     });
@@ -173,16 +175,16 @@ describe("PaymentStatusModal", () => {
         building: { startedAt: Date.now() - 1000, completedAt: null, error: "Network error" },
       };
       render(
-        <ModalHarness 
-          status="error" 
+        <ModalHarness
+          status="error"
           failedStep="building"
           error="Transaction failed"
           stepTimings={stepTimings}
         />
       );
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Payment failed")).toBeInTheDocument();
       expect(screen.getByText("The transaction stopped before completion.")).toBeInTheDocument();
       expect(screen.getByText("Network error")).toBeInTheDocument();
@@ -192,16 +194,10 @@ describe("PaymentStatusModal", () => {
 
     it("renders failed state with general error", async () => {
       const user = userEvent.setup();
-      render(
-        <ModalHarness 
-          status="error" 
-          error="Insufficient funds"
-          failedStep={null}
-        />
-      );
-      
+      render(<ModalHarness status="error" error="Insufficient funds" failedStep={null} />);
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Payment failed")).toBeInTheDocument();
       expect(screen.getByText("Insufficient funds")).toBeInTheDocument();
     });
@@ -213,16 +209,10 @@ describe("PaymentStatusModal", () => {
         building: { startedAt: Date.now() - 1000, completedAt: Date.now() - 500, error: null },
         signing: { startedAt: Date.now() - 500, completedAt: null, error: "User rejected signing" },
       };
-      render(
-        <ModalHarness 
-          status="error" 
-          failedStep="signing"
-          stepTimings={stepTimings}
-        />
-      );
-      
+      render(<ModalHarness status="error" failedStep="signing" stepTimings={stepTimings} />);
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Signing")).toBeInTheDocument();
       expect(screen.getByText("Failed")).toBeInTheDocument();
       expect(screen.getByText("User rejected signing")).toBeInTheDocument();
@@ -233,13 +223,13 @@ describe("PaymentStatusModal", () => {
     it("closes on close button click in success state", async () => {
       const user = userEvent.setup();
       render(<ModalHarness status="success" />);
-      
+
       const openButton = screen.getByRole("button", { name: "Open modal" });
       await user.click(openButton);
-      
+
       const closeButton = screen.getByRole("button", { name: "Close" });
       await user.click(closeButton);
-      
+
       await waitFor(() => {
         expect(screen.queryByText("Complete")).not.toBeInTheDocument();
       });
@@ -248,13 +238,13 @@ describe("PaymentStatusModal", () => {
     it("closes on close button click in error state", async () => {
       const user = userEvent.setup();
       render(<ModalHarness status="error" error="Failed" />);
-      
+
       const openButton = screen.getByRole("button", { name: "Open modal" });
       await user.click(openButton);
-      
+
       const closeButton = screen.getByRole("button", { name: "Close" });
       await user.click(closeButton);
-      
+
       await waitFor(() => {
         expect(screen.queryByText("Payment failed")).not.toBeInTheDocument();
       });
@@ -263,12 +253,12 @@ describe("PaymentStatusModal", () => {
     it("closes on Escape key in terminal states", async () => {
       const user = userEvent.setup();
       render(<ModalHarness status="success" />);
-      
+
       const openButton = screen.getByRole("button", { name: "Open modal" });
       await user.click(openButton);
-      
+
       await user.keyboard("{Escape}");
-      
+
       await waitFor(() => {
         expect(screen.queryByText("Complete")).not.toBeInTheDocument();
       });
@@ -277,9 +267,9 @@ describe("PaymentStatusModal", () => {
     it("does not show close button in pending states", async () => {
       const user = userEvent.setup();
       render(<ModalHarness status="building" />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
     });
   });
@@ -292,9 +282,9 @@ describe("PaymentStatusModal", () => {
         building: { startedAt: Date.now() - 1000, completedAt: Date.now() - 500, error: null },
       };
       render(<ModalHarness status="signing" stepTimings={stepTimings} />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Building")).toBeInTheDocument();
       expect(screen.getByText("Completed")).toBeInTheDocument();
       expect(screen.getByText("Signing")).toBeInTheDocument();
@@ -309,9 +299,9 @@ describe("PaymentStatusModal", () => {
         signing: { startedAt: Date.now() - 1500, completedAt: Date.now() - 1000, error: null },
       };
       render(<ModalHarness status="submitting" stepTimings={stepTimings} />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Building")).toBeInTheDocument();
       expect(screen.getByText("Signing")).toBeInTheDocument();
       expect(screen.getByText("Submitting")).toBeInTheDocument();
@@ -327,9 +317,9 @@ describe("PaymentStatusModal", () => {
         submitting: { startedAt: Date.now() - 2000, completedAt: Date.now() - 1500, error: null },
       };
       render(<ModalHarness status="confirming" stepTimings={stepTimings} />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Confirming")).toBeInTheDocument();
       expect(screen.getByText("In progress")).toBeInTheDocument();
     });
@@ -344,9 +334,9 @@ describe("PaymentStatusModal", () => {
         confirming: { startedAt: Date.now() - 2500, completedAt: Date.now() - 2000, error: null },
       };
       render(<ModalHarness status="success" stepTimings={stepTimings} />);
-      
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Complete")).toBeInTheDocument();
       expect(screen.getByText("100%")).toBeInTheDocument();
     });
@@ -360,16 +350,10 @@ describe("PaymentStatusModal", () => {
         submitting: { startedAt: null, completedAt: null, error: null },
         confirming: { startedAt: null, completedAt: null, error: null },
       };
-      render(
-        <ModalHarness 
-          status="error" 
-          failedStep="building"
-          stepTimings={stepTimings}
-        />
-      );
-      
+      render(<ModalHarness status="error" failedStep="building" stepTimings={stepTimings} />);
+
       await user.click(screen.getByRole("button", { name: "Open modal" }));
-      
+
       expect(screen.getByText("Payment failed")).toBeInTheDocument();
       expect(screen.getByText("Failed")).toBeInTheDocument();
       expect(screen.getByText("Timeout")).toBeInTheDocument();

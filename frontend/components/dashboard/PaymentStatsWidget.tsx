@@ -37,10 +37,7 @@ export function PaymentStatsWidget({
       >
         <span className="sr-only">Loading payment stats</span>
         {[0, 1, 2].map((index) => (
-          <div
-            key={index}
-            className="card border-white/10 bg-white/[0.03] animate-pulse"
-          >
+          <div key={index} className="card border-white/10 bg-white/[0.03] animate-pulse">
             <div className="h-3 w-24 rounded bg-white/10 mb-3" />
             <div className="h-8 w-32 rounded bg-white/10 mb-2" />
             <div className="h-3 w-20 rounded bg-white/10" />
@@ -78,7 +75,15 @@ export function PaymentStatsWidget({
         value={formatStatsXLM(stats.totalSentXLM)}
         helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
         delta={volumeDelta}
-        deltaType={typeof volumeDelta === "number" ? (volumeDelta > 0 ? "positive" : volumeDelta < 0 ? "negative" : "neutral") : undefined}
+        deltaType={
+          typeof volumeDelta === "number"
+            ? volumeDelta > 0
+              ? "positive"
+              : volumeDelta < 0
+                ? "negative"
+                : "neutral"
+            : undefined
+        }
       />
       <StatsCard
         label="Total Received"
@@ -90,7 +95,15 @@ export function PaymentStatsWidget({
         value={stats.totalTransactions.toLocaleString("en-US")}
         helper="Across sent and received activity"
         delta={countDelta}
-        deltaType={typeof countDelta === "number" ? (countDelta > 0 ? "positive" : countDelta < 0 ? "negative" : "neutral") : undefined}
+        deltaType={
+          typeof countDelta === "number"
+            ? countDelta > 0
+              ? "positive"
+              : countDelta < 0
+                ? "negative"
+                : "neutral"
+            : undefined
+        }
       />
     </section>
   );

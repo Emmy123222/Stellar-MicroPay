@@ -12,12 +12,7 @@ function ModalHarness(props: Partial<React.ComponentProps<typeof Modal>> = {}) {
       <button type="button" onClick={() => setIsOpen(true)}>
         Open modal
       </button>
-      <Modal
-        isOpen={isOpen}
-        onClose={() => setIsOpen(false)}
-        ariaLabel="Test dialog"
-        {...props}
-      >
+      <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} ariaLabel="Test dialog" {...props}>
         <button type="button">First</button>
         <button type="button">Second</button>
       </Modal>
@@ -27,7 +22,11 @@ function ModalHarness(props: Partial<React.ComponentProps<typeof Modal>> = {}) {
 
 describe("Modal — shared modal shell (#627)", () => {
   it("renders nothing while closed", () => {
-    render(<Modal isOpen={false} onClose={jest.fn()} ariaLabel="Test dialog">body</Modal>);
+    render(
+      <Modal isOpen={false} onClose={jest.fn()} ariaLabel="Test dialog">
+        body
+      </Modal>
+    );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 

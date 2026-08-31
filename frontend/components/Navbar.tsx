@@ -13,15 +13,11 @@ import {
   fetchNetworkFeeStats,
   type FeeLevel,
 } from "@/lib/stellar";
-import {
-  connectWallet as requestWalletConnection,
-  performSEP0010Auth,
-} from "@/lib/wallet";
+import { connectWallet as requestWalletConnection, performSEP0010Auth } from "@/lib/wallet";
 import { useWallet } from "@/lib/useWallet";
 import { useTheme } from "@/pages/_app";
 import { useI18n } from "@/contexts/I18nContext";
 import { NavStarIcon, MoonIcon, SunIcon } from "@/components/icons";
-
 
 export default function Navbar() {
   const router = useRouter();
@@ -30,12 +26,12 @@ export default function Navbar() {
   const { locale, setLocale, t, supportedLocales } = useI18n();
 
   const navLinks = [
-    { href: "/", label: t.nav.home },
-    { href: "/dashboard", label: t.nav.dashboard },
-    { href: "/trade", label: t.nav.trade },
-    { href: "/transactions", label: t.nav.transactions },
-    { href: "/network", label: t.nav.network },
-    { href: "/settings", label: t.nav.settings },
+    { href: "/", label: t("home") },
+    { href: "/dashboard", label: t("dashboard") },
+    { href: "/trade", label: t("trade") },
+    { href: "/transactions", label: t("transactions") },
+    { href: "/network", label: t("network") },
+    { href: "/settings", label: t("settings") },
   ];
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -43,7 +39,7 @@ export default function Navbar() {
   const config = getNetworkConfig();
   const isMainnet = config.network === "mainnet";
   const networkLabel =
-    config.network === "custom" ? "custom" : isMainnet ? "mainnet" : "testnet";
+    config.network === "custom" ? t("custom") : isMainnet ? t("mainnet") : t("testnet");
   const networkBadgeClassName =
     config.network === "custom"
       ? "border-purple-400/35 bg-purple-400/10 text-purple-300"
@@ -85,8 +81,7 @@ export default function Navbar() {
   }, [showDisconnectConfirm]);
 
   const handleConnectClick = async () => {
-    const { publicKey: nextPublicKey, error: walletError } =
-      await requestWalletConnection();
+    const { publicKey: nextPublicKey, error: walletError } = await requestWalletConnection();
 
     if (!nextPublicKey) {
       if (walletError) {
@@ -113,7 +108,7 @@ export default function Navbar() {
               <NavStarIcon className="h-4 w-4 text-stellar-400" />
             </div>
             <span className="font-display font-semibold tracking-tight text-slate-900 dark:text-white">
-              Stellar MicroPay
+              {t("stellar_micropay")}
             </span>
           </Link>
 
@@ -128,7 +123,9 @@ export default function Navbar() {
 
           {feeLevel && (
             <span
-              title={t("network_title", { level: feeLevel.charAt(0).toUpperCase() + feeLevel.slice(1) })}
+              title={t("network_title", {
+                level: feeLevel.charAt(0).toUpperCase() + feeLevel.slice(1),
+              })}
               aria-label={t("network_aria", { level: feeLevel })}
               className={clsx(
                 "hidden h-2.5 w-2.5 rounded-full border transition-colors md:inline-block",
@@ -228,9 +225,7 @@ export default function Navbar() {
 
           <button
             onClick={toggleTheme}
-            aria-label={
-              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
-            }
+            aria-label={theme === "dark" ? t("switch_light") : t("switch_dark")}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300/30 bg-white/90 text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-100 dark:border-slate-700/50 dark:bg-cosmos-800/80 dark:text-slate-100 dark:hover:bg-cosmos-700/90"
           >
             {theme === "dark" ? <MoonIcon /> : <SunIcon />}
@@ -287,4 +282,3 @@ export default function Navbar() {
     </nav>
   );
 }
-

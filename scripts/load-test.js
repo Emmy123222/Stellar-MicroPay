@@ -79,8 +79,8 @@ instance.on("done", (result) => {
     ? decodedLatencyHist.percentile
       ? decodedLatencyHist.percentile(95)
       : decodedLatencyHist.getValueAtPercentile
-      ? decodedLatencyHist.getValueAtPercentile(95)
-      : null
+        ? decodedLatencyHist.getValueAtPercentile(95)
+        : null
     : null;
 
   const errors = result.errors || 0;

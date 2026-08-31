@@ -3,12 +3,10 @@
  * Dashboard component for creators to view tips received.
  */
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import VirtualizedList from "@/components/VirtualizedList";
 import { formatXLM, shortenAddress, formatUSD, exportTipsToCSV } from "@/utils/format";
-import { apiFetch, API_TIMEOUT_MS } from "@/lib/api";
-import { RequestTimeoutError, OfflineError } from "@/lib/request";
 
 // Tip rows render virtualized past this count so long tip histories stay cheap to render.
 const VIRTUALIZE_THRESHOLD = 100;
@@ -52,16 +50,7 @@ export default function CreatorTipsDashboard({
   const [page, setPage] = useState(0);
   const pageSize = 10;
 
-  // Abort in-flight requests when the component unmounts or publicKey/page changes.
-  const abortRef = useRef<AbortController | null>(null);
-  useEffect(() => {
-    return () => abortRef.current?.abort();
-  }, []);
-
   const fetchTips = useCallback(async () => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
     setLoading(true);
     setError(null);
 
@@ -69,35 +58,28 @@ export default function CreatorTipsDashboard({
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
       // Fetch tips received
-      const tipsPayload = await apiFetch<{
-        tips: TipRecord[];
-        stats: TipsStats | null;
-      }>(
-        `${apiBase}/api/tips/received/${encodeURIComponent(publicKey)}?limit=${pageSize}&offset=${page * pageSize}`,
-        { signal: controller.signal },
-        API_TIMEOUT_MS,
+      const tipsResponse = await fetch(
+        `${apiBase}/api/tips/received/${encodeURIComponent(publicKey)}?limit=${pageSize}&offset=${page * pageSize}`
       );
 
-      setTips(tipsPayload.tips || []);
-      setStats(tipsPayload.stats || null);
+      if (!tipsResponse.ok) {
+        throw new Error("Failed to load tips");
+      }
+
+      const tipsPayload = await tipsResponse.json();
+
+      if (tipsPayload?.success) {
+        setTips(tipsPayload.data.tips || []);
+        setStats(tipsPayload.data.stats || null);
+      } else {
+        setTips([]);
+      }
     } catch (err) {
-      if (err instanceof RequestTimeoutError) {
-        console.error("Tips request timed out:", err);
-        setError("Loading tips timed out. Please try again.");
-        return;
-      }
-      if (err instanceof OfflineError) {
-        console.error("Tips request failed while offline:", err);
-        setError("You appear to be offline. Check your connection and try again.");
-        return;
-      }
       console.error("Error fetching tips:", err);
       setError("Unable to load tips. Make sure you have a registered username.");
       setTips([]);
     } finally {
-      if (abortRef.current === controller) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, [publicKey, page]);
 
@@ -131,15 +113,11 @@ export default function CreatorTipsDashboard({
           <p className="text-sm text-white font-medium">
             {tip.amount} {tip.asset}
           </p>
-          <p className="text-xs text-slate-400">
-            From: {shortenAddress(tip.senderPublicKey)}
-          </p>
+          <p className="text-xs text-slate-400">From: {shortenAddress(tip.senderPublicKey)}</p>
         </div>
       </div>
       <div className="text-right">
-        <p className="text-xs text-slate-400">
-          {formatTimestamp(tip.timestamp)}
-        </p>
+        <p className="text-xs text-slate-400">{formatTimestamp(tip.timestamp)}</p>
         {tip.memo && (
           <p className="text-xs text-slate-400 mt-1 max-w-[200px] truncate">
             &quot;{tip.memo}&quot;
@@ -182,9 +160,7 @@ export default function CreatorTipsDashboard({
           <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">
             Total Tips Received
           </p>
-          <p className="font-display text-2xl font-bold text-white">
-            {stats?.totalTips ?? 0}
-          </p>
+          <p className="font-display text-2xl font-bold text-white">{stats?.totalTips ?? 0}</p>
         </div>
 
         <div className="card bg-gradient-to-br from-emerald-500/10 to-transparent border-emerald-500/20">
@@ -203,9 +179,7 @@ export default function CreatorTipsDashboard({
         </div>
 
         <div className="card bg-gradient-to-br from-violet-500/10 to-transparent border-violet-500/20">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">
-            Average Tip
-          </p>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">Average Tip</p>
           <p className="font-display text-2xl font-bold text-white">
             {stats?.averageTip ? parseFloat(stats.averageTip).toFixed(2) : "0"}
             <span className="text-stellar-400 text-lg ml-1">XLM</span>
@@ -217,12 +191,8 @@ export default function CreatorTipsDashboard({
       <div className="card border-stellar-500/20 bg-stellar-500/5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h3 className="font-display text-lg font-semibold text-white">
-              Your Public Tip Page
-            </h3>
-            <p className="text-sm text-slate-400">
-              Share this link with your fans to receive tips
-            </p>
+            <h3 className="font-display text-lg font-semibold text-white">Your Public Tip Page</h3>
+            <p className="text-sm text-slate-400">Share this link with your fans to receive tips</p>
           </div>
           <div className="flex items-center gap-2">
             <code className="text-sm text-stellar-300 bg-cosmos-950 px-3 py-2 rounded-lg border border-white/10">
@@ -245,9 +215,7 @@ export default function CreatorTipsDashboard({
       {/* Tips History */}
       <div className="card">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="font-display text-lg font-semibold text-white">
-            Tips Received
-          </h3>
+          <h3 className="font-display text-lg font-semibold text-white">Tips Received</h3>
           <div className="flex items-center gap-4">
             <button
               onClick={() => exportTipsToCSV(tips)}
@@ -332,40 +300,90 @@ export default function CreatorTipsDashboard({
 // Icons
 function UserIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
+      />
     </svg>
   );
 }
 
 function CopyIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"
+      />
     </svg>
   );
 }
 
 function DownloadIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+      />
     </svg>
   );
 }
 
 function RefreshIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+      />
     </svg>
   );
 }
 
 function GiftIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
+      />
     </svg>
   );
 }

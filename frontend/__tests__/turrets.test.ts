@@ -85,7 +85,7 @@ describe("turrets API helpers", () => {
       mockApiFetch.mockRejectedValueOnce(new Error("Network error"));
 
       await expect(
-        createTurretsChallenge({ ownerPublicKey: "GABC", type: "dca", config: {} }),
+        createTurretsChallenge({ ownerPublicKey: "GABC", type: "dca", config: {} })
       ).rejects.toThrow("Network error");
     });
 
@@ -94,7 +94,7 @@ describe("turrets API helpers", () => {
       mockApiFetch.mockRejectedValueOnce(Object.assign(new Error("Unauthorized"), apiErr));
 
       await expect(
-        createTurretsChallenge({ ownerPublicKey: "GABC", type: "dca", config: {} }),
+        createTurretsChallenge({ ownerPublicKey: "GABC", type: "dca", config: {} })
       ).rejects.toMatchObject({ message: "Unauthorized" });
     });
   });
@@ -131,7 +131,7 @@ describe("turrets API helpers", () => {
           config: {},
           deploymentHash: "h",
           signedChallengeXDR: "xdr",
-        }),
+        })
       ).rejects.toThrow("Bad Gateway");
     });
   });
@@ -146,7 +146,7 @@ describe("turrets API helpers", () => {
       const result = await listTurretsFunctions(pk);
 
       expect(mockApiFetch).toHaveBeenCalledWith(
-        `/api/turrets?ownerPublicKey=${encodeURIComponent(pk)}`,
+        `/api/turrets?ownerPublicKey=${encodeURIComponent(pk)}`
       );
       expect(result).toEqual([MOCK_DEPLOYMENT]);
     });
@@ -198,7 +198,7 @@ describe("turrets API helpers", () => {
 
       await getTurretsHistory("dep/1 2");
       expect(mockApiFetch).toHaveBeenCalledWith(
-        `/api/turrets/${encodeURIComponent("dep/1 2")}/history`,
+        `/api/turrets/${encodeURIComponent("dep/1 2")}/history`
       );
     });
   });

@@ -27,11 +27,7 @@ interface SettingsPageProps {
 }
 
 // SNS section added
-export default function SettingsPage({
-  publicKey,
-  onConnect,
-  onDisconnect,
-}: SettingsPageProps) {
+export default function SettingsPage({ publicKey, onConnect, onDisconnect }: SettingsPageProps) {
   const { theme, toggleTheme, schedule, setSchedule } = useTheme();
   const [config, setConfig] = useState<NetworkConfig>({
     network: "testnet",
@@ -43,7 +39,9 @@ export default function SettingsPage({
   const customHorizonRef = useRef<HTMLInputElement>(null);
   const customRpcRef = useRef<HTMLInputElement>(null);
   const [showMainnetWarning, setShowMainnetWarning] = useState(false);
-  const [pendingNetwork, setPendingNetwork] = useState<"testnet" | "mainnet" | "custom" | null>(null);
+  const [pendingNetwork, setPendingNetwork] = useState<"testnet" | "mainnet" | "custom" | null>(
+    null
+  );
 
   const [deployments, setDeployments] = useState<TurretsDeployment[]>([]);
   const [turretsLoading, setTurretsLoading] = useState(false);
@@ -84,7 +82,7 @@ export default function SettingsPage({
   useEffect(() => {
     const fetchUsername = async () => {
       if (!publicKey) return;
-      
+
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
       try {
         const response = await fetch(
@@ -100,7 +98,7 @@ export default function SettingsPage({
         console.error("Error fetching username:", err);
       }
     };
-    
+
     fetchUsername();
   }, [publicKey]);
 
@@ -329,7 +327,7 @@ export default function SettingsPage({
   // Username registration handler
   const handleRegisterUsername = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!username.trim() || !publicKey) {
       setUsernameError("Username and wallet connection required");
       return;
@@ -401,7 +399,8 @@ export default function SettingsPage({
                 Appearance
               </h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">
-                Control how the app looks. Enable auto dark mode to switch automatically based on the time of day.
+                Control how the app looks. Enable auto dark mode to switch automatically based on
+                the time of day.
               </p>
 
               {/* Manual toggle row */}
@@ -445,15 +444,11 @@ export default function SettingsPage({
                 </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    setSchedule({ autoEnabled: !schedule.autoEnabled })
-                  }
+                  onClick={() => setSchedule({ autoEnabled: !schedule.autoEnabled })}
                   aria-pressed={schedule.autoEnabled}
                   aria-label="Toggle automatic dark mode schedule"
                   className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-stellar-500 focus:ring-offset-2 dark:focus:ring-offset-cosmos-900 ${
-                    schedule.autoEnabled
-                      ? "bg-stellar-500"
-                      : "bg-slate-300 dark:bg-slate-600"
+                    schedule.autoEnabled ? "bg-stellar-500" : "bg-slate-300 dark:bg-slate-600"
                   }`}
                 >
                   <span
@@ -482,9 +477,7 @@ export default function SettingsPage({
                         id="night-start"
                         type="time"
                         value={schedule.nightStart}
-                        onChange={(e) =>
-                          setSchedule({ nightStart: e.target.value })
-                        }
+                        onChange={(e) => setSchedule({ nightStart: e.target.value })}
                         className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
                       />
                     </div>
@@ -499,18 +492,15 @@ export default function SettingsPage({
                         id="night-end"
                         type="time"
                         value={schedule.nightEnd}
-                        onChange={(e) =>
-                          setSchedule({ nightEnd: e.target.value })
-                        }
+                        onChange={(e) => setSchedule({ nightEnd: e.target.value })}
                         className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
                       />
                     </div>
                   </div>
                   <p className="text-xs text-slate-400 dark:text-slate-500">
                     Uses your device&apos;s local time. Overnight windows (e.g.{" "}
-                    <span className="font-mono">20:00 – 07:00</span>) are
-                    supported. You can still toggle manually to override for the
-                    current session.
+                    <span className="font-mono">20:00 – 07:00</span>) are supported. You can still
+                    toggle manually to override for the current session.
                   </p>
                 </div>
               )}
@@ -619,7 +609,8 @@ export default function SettingsPage({
                     Turrets / Server-side Signing
                   </h2>
                   <p className="text-sm text-slate-400 dark:text-slate-400 mt-1">
-                    Deploy programmatic txFunctions with Freighter-signed authorization and server-side evaluation.
+                    Deploy programmatic txFunctions with Freighter-signed authorization and
+                    server-side evaluation.
                   </p>
                 </div>
                 <button
@@ -649,33 +640,51 @@ export default function SettingsPage({
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">DCA into XLM</p>
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mb-1">Quote Amount (USD)</label>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">
+                      DCA into XLM
+                    </p>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mb-1">
+                      Quote Amount (USD)
+                    </label>
                     <input
                       type="number"
                       value={dcaForm.amountQuote}
-                      onChange={(e) => setDcaForm((prev) => ({ ...prev, amountQuote: e.target.value }))}
+                      onChange={(e) =>
+                        setDcaForm((prev) => ({ ...prev, amountQuote: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Interval (minutes)</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Interval (minutes)
+                    </label>
                     <input
                       type="number"
                       value={dcaForm.intervalMinutes}
-                      onChange={(e) => setDcaForm((prev) => ({ ...prev, intervalMinutes: e.target.value }))}
+                      onChange={(e) =>
+                        setDcaForm((prev) => ({ ...prev, intervalMinutes: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Quote Asset Code</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Quote Asset Code
+                    </label>
                     <input
                       type="text"
                       value={dcaForm.quoteAssetCode}
-                      onChange={(e) => setDcaForm((prev) => ({ ...prev, quoteAssetCode: e.target.value }))}
+                      onChange={(e) =>
+                        setDcaForm((prev) => ({ ...prev, quoteAssetCode: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Quote Asset Issuer</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Quote Asset Issuer
+                    </label>
                     <input
                       type="text"
                       value={dcaForm.quoteAssetIssuer}
-                      onChange={(e) => setDcaForm((prev) => ({ ...prev, quoteAssetIssuer: e.target.value }))}
+                      onChange={(e) =>
+                        setDcaForm((prev) => ({ ...prev, quoteAssetIssuer: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
                     <button
@@ -689,40 +698,62 @@ export default function SettingsPage({
                   </div>
 
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">Stop-loss Monitor</p>
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mb-1">Threshold Price (USD)</label>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">
+                      Stop-loss Monitor
+                    </p>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mb-1">
+                      Threshold Price (USD)
+                    </label>
                     <input
                       type="number"
                       value={stopLossForm.thresholdPrice}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, thresholdPrice: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, thresholdPrice: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Amount to Sell</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Amount to Sell
+                    </label>
                     <input
                       type="number"
                       value={stopLossForm.amountSell}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, amountSell: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, amountSell: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Sell Asset Code</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Sell Asset Code
+                    </label>
                     <input
                       type="text"
                       value={stopLossForm.sellAssetCode}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, sellAssetCode: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, sellAssetCode: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Sell Asset Issuer</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Sell Asset Issuer
+                    </label>
                     <input
                       type="text"
                       value={stopLossForm.sellAssetIssuer}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, sellAssetIssuer: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, sellAssetIssuer: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
-                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">Cooldown (minutes)</label>
+                    <label className="block text-xs text-slate-400 dark:text-slate-400 mt-3 mb-1">
+                      Cooldown (minutes)
+                    </label>
                     <input
                       type="number"
                       value={stopLossForm.cooldownMinutes}
-                      onChange={(e) => setStopLossForm((prev) => ({ ...prev, cooldownMinutes: e.target.value }))}
+                      onChange={(e) =>
+                        setStopLossForm((prev) => ({ ...prev, cooldownMinutes: e.target.value }))
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white"
                     />
                     <button
@@ -739,21 +770,36 @@ export default function SettingsPage({
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">Deployments</p>
-                      <span className="text-xs text-slate-400 dark:text-slate-400">{deployments.length} active</span>
+                      <p className="text-sm font-medium text-slate-900 dark:text-white">
+                        Deployments
+                      </p>
+                      <span className="text-xs text-slate-400 dark:text-slate-400">
+                        {deployments.length} active
+                      </span>
                     </div>
                     {turretsLoading ? (
-                      <p className="text-sm text-slate-400 dark:text-slate-400">Loading deployments...</p>
+                      <p className="text-sm text-slate-400 dark:text-slate-400">
+                        Loading deployments...
+                      </p>
                     ) : deployments.length === 0 ? (
-                      <p className="text-sm text-slate-400 dark:text-slate-400">No Turrets functions deployed yet.</p>
+                      <p className="text-sm text-slate-400 dark:text-slate-400">
+                        No Turrets functions deployed yet.
+                      </p>
                     ) : (
                       <div className="space-y-3">
                         {deployments.map((deployment) => (
-                          <div key={deployment.id} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-cosmos-900">
+                          <div
+                            key={deployment.id}
+                            className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-cosmos-900"
+                          >
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-white">{deployment.type === "dca" ? "DCA" : "Stop-loss"}</p>
-                                <p className="text-xs text-slate-400 dark:text-slate-400">{deployment.id}</p>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                  {deployment.type === "dca" ? "DCA" : "Stop-loss"}
+                                </p>
+                                <p className="text-xs text-slate-400 dark:text-slate-400">
+                                  {deployment.id}
+                                </p>
                               </div>
                               <button
                                 type="button"
@@ -767,7 +813,9 @@ export default function SettingsPage({
                               <div>Next run: {deployment.nextRunAt || "n/a"}</div>
                               <div>Last checked: {deployment.lastCheckedAt || "n/a"}</div>
                               <div>Last executed: {deployment.lastExecutedAt || "n/a"}</div>
-                              {deployment.lastError && <div className="text-rose-400">Error: {deployment.lastError}</div>}
+                              {deployment.lastError && (
+                                <div className="text-rose-400">Error: {deployment.lastError}</div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -809,8 +857,18 @@ export default function SettingsPage({
             {publicKey ? (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  <svg
+                    className="w-5 h-5 text-stellar-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.6}
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
                   </svg>
                   Creator Username
                 </h2>
@@ -818,12 +876,26 @@ export default function SettingsPage({
                 {registeredUsername ? (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                      <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      <svg
+                        className="w-5 h-5 text-emerald-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
                       </svg>
                       <div>
                         <p className="text-emerald-400 font-medium">@{registeredUsername}</p>
-                        <p className="text-xs text-slate-400">Your tip page: {typeof window !== "undefined" ? window.location.origin : ""}/tip/{registeredUsername}</p>
+                        <p className="text-xs text-slate-400">
+                          Your tip page:{" "}
+                          {typeof window !== "undefined" ? window.location.origin : ""}/tip/
+                          {registeredUsername}
+                        </p>
                       </div>
                     </div>
                     <Link
@@ -841,7 +913,9 @@ export default function SettingsPage({
                       </label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">@</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                            @
+                          </span>
                           <input
                             type="text"
                             value={username}
@@ -890,8 +964,18 @@ export default function SettingsPage({
             ) : (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <div className="text-center py-4">
-                  <svg className="w-12 h-12 mx-auto text-slate-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  <svg
+                    className="w-12 h-12 mx-auto text-slate-400 mb-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
                   </svg>
                   <p className="text-slate-600 dark:text-slate-400">
                     Connect your wallet to register a username
@@ -903,8 +987,18 @@ export default function SettingsPage({
             {/* ── Your Stellar Name (SNS) ── */}
             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
-                <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" />
+                <svg
+                  className="w-5 h-5 text-stellar-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.6}
+                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"
+                  />
                 </svg>
                 Your Stellar Name
               </h2>
@@ -922,7 +1016,12 @@ export default function SettingsPage({
               >
                 Register your name on xlm.money
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                  />
                 </svg>
               </a>
 
@@ -942,8 +1041,18 @@ export default function SettingsPage({
           <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 max-w-md w-full">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                <svg
+                  className="w-5 h-5 text-amber-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -951,7 +1060,8 @@ export default function SettingsPage({
               </h3>
             </div>
             <p className="text-slate-600 dark:text-slate-400 mb-6">
-              Mainnet uses real XLM and real funds. Make sure you understand the risks and have backed up your keys. This action will disconnect your wallet.
+              Mainnet uses real XLM and real funds. Make sure you understand the risks and have
+              backed up your keys. This action will disconnect your wallet.
             </p>
             <div className="flex gap-3">
               <button

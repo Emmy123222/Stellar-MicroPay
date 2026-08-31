@@ -63,7 +63,11 @@ jest.mock("@/utils/format", () => ({
 jest.mock("@/components/PaymentStatusModal", () => ({
   __esModule: true,
   default: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
-    isOpen ? <div data-testid="status-modal"><button onClick={onClose}>Close</button></div> : null,
+    isOpen ? (
+      <div data-testid="status-modal">
+        <button onClick={onClose}>Close</button>
+      </div>
+    ) : null,
 }));
 
 jest.mock("@/components/MultiSigFlow", () => ({
@@ -103,14 +107,18 @@ describe("SendPaymentForm — SNS integration", () => {
   describe("typing a .xlm name", () => {
     beforeEach(() => {
       // Make isStellarName return true for .xlm inputs
-      mockIsStellarName.mockImplementation((v: string) => v.trim().toLowerCase().endsWith(".xlm") || v.includes("*"));
+      mockIsStellarName.mockImplementation(
+        (v: string) => v.trim().toLowerCase().endsWith(".xlm") || v.includes("*")
+      );
     });
 
     it("shows a spinner while resolving the name", async () => {
       // Resolution doesn't settle immediately
       let resolvePromise!: (v: string) => void;
       mockResolveStellarName.mockReturnValue(
-        new Promise<string>((res) => { resolvePromise = res; })
+        new Promise<string>((res) => {
+          resolvePromise = res;
+        })
       );
 
       const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
@@ -120,12 +128,16 @@ describe("SendPaymentForm — SNS integration", () => {
       await user.type(input, "alice.xlm");
 
       // Advance past the 400ms debounce
-      act(() => { jest.advanceTimersByTime(500); });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
 
       expect(await screen.findByLabelText("Resolving name")).toBeInTheDocument();
 
       // Settle the promise to avoid open handle warnings
-      act(() => { resolvePromise(RESOLVED_ADDRESS); });
+      act(() => {
+        resolvePromise(RESOLVED_ADDRESS);
+      });
     });
 
     it("shows the resolved G... address below the field after successful resolution", async () => {
@@ -137,7 +149,9 @@ describe("SendPaymentForm — SNS integration", () => {
       const input = screen.getByPlaceholderText(/G\.\.\./);
       await user.type(input, "alice.xlm");
 
-      act(() => { jest.advanceTimersByTime(500); });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
 
       await waitFor(() => {
         expect(screen.getByText(/Resolves to:/)).toBeInTheDocument();
@@ -146,7 +160,9 @@ describe("SendPaymentForm — SNS integration", () => {
     });
 
     it("shows an inline error when the name cannot be resolved", async () => {
-      mockResolveStellarName.mockRejectedValue(new Error('Could not resolve "bad.xlm" to a Stellar address'));
+      mockResolveStellarName.mockRejectedValue(
+        new Error('Could not resolve "bad.xlm" to a Stellar address')
+      );
 
       const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
       render(<SendPaymentForm {...defaultProps} />);
@@ -154,7 +170,9 @@ describe("SendPaymentForm — SNS integration", () => {
       const input = screen.getByPlaceholderText(/G\.\.\./);
       await user.type(input, "bad.xlm");
 
-      act(() => { jest.advanceTimersByTime(500); });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
 
       await waitFor(() => {
         expect(screen.getByText(/Could not resolve/i)).toBeInTheDocument();
@@ -164,7 +182,9 @@ describe("SendPaymentForm — SNS integration", () => {
     it("disables the submit button when the name is resolving", async () => {
       let resolvePromise!: (v: string) => void;
       mockResolveStellarName.mockReturnValue(
-        new Promise<string>((res) => { resolvePromise = res; })
+        new Promise<string>((res) => {
+          resolvePromise = res;
+        })
       );
 
       const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
@@ -175,13 +195,17 @@ describe("SendPaymentForm — SNS integration", () => {
       await user.type(input, "alice.xlm");
       await user.type(amountInput, "5");
 
-      act(() => { jest.advanceTimersByTime(500); });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
 
       const sendButton = screen.getByRole("button", { name: /Send/i });
       expect(sendButton).toBeDisabled();
 
       // Settle promise
-      act(() => { resolvePromise(RESOLVED_ADDRESS); });
+      act(() => {
+        resolvePromise(RESOLVED_ADDRESS);
+      });
     });
 
     it("disables the submit button when name resolution failed", async () => {
@@ -195,7 +219,9 @@ describe("SendPaymentForm — SNS integration", () => {
       await user.type(input, "bad.xlm");
       await user.type(amountInput, "5");
 
-      act(() => { jest.advanceTimersByTime(500); });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
 
       await waitFor(() => {
         expect(screen.getByText(/Could not resolve/i)).toBeInTheDocument();
@@ -217,7 +243,9 @@ describe("SendPaymentForm — SNS integration", () => {
       const input = screen.getByPlaceholderText(/G\.\.\./);
       await user.type(input, VALID_ADDRESS);
 
-      act(() => { jest.advanceTimersByTime(500); });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
 
       // resolveStellarName should never be called for a raw G address
       expect(mockResolveStellarName).not.toHaveBeenCalled();
@@ -234,7 +262,9 @@ describe("SendPaymentForm — SNS integration", () => {
       const input = screen.getByPlaceholderText(/G\.\.\./);
       await user.type(input, VALID_ADDRESS);
 
-      act(() => { jest.advanceTimersByTime(500); });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
 
       expect(screen.queryByLabelText("Resolving name")).not.toBeInTheDocument();
     });
@@ -319,8 +349,8 @@ describe("SendPaymentForm — SNS integration", () => {
 
   describe("submission uses resolved address", () => {
     it("passes the resolved address (not the typed name) to buildPaymentTransaction", async () => {
-      mockIsStellarName.mockImplementation((v: string) =>
-        v.trim().toLowerCase().endsWith(".xlm") || v.includes("*")
+      mockIsStellarName.mockImplementation(
+        (v: string) => v.trim().toLowerCase().endsWith(".xlm") || v.includes("*")
       );
       mockResolveStellarName.mockResolvedValue(RESOLVED_ADDRESS);
 
@@ -333,7 +363,9 @@ describe("SendPaymentForm — SNS integration", () => {
       const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(input, "alice.xlm");
-      act(() => { jest.advanceTimersByTime(500); });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
 
       // Wait for resolution to complete and resolved address to appear
       await waitFor(() => {

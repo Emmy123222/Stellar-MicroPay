@@ -5,14 +5,14 @@
 
 import { useState, useEffect } from "react";
 import { withErrorBoundary } from "@/components/ErrorBoundary";
-import { 
+import {
   connectWallet as requestWalletConnection,
-  isFreighterInstalled, 
-  detectBrowser, 
-  EXTENSION_URLS, 
+  isFreighterInstalled,
+  detectBrowser,
+  EXTENSION_URLS,
   performSEP0010Auth,
   getLedgerPublicKey,
-  isLedgerSupported
+  isLedgerSupported,
 } from "@/lib/wallet";
 import { useWallet } from "@/lib/useWallet";
 import { LedgerIcon, WalletIcon, PuzzleIcon, ExternalLinkIcon, Spinner } from "@/components/icons";
@@ -26,8 +26,8 @@ type WalletType = "freighter" | "ledger";
 function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
   const { connectWallet } = useWallet();
   const [loading, setLoading] = useState(false);
-  const [step, setStep]       = useState<"idle" | "connecting" | "authenticating">("idle");
-  const [error, setError]     = useState<string | null>(null);
+  const [step, setStep] = useState<"idle" | "connecting" | "authenticating">("idle");
+  const [error, setError] = useState<string | null>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [browser, setBrowser] = useState<"chrome" | "firefox" | "other">("other");
   const [selectedWallet, setSelectedWallet] = useState<WalletType | null>(null);
@@ -110,9 +110,11 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
 
   const extensionUrl = EXTENSION_URLS[browser];
   const storeName =
-    browser === "firefox" ? "Firefox Add-ons" :
-    browser === "chrome"  ? "Chrome Web Store" :
-    "freighter.app";
+    browser === "firefox"
+      ? "Firefox Add-ons"
+      : browser === "chrome"
+        ? "Chrome Web Store"
+        : "freighter.app";
 
   if (showInstallPrompt) {
     return (
@@ -132,7 +134,9 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
         {/* Steps */}
         <ol className="space-y-3 mb-6 text-sm text-slate-300">
           <li className="flex items-start gap-3">
-            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+              1
+            </span>
             <span>
               Install Freighter from the{" "}
               <a
@@ -147,11 +151,15 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
             </span>
           </li>
           <li className="flex items-start gap-3">
-            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+              2
+            </span>
             <span>Create or import your Stellar wallet in the extension</span>
           </li>
           <li className="flex items-start gap-3">
-            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+            <span className="w-5 h-5 rounded-full bg-stellar-500/20 border border-stellar-500/30 text-stellar-400 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+              3
+            </span>
             <span>Come back here and click the button below</span>
           </li>
         </ol>
@@ -191,9 +199,7 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
         <WalletIcon className="w-8 h-8 text-stellar-400" />
       </div>
 
-      <h2 className="font-display text-xl font-semibold text-white mb-2">
-        Connect your wallet
-      </h2>
+      <h2 className="font-display text-xl font-semibold text-white mb-2">Connect your wallet</h2>
       <p className="text-slate-400 text-sm mb-6 leading-relaxed">
         Choose your preferred wallet to connect to the Stellar network and start sending payments.
       </p>
@@ -215,9 +221,17 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
           <div className="w-5 h-5 rounded bg-white/10 flex items-center justify-center">
             <WalletIcon className="w-3 h-3" />
           </div>
-          {step === "connecting" && selectedWallet === "freighter" ? <><Spinner /> Connecting...</> :
-           step === "authenticating" && selectedWallet === "freighter" ? <><Spinner /> Authenticating...</> :
-           "Connect Freighter Wallet"}
+          {step === "connecting" && selectedWallet === "freighter" ? (
+            <>
+              <Spinner /> Connecting...
+            </>
+          ) : step === "authenticating" && selectedWallet === "freighter" ? (
+            <>
+              <Spinner /> Authenticating...
+            </>
+          ) : (
+            "Connect Freighter Wallet"
+          )}
         </button>
 
         {/* Ledger Option */}
@@ -229,9 +243,17 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
           <div className="w-5 h-5 rounded bg-blue-500/20 flex items-center justify-center">
             <LedgerIcon className="w-3 h-3 text-blue-400" />
           </div>
-          {step === "connecting" && selectedWallet === "ledger" ? <><Spinner /> Connecting...</> :
-           step === "authenticating" && selectedWallet === "ledger" ? <><Spinner /> Authenticating...</> :
-           "Connect Ledger Hardware Wallet"}
+          {step === "connecting" && selectedWallet === "ledger" ? (
+            <>
+              <Spinner /> Connecting...
+            </>
+          ) : step === "authenticating" && selectedWallet === "ledger" ? (
+            <>
+              <Spinner /> Authenticating...
+            </>
+          ) : (
+            "Connect Ledger Hardware Wallet"
+          )}
         </button>
       </div>
 
@@ -248,13 +270,13 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
             Install the extension →
           </a>
         </div>
-        
+
         {!ledgerSupported && (
           <div className="text-amber-400">
             Ledger requires Chrome, Edge, or another Chromium-based browser with WebHID support.
           </div>
         )}
-        
+
         <div>
           Using Ledger? Make sure your device is connected, unlocked, and the Stellar app is open.
         </div>
@@ -275,4 +297,3 @@ function WalletConnect({ onConnectSuccess }: WalletConnectProps) {
 export default withErrorBoundary(WalletConnect, "WalletConnect");
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
-

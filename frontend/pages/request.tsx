@@ -16,7 +16,7 @@ export default function RequestPage() {
   const { publicKey } = useWallet();
   const router = useRouter();
   const { r } = router.query;
-  
+
   const [prefill, setPrefill] = useState<PrefillData | null>(null);
   const [xlmBalance, setXlmBalance] = useState<string>("0");
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +24,7 @@ export default function RequestPage() {
   useEffect(() => {
     if (r && typeof r === "string") {
       try {
-        const decodedString = atob(r); 
+        const decodedString = atob(r);
         const parsedData = JSON.parse(decodedString);
 
         if (parsedData.validUntil && Date.now() > parsedData.validUntil) {
@@ -62,10 +62,7 @@ export default function RequestPage() {
         </div>
         <h2 className="text-xl font-bold text-white mb-2">Request Unavailable</h2>
         <p className="text-slate-400 mb-6">{error}</p>
-        <button 
-          onClick={() => router.push('/dashboard')} 
-          className="btn-secondary w-full py-2"
-        >
+        <button onClick={() => router.push("/dashboard")} className="btn-secondary w-full py-2">
           Return to Dashboard
         </button>
       </div>
@@ -76,7 +73,9 @@ export default function RequestPage() {
     <div className="max-w-2xl mx-auto px-4 py-16 animate-fade-in">
       <div className="text-center mb-10">
         <h1 className="font-display text-3xl font-bold text-white mb-3">Complete Request</h1>
-        <p className="text-slate-400">Review the requested details and connect your wallet to pay.</p>
+        <p className="text-slate-400">
+          Review the requested details and connect your wallet to pay.
+        </p>
       </div>
 
       {!publicKey ? (
@@ -85,7 +84,12 @@ export default function RequestPage() {
         </div>
       ) : (
         <div className="animate-slide-up">
-          <SendPaymentForm publicKey={publicKey} xlmBalance={xlmBalance} prefill={prefill} onSuccess={() => setTimeout(() => router.push('/transactions'), 3000)} />
+          <SendPaymentForm
+            publicKey={publicKey}
+            xlmBalance={xlmBalance}
+            prefill={prefill}
+            onSuccess={() => setTimeout(() => router.push("/transactions"), 3000)}
+          />
         </div>
       )}
     </div>

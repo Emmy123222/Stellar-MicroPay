@@ -75,9 +75,7 @@ function verifyJWT(req, res, next) {
     // Distinguish an expired token (client should refresh / re-authenticate)
     // from a malformed or forged one.
     if (err.name === "TokenExpiredError") {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: token expired", code: "token_expired" });
+      return res.status(401).json({ error: "Unauthorized: token expired", code: "token_expired" });
     }
     return res.status(401).json({ error: "Unauthorized: invalid token" });
   }

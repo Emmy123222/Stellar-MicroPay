@@ -83,9 +83,7 @@ export default function Network() {
       });
     } catch (err) {
       console.error("Failed to load network stats:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to load network statistics"
-      );
+      setError(err instanceof Error ? err.message : "Failed to load network statistics");
 
       // Append failure sample (downtime marker)
       setSamples((prev) => {
@@ -119,8 +117,18 @@ export default function Network() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
         <div className="text-center">
           <div className="w-12 h-12 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            <svg
+              className="w-6 h-6 text-red-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+              />
             </svg>
           </div>
           <h1 className="font-display text-2xl font-bold text-white mb-2">Network Error</h1>
@@ -232,27 +240,21 @@ export default function Network() {
         {/* P50 Fee */}
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
           <h3 className="text-sm font-medium text-slate-400 mb-2">P50 Fee</h3>
-          <div className="text-2xl font-bold text-white">
-            {formatFee(stats!.p50Fee)} XLM
-          </div>
+          <div className="text-2xl font-bold text-white">{formatFee(stats!.p50Fee)} XLM</div>
           <p className="text-xs text-slate-400 mt-1">50th percentile fee</p>
         </div>
 
         {/* P95 Fee */}
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
           <h3 className="text-sm font-medium text-slate-400 mb-2">P95 Fee</h3>
-          <div className="text-2xl font-bold text-white">
-            {formatFee(stats!.p95Fee)} XLM
-          </div>
+          <div className="text-2xl font-bold text-white">{formatFee(stats!.p95Fee)} XLM</div>
           <p className="text-xs text-slate-400 mt-1">95th percentile fee</p>
         </div>
 
         {/* P99 Fee */}
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6 md:col-span-2 lg:col-span-1">
           <h3 className="text-sm font-medium text-slate-400 mb-2">P99 Fee</h3>
-          <div className="text-2xl font-bold text-white">
-            {formatFee(stats!.p99Fee)} XLM
-          </div>
+          <div className="text-2xl font-bold text-white">{formatFee(stats!.p99Fee)} XLM</div>
           <p className="text-xs text-slate-400 mt-1">99th percentile fee</p>
         </div>
       </div>
@@ -322,14 +324,11 @@ function LatencyChart({ samples }: LatencyChartProps) {
   const avgLatency =
     successSamples.length > 0
       ? Math.round(
-          successSamples.reduce((a, s) => a + (s.latencyMs ?? 0), 0) /
-            successSamples.length
+          successSamples.reduce((a, s) => a + (s.latencyMs ?? 0), 0) / successSamples.length
         )
       : null;
   const maxLatency =
-    successSamples.length > 0
-      ? Math.max(...successSamples.map((s) => s.latencyMs ?? 0))
-      : null;
+    successSamples.length > 0 ? Math.max(...successSamples.map((s) => s.latencyMs ?? 0)) : null;
 
   // Scale: use 2000 ms as the chart ceiling (bars clamp at top)
   const CEIL_MS = Math.max(2000, maxLatency ?? 2000);
@@ -366,8 +365,7 @@ function LatencyChart({ samples }: LatencyChartProps) {
         <div className="flex items-center gap-4 text-sm">
           {avgLatency !== null && (
             <span className="text-slate-300">
-              Avg{" "}
-              <span className="font-semibold text-white">{formatMs(avgLatency)}</span>
+              Avg <span className="font-semibold text-white">{formatMs(avgLatency)}</span>
             </span>
           )}
           {downtimeCount > 0 ? (
@@ -400,10 +398,7 @@ function LatencyChart({ samples }: LatencyChartProps) {
               <div
                 className="absolute top-0 pointer-events-none z-10 bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white shadow-lg whitespace-nowrap"
                 style={{
-                  left: Math.min(
-                    hoveredIdx! * (barW + BAR_GAP),
-                    svgWidth - 120
-                  ),
+                  left: Math.min(hoveredIdx! * (barW + BAR_GAP), svgWidth - 120),
                   transform: "translateY(-110%)",
                 }}
               >
@@ -452,7 +447,11 @@ function LatencyChart({ samples }: LatencyChartProps) {
                 if (sample.latencyMs === null) {
                   // Downtime — full-height red bar with hatching
                   return (
-                    <g key={i} onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)}>
+                    <g
+                      key={i}
+                      onMouseEnter={() => setHoveredIdx(i)}
+                      onMouseLeave={() => setHoveredIdx(null)}
+                    >
                       <rect
                         x={x}
                         y={0}
@@ -464,7 +463,14 @@ function LatencyChart({ samples }: LatencyChartProps) {
                         strokeWidth={0.5}
                       />
                       {/* Diagonal stripes for downtime */}
-                      <line x1={x} y1={svgHeight} x2={x + barW} y2={0} stroke="rgba(239,68,68,0.4)" strokeWidth={0.8} />
+                      <line
+                        x1={x}
+                        y1={svgHeight}
+                        x2={x + barW}
+                        y2={0}
+                        stroke="rgba(239,68,68,0.4)"
+                        strokeWidth={0.8}
+                      />
                     </g>
                   );
                 }
@@ -475,14 +481,14 @@ function LatencyChart({ samples }: LatencyChartProps) {
                   colour === "green"
                     ? "rgba(52,211,153,0.75)"
                     : colour === "amber"
-                    ? "rgba(251,191,36,0.75)"
-                    : "rgba(239,68,68,0.75)";
+                      ? "rgba(251,191,36,0.75)"
+                      : "rgba(239,68,68,0.75)";
                 const fillHover =
                   colour === "green"
                     ? "rgba(52,211,153,1)"
                     : colour === "amber"
-                    ? "rgba(251,191,36,1)"
-                    : "rgba(239,68,68,1)";
+                      ? "rgba(251,191,36,1)"
+                      : "rgba(239,68,68,1)";
 
                 return (
                   <rect

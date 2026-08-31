@@ -31,7 +31,9 @@ jest.mock("@/components/SendPaymentForm", () => ({
 }));
 
 jest.mock("@/lib/stellar", () => ({
-  getBalances: jest.fn().mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
+  getBalances: jest
+    .fn()
+    .mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
   getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
   getAccountReserveInfo: jest.fn().mockResolvedValue(null),
   getUSDCBalance: jest.fn().mockResolvedValue(null),

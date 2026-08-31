@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+const crypto = require("crypto");
 
 /**
  * Generates an HMAC-SHA256 signature for a webhook payload.
@@ -8,10 +8,10 @@ const crypto = require('crypto');
  * @returns {string} The hex representation of the HMAC signature.
  */
 function generateWebhookSignature(payload, secret) {
-  const hmac = crypto.createHmac('sha256', secret);
-  const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const hmac = crypto.createHmac("sha256", secret);
+  const data = typeof payload === "string" ? payload : JSON.stringify(payload);
   hmac.update(data);
-  return hmac.digest('hex');
+  return hmac.digest("hex");
 }
 
 /**
@@ -24,16 +24,16 @@ function generateWebhookSignature(payload, secret) {
  */
 function verifyWebhookSignature(payload, secret, signature) {
   // Reject anything that isn't a usable secret/signature before doing crypto.
-  if (typeof signature !== 'string' || signature.length === 0) {
+  if (typeof signature !== "string" || signature.length === 0) {
     return false;
   }
-  if (typeof secret !== 'string' || secret.length === 0) {
+  if (typeof secret !== "string" || secret.length === 0) {
     return false;
   }
 
   const expectedSignature = generateWebhookSignature(payload, secret);
-  const expectedBuf = Buffer.from(expectedSignature, 'hex');
-  const providedBuf = Buffer.from(signature, 'hex');
+  const expectedBuf = Buffer.from(expectedSignature, "hex");
+  const providedBuf = Buffer.from(signature, "hex");
 
   // timingSafeEqual throws on length mismatch; a length difference already means
   // the signatures don't match, so short-circuit to false. Comparing lengths is
@@ -47,5 +47,5 @@ function verifyWebhookSignature(payload, secret, signature) {
 
 module.exports = {
   generateWebhookSignature,
-  verifyWebhookSignature
+  verifyWebhookSignature,
 };

@@ -191,7 +191,12 @@ function FriendlyErrorState({
 
   return (
     <div className="mx-auto max-w-2xl rounded-[32px] border border-white/10 bg-cosmos-900/70 p-8 text-center shadow-2xl shadow-stellar-950/20">
-      <div className={["mx-auto flex h-20 w-20 items-center justify-center rounded-full border", accentClasses].join(" ")}>
+      <div
+        className={[
+          "mx-auto flex h-20 w-20 items-center justify-center rounded-full border",
+          accentClasses,
+        ].join(" ")}
+      >
         <PlanetIcon className="h-10 w-10" />
       </div>
 
@@ -225,7 +230,13 @@ class ResolveError extends Error {
 
 function PlanetIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+    >
       <path
         strokeLinecap="round"
         strokeLinejoin="round"

@@ -165,7 +165,9 @@ describe("TradeForm", () => {
     expect(callArgs.fromPublicKey).toBe(PUBLIC_KEY);
     expect(callArgs.sendAmount).toBe("10");
 
-    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith("Market order executed successfully!"));
+    await waitFor(() =>
+      expect(onSuccess).toHaveBeenCalledWith("Market order executed successfully!")
+    );
     expect(onTradeComplete).toHaveBeenCalledTimes(1);
   });
 
@@ -345,9 +347,7 @@ describe("TradeForm", () => {
       await user.type(screen.getByLabelText(/slippage tolerance/i), "80");
 
       expect(getSubmitButton()).toBeDisabled();
-      expect(
-        screen.getByText(/Enter a slippage tolerance between 0 and 50%/i)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Enter a slippage tolerance between 0 and 50%/i)).toBeInTheDocument();
     });
   });
 

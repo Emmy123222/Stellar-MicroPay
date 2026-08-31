@@ -28,7 +28,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error(`ErrorBoundary caught an error in ${this.props.name || "component"}:`, error, errorInfo);
+    console.error(
+      `ErrorBoundary caught an error in ${this.props.name || "component"}:`,
+      error,
+      errorInfo
+    );
   }
 
   private handleReset = () => {

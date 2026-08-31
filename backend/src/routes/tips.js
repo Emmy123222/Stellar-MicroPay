@@ -22,13 +22,23 @@ router.post("/", strictLimiter, tipsController.recordTip);
  * GET /api/tips/received/:creatorPublicKey
  * Get all tips received by a creator.
  */
-router.get("/received/:creatorPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsReceived);
+router.get(
+  "/received/:creatorPublicKey",
+  strictLimiter,
+  sanitizePublicKey,
+  tipsController.getTipsReceived
+);
 
 /**
  * GET /api/tips/stats/:creatorPublicKey
  * Get statistics for tips received by a creator.
  */
-router.get("/stats/:creatorPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsStats);
+router.get(
+  "/stats/:creatorPublicKey",
+  strictLimiter,
+  sanitizePublicKey,
+  tipsController.getTipsStats
+);
 
 /**
  * GET /api/tips/sent/:senderPublicKey
@@ -40,6 +50,11 @@ router.get("/sent/:senderPublicKey", strictLimiter, sanitizePublicKey, tipsContr
  * GET /api/tips/leaderboard/:creatorPublicKey
  * Get top tippers for a creator.
  */
-router.get("/leaderboard/:creatorPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTopTippers);
+router.get(
+  "/leaderboard/:creatorPublicKey",
+  strictLimiter,
+  sanitizePublicKey,
+  tipsController.getTopTippers
+);
 
 module.exports = router;

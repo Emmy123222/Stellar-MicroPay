@@ -20,17 +20,12 @@ import {
   getAllTags,
   getAddressBookStorageKey,
   type AddressBookContact,
-} from '../lib/addressBook';
+} from "../lib/addressBook";
 
-// Mock isValidStellarAddress using the same module path the app imports.
-jest.mock('@/lib/stellar', () => ({
+// Mock isValidStellarAddress
+jest.mock("../lib/stellar", () => ({
   isValidStellarAddress: (address: string) => {
-    return (
-      typeof address === 'string' &&
-      address.startsWith('G') &&
-      address.length >= 52 &&
-      address.length <= 56
-    );
+    return typeof address === "string" && address.startsWith("G") && address.length === 56;
   },
 }));
 // Mock localStorage
@@ -51,7 +46,7 @@ const localStorageMock = (() => {
   };
 })();
 
-Object.defineProperty(window, 'localStorage', {
+Object.defineProperty(window, "localStorage", {
   value: localStorageMock,
   writable: true,
 });
@@ -60,31 +55,31 @@ Object.defineProperty(window, 'localStorage', {
 const mockDispatchEvent = jest.fn();
 window.dispatchEvent = mockDispatchEvent;
 
-describe('addressBook', () => {
+describe("addressBook", () => {
   beforeEach(() => {
     localStorageMock.clear();
     mockDispatchEvent.mockClear();
   });
 
-  describe('Add contact persists to storage and appears in list()', () => {
-    it('adds a new contact to storage', () => {
+  describe("Add contact persists to storage and appears in list()", () => {
+    it("adds a new contact to storage", () => {
       const contact = {
-        nickname: 'Alice',
-        address: 'GABC123456789012345678901234567890123456789012345678',
+        nickname: "Alice",
+        address: "GABC123456789012345678901234567890123456789012345678",
       };
 
       upsertAddressBookContact(contact);
 
       const contacts = loadAddressBookContacts();
       expect(contacts).toHaveLength(1);
-      expect(contacts[0].nickname).toBe('Alice');
+      expect(contacts[0].nickname).toBe("Alice");
       expect(contacts[0].address).toBe(contact.address);
     });
 
-    it('persists contact to localStorage', () => {
+    it("persists contact to localStorage", () => {
       const contact = {
-        nickname: 'Bob',
-        address: 'GDEF456789012345678901234567890123456789012345678901',
+        nickname: "Bob",
+        address: "GDEF456789012345678901234567890123456789012345678901",
       };
 
       upsertAddressBookContact(contact);
@@ -95,131 +90,131 @@ describe('addressBook', () => {
 
       const parsedData = JSON.parse(rawData!);
       expect(Array.isArray(parsedData)).toBe(true);
-      expect(parsedData[0].nickname).toBe('Bob');
+      expect(parsedData[0].nickname).toBe("Bob");
     });
 
-    it('new contact appears in list() immediately', () => {
+    it("new contact appears in list() immediately", () => {
       upsertAddressBookContact({
-        nickname: 'Charlie',
-        address: 'GHIJ789012345678901234567890123456789012345678901234',
+        nickname: "Charlie",
+        address: "GHIJ789012345678901234567890123456789012345678901234",
       });
 
       const contacts = loadAddressBookContacts();
-      expect(contacts.some(c => c.nickname === 'Charlie')).toBe(true);
+      expect(contacts.some((c) => c.nickname === "Charlie")).toBe(true);
     });
 
-    it('adds contact with optional fields', () => {
+    it("adds contact with optional fields", () => {
       upsertAddressBookContact({
-        nickname: 'David',
-        address: 'GKLM901234567890123456789012345678901234567890123456',
+        nickname: "David",
+        address: "GKLM901234567890123456789012345678901234567890123456",
         favourite: true,
-        tags: ['friend', 'work'],
+        tags: ["friend", "work"],
       });
 
       const contacts = loadAddressBookContacts();
-      const david = contacts.find(c => c.nickname === 'David');
-      
+      const david = contacts.find((c) => c.nickname === "David");
+
       expect(david).toBeDefined();
       expect(david?.favourite).toBe(true);
-      expect(david?.tags).toEqual(['friend', 'work']);
+      expect(david?.tags).toEqual(["friend", "work"]);
     });
 
-    it('dispatches custom event when contact is added', () => {
+    it("dispatches custom event when contact is added", () => {
       upsertAddressBookContact({
-        nickname: 'Eve',
-        address: 'GNOP012345678901234567890123456789012345678901234567',
+        nickname: "Eve",
+        address: "GNOP012345678901234567890123456789012345678901234567",
       });
 
       expect(mockDispatchEvent).toHaveBeenCalled();
       const event = mockDispatchEvent.mock.calls[0][0];
-      expect(event.type).toBe('stellar-micropay:contacts-updated');
+      expect(event.type).toBe("stellar-micropay:contacts-updated");
     });
   });
 
-  describe('Remove contact deletes it from storage', () => {
-    it('removes contact by id', () => {
+  describe("Remove contact deletes it from storage", () => {
+    it("removes contact by id", () => {
       upsertAddressBookContact({
-        nickname: 'Frank',
-        address: 'GQRS345678901234567890123456789012345678901234567890',
+        nickname: "Frank",
+        address: "GQRS345678901234567890123456789012345678901234567890",
       });
 
       const contacts = loadAddressBookContacts();
-      const frank = contacts.find(c => c.nickname === 'Frank');
+      const frank = contacts.find((c) => c.nickname === "Frank");
       expect(frank).toBeDefined();
 
       deleteAddressBookContact(frank!.id);
 
       const updatedContacts = loadAddressBookContacts();
-      expect(updatedContacts.some(c => c.nickname === 'Frank')).toBe(false);
+      expect(updatedContacts.some((c) => c.nickname === "Frank")).toBe(false);
     });
 
-    it('removes contact from localStorage', () => {
+    it("removes contact from localStorage", () => {
       upsertAddressBookContact({
-        nickname: 'Grace',
-        address: 'GTUV678901234567890123456789012345678901234567890123',
+        nickname: "Grace",
+        address: "GTUV678901234567890123456789012345678901234567890123",
       });
 
       let contacts = loadAddressBookContacts();
-      const grace = contacts.find(c => c.nickname === 'Grace');
+      const grace = contacts.find((c) => c.nickname === "Grace");
 
       deleteAddressBookContact(grace!.id);
 
       const storageKey = getAddressBookStorageKey();
       const rawData = localStorage.getItem(storageKey);
       const parsedData = JSON.parse(rawData!);
-      
-      expect(parsedData.every((c: AddressBookContact) => c.nickname !== 'Grace')).toBe(true);
+
+      expect(parsedData.every((c: AddressBookContact) => c.nickname !== "Grace")).toBe(true);
     });
 
-    it('handles removing non-existent contact gracefully', () => {
+    it("handles removing non-existent contact gracefully", () => {
       upsertAddressBookContact({
-        nickname: 'Henry',
-        address: 'GWXY901234567890123456789012345678901234567890123456',
+        nickname: "Henry",
+        address: "GWXY901234567890123456789012345678901234567890123456",
       });
 
       const initialCount = loadAddressBookContacts().length;
-      
-      deleteAddressBookContact('non-existent-id');
+
+      deleteAddressBookContact("non-existent-id");
 
       const finalCount = loadAddressBookContacts().length;
       expect(finalCount).toBe(initialCount);
     });
   });
 
-  describe('Duplicate address is not added twice', () => {
-    it('updates existing contact instead of adding duplicate', () => {
-      const address = 'GABC123456789012345678901234567890123456789012345678';
+  describe("Duplicate address is not added twice", () => {
+    it("updates existing contact instead of adding duplicate", () => {
+      const address = "GABC123456789012345678901234567890123456789012345678";
 
       upsertAddressBookContact({
-        nickname: 'Original Name',
+        nickname: "Original Name",
         address,
       });
 
       expect(loadAddressBookContacts()).toHaveLength(1);
 
       upsertAddressBookContact({
-        nickname: 'Updated Name',
+        nickname: "Updated Name",
         address,
       });
 
       const contacts = loadAddressBookContacts();
       expect(contacts).toHaveLength(1);
-      expect(contacts[0].nickname).toBe('Updated Name');
+      expect(contacts[0].nickname).toBe("Updated Name");
       expect(contacts[0].address).toBe(address);
     });
 
-    it('preserves contact ID when updating', () => {
-      const address = 'GDEF456789012345678901234567890123456789012345678901';
+    it("preserves contact ID when updating", () => {
+      const address = "GDEF456789012345678901234567890123456789012345678901";
 
       upsertAddressBookContact({
-        nickname: 'First',
+        nickname: "First",
         address,
       });
 
       const originalId = loadAddressBookContacts()[0].id;
 
       upsertAddressBookContact({
-        nickname: 'Second',
+        nickname: "Second",
         address,
       });
 
@@ -227,20 +222,20 @@ describe('addressBook', () => {
       expect(updatedId).toBe(originalId);
     });
 
-    it('deduplicates contacts loaded from storage', () => {
+    it("deduplicates contacts loaded from storage", () => {
       const storageKey = getAddressBookStorageKey();
       const duplicateData = [
         {
-          id: '1',
-          nickname: 'Dup1',
-          address: 'GHIJ789012345678901234567890123456789012345678901234',
+          id: "1",
+          nickname: "Dup1",
+          address: "GHIJ789012345678901234567890123456789012345678901234",
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
         {
-          id: '2',
-          nickname: 'Dup2',
-          address: 'GHIJ789012345678901234567890123456789012345678901234',
+          id: "2",
+          nickname: "Dup2",
+          address: "GHIJ789012345678901234567890123456789012345678901234",
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -253,42 +248,42 @@ describe('addressBook', () => {
     });
   });
 
-  describe('Validation', () => {
-    it('throws error for empty nickname', () => {
+  describe("Validation", () => {
+    it("throws error for empty nickname", () => {
       expect(() => {
         upsertAddressBookContact({
-          nickname: '   ',
-          address: 'GKLM901234567890123456789012345678901234567890123456',
+          nickname: "   ",
+          address: "GKLM901234567890123456789012345678901234567890123456",
         });
-      }).toThrow('Enter a nickname');
+      }).toThrow("Enter a nickname");
     });
 
-    it('throws error for invalid Stellar address', () => {
+    it("throws error for invalid Stellar address", () => {
       expect(() => {
         upsertAddressBookContact({
-          nickname: 'Invalid',
-          address: 'INVALID',
+          nickname: "Invalid",
+          address: "INVALID",
         });
-      }).toThrow('Enter a valid Stellar public key');
+      }).toThrow("Enter a valid Stellar public key");
     });
 
-    it('trims whitespace from nickname and address', () => {
+    it("trims whitespace from nickname and address", () => {
       upsertAddressBookContact({
-        nickname: '  Trimmed  ',
-        address: '  GNOP012345678901234567890123456789012345678901234567  ',
+        nickname: "  Trimmed  ",
+        address: "  GNOP012345678901234567890123456789012345678901234567  ",
       });
 
       const contacts = loadAddressBookContacts();
-      expect(contacts[0].nickname).toBe('Trimmed');
-      expect(contacts[0].address).toBe('GNOP012345678901234567890123456789012345678901234567');
+      expect(contacts[0].nickname).toBe("Trimmed");
+      expect(contacts[0].address).toBe("GNOP012345678901234567890123456789012345678901234567");
     });
   });
 
-  describe('Additional features', () => {
-    it('toggles favourite status', () => {
+  describe("Additional features", () => {
+    it("toggles favourite status", () => {
       upsertAddressBookContact({
-        nickname: 'Fav Test',
-        address: 'GQRS345678901234567890123456789012345678901234567890',
+        nickname: "Fav Test",
+        address: "GQRS345678901234567890123456789012345678901234567890",
         favourite: false,
       });
 
@@ -302,38 +297,38 @@ describe('addressBook', () => {
       expect(contacts2[0].favourite).toBe(true);
     });
 
-    it('updates contact tags', () => {
+    it("updates contact tags", () => {
       upsertAddressBookContact({
-        nickname: 'Tag Test',
-        address: 'GTUV678901234567890123456789012345678901234567890123',
+        nickname: "Tag Test",
+        address: "GTUV678901234567890123456789012345678901234567890123",
       });
 
       const contacts1 = loadAddressBookContacts();
       const contact = contacts1[0];
 
-      updateContactTags(contact.id, ['work', 'important']);
+      updateContactTags(contact.id, ["work", "important"]);
 
       const contacts2 = loadAddressBookContacts();
-      expect(contacts2[0].tags).toEqual(['work', 'important']);
+      expect(contacts2[0].tags).toEqual(["work", "important"]);
     });
 
-    it('collects all unique tags', () => {
+    it("collects all unique tags", () => {
       upsertAddressBookContact({
-        nickname: 'User1',
-        address: 'GWXY901234567890123456789012345678901234567890123456',
-        tags: ['work', 'client'],
+        nickname: "User1",
+        address: "GWXY901234567890123456789012345678901234567890123456",
+        tags: ["work", "client"],
       });
 
       upsertAddressBookContact({
-        nickname: 'User2',
-        address: 'GZAB234567890123456789012345678901234567890123456789',
-        tags: ['friend', 'work'],
+        nickname: "User2",
+        address: "GZAB234567890123456789012345678901234567890123456789",
+        tags: ["friend", "work"],
       });
 
       const contacts = loadAddressBookContacts();
       const allTags = getAllTags(contacts);
 
-      expect(allTags).toEqual(['client', 'friend', 'work']);
+      expect(allTags).toEqual(["client", "friend", "work"]);
     });
   });
 });
