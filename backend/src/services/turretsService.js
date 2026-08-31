@@ -382,6 +382,10 @@ function validatePriceData(data, now) {
 
 let priceCache = { value: null, fetchedAt: 0, updatedAt: 0 };
 
+function resetPriceCache() {
+  priceCache = { value: null, fetchedAt: 0, updatedAt: 0 };
+}
+
 async function getXlmUsdPrice() {
   const now = Date.now();
   
@@ -649,4 +653,5 @@ module.exports = {
   startRunner,
   stopRunner,
   _getXlmUsdPrice: getXlmUsdPrice,
+  _resetPriceCache: resetPriceCache,
 };
