@@ -2166,10 +2166,6 @@ mod tests {
         let refund = DEPOSIT - streamed;
 
         let contract_events = env.events().all().filter_by_contract(&contract_id);
-        assert!(
-            !contract_events.events().is_empty(),
-            "expected at least one contract event"
-        );
         assert_eq!(
             contract_events,
             vec![
