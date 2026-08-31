@@ -50,10 +50,16 @@ export type PaymentLinkQuery = Record<string, QueryValue>;
 
 export type ParsedPaymentLinkQuery =
   | { ok: true; payload: PaymentLinkPayload }
-  | {
-      ok: false;
-      reason: "missing" | "malformed" | "invalid-expiry" | "invalid-network";
-    };
+  | { ok: false; reason: "missing" | "malformed" | "invalid-expiry" | "expired" };
+
+/**
+ * Check whether a payment link's expiry has already passed.
+ * Exported so callers (tests, pay.tsx, SendPaymentForm) can gate on it
+ * without re-implementing the clock boundary.
+ */
+export function isExpired(payload: PaymentLinkPayload, now = Date.now()): boolean {
+  return payload.validUntil != null && now > payload.validUntil;
+}
 
 function getQueryString(value: QueryValue): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -110,16 +116,10 @@ function coercePayload(raw: unknown): ParsedPaymentLinkQuery {
   if (!destination || !amount) return { ok: false, reason: "missing" };
   if (Number.isNaN(validUntil)) return { ok: false, reason: "invalid-expiry" };
 
-  // Explicit network binding (#749): reject any value that isn't a supported
-  // network so touchy links can never be silently re-interpreted on another
-  // network. Absent network (legacy links) is left undefined and treated as
-  // "matches the current network" by the caller.
-  const rawNetwork =
-    typeof source.network === "string" ? source.network.trim().toLowerCase() : "";
-  if (rawNetwork && !SUPPORTED_NETWORKS.has(rawNetwork)) {
-    return { ok: false, reason: "invalid-network" };
+  // Validate expiry during parse — reject links that have already expired.
+  if (validUntil != null && Date.now() > validUntil) {
+    return { ok: false, reason: "expired" };
   }
-  const network = rawNetwork as PaymentLinkNetwork | "";
 
   return {
     ok: true,

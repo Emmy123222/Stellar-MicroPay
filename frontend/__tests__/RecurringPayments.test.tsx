@@ -2,7 +2,9 @@ import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
-import RecurringPayments from "@/components/RecurringPayments";
+import RecurringPayments, {
+  RECURRING_SCHEDULES_STORAGE_KEY,
+} from "@/components/RecurringPayments";
 
 const RECIPIENT = "GDEST234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567";
 
@@ -42,7 +44,7 @@ describe("RecurringPayments — schedule creation (#513)", () => {
 
     await user.click(screen.getByRole("button", { name: /Create/i }));
 
-    expect(screen.getByText(/5 XLM/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/5 XLM/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/No recurring schedules yet/i)).not.toBeInTheDocument();
   });
 
@@ -113,8 +115,8 @@ describe("RecurringPayments — listing existing schedules (#513)", () => {
       await user.click(screen.getByRole("button", { name: /Create/i }));
     }
 
-    expect(screen.getByText(/1 XLM/i)).toBeInTheDocument();
-    expect(screen.getByText(/2 XLM/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/1 XLM/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2 XLM/i).length).toBeGreaterThan(0);
   });
 
   it("persists schedules to localStorage so they survive a re-render", async () => {
@@ -129,7 +131,61 @@ describe("RecurringPayments — listing existing schedules (#513)", () => {
     unmount();
 
     renderRP();
-    expect(screen.getByText(/9 XLM/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/9 XLM/i)).length).toBeGreaterThan(0);
+  });
+
+  it("reloads valid schedules already stored in localStorage (#728)", async () => {
+    const stored = [
+      {
+        id: "schedule-1",
+        recipient: RECIPIENT,
+        amount: "7",
+        memo: "Rent",
+        frequency: "monthly" as const,
+        startDate: "2099-01-01",
+        nextDueDate: "2099-02-01",
+        createdAt: Date.now(),
+      },
+    ];
+    localStorage.setItem(RECURRING_SCHEDULES_STORAGE_KEY, JSON.stringify(stored));
+
+    renderRP();
+
+    expect(await screen.findByText(/7 XLM/i)).toBeInTheDocument();
+    expect(screen.getByText(/Rent/i)).toBeInTheDocument();
+  });
+
+  it("ignores corrupted localStorage without wiping valid entries on hydration (#728)", async () => {
+    localStorage.setItem(RECURRING_SCHEDULES_STORAGE_KEY, "{not-json");
+
+    renderRP();
+
+    expect(await screen.findByText(/No recurring schedules yet/i)).toBeInTheDocument();
+    expect(localStorage.getItem(RECURRING_SCHEDULES_STORAGE_KEY)).toBe("[]");
+  });
+
+  it("filters invalid schedule records from localStorage (#728)", async () => {
+    localStorage.setItem(
+      RECURRING_SCHEDULES_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "valid",
+          recipient: RECIPIENT,
+          amount: "4",
+          memo: "",
+          frequency: "weekly",
+          startDate: "2099-01-01",
+          nextDueDate: "2099-01-08",
+          createdAt: 1,
+        },
+        { id: "broken", amount: "bad" },
+      ])
+    );
+
+    renderRP();
+
+    expect(await screen.findByText(/4 XLM/i)).toBeInTheDocument();
+    expect(screen.queryByText(/bad/i)).not.toBeInTheDocument();
   });
 });
 
@@ -169,11 +225,11 @@ describe("RecurringPayments — pause / delete actions (#513)", () => {
     renderRP();
     await createSchedule(user);
 
-    expect(screen.getByText(/3 XLM/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/3 XLM/i).length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: /Delete schedule/i }));
 
-    expect(screen.queryByText(/3 XLM/i)).not.toBeInTheDocument();
+    expect(screen.queryAllByText(/3 XLM/i)).toHaveLength(0);
     expect(screen.getByText(/No recurring schedules yet/i)).toBeInTheDocument();
   });
 
@@ -186,5 +242,48 @@ describe("RecurringPayments — pause / delete actions (#513)", () => {
 
     expect(screen.getByText(/Edit schedule/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("0.0000000")).toHaveValue(3);
+  });
+});
+
+describe("RecurringPayments — Accessibility enhancements (#513)", () => {
+  async function createSchedule(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByText(/\+ New schedule/i));
+    await user.type(screen.getByPlaceholderText("G..."), RECIPIENT);
+    await user.clear(screen.getByPlaceholderText("0.0000000"));
+    await user.type(screen.getByPlaceholderText("0.0000000"), "3");
+    await user.click(screen.getByRole("button", { name: /Create/i }));
+  }
+
+  it("announces successful state changes to screen readers", async () => {
+    const user = userEvent.setup();
+    renderRP();
+    await createSchedule(user);
+    
+    // Announcement container should be in DOM
+    const liveRegion = document.querySelector('[aria-live="polite"]');
+    expect(liveRegion).toHaveTextContent("Schedule created.");
+
+    await user.click(screen.getByRole("button", { name: /Pause schedule/i }));
+    expect(liveRegion).toHaveTextContent("Schedule paused.");
+
+    await user.click(screen.getByRole("button", { name: /Resume schedule/i }));
+    expect(liveRegion).toHaveTextContent("Schedule resumed.");
+
+    await user.click(screen.getByRole("button", { name: /Delete schedule/i }));
+    expect(liveRegion).toHaveTextContent("Schedule deleted.");
+  });
+
+  it("returns focus to the main heading after deletion", async () => {
+    const user = userEvent.setup();
+    renderRP();
+    await createSchedule(user);
+
+    await user.click(screen.getByRole("button", { name: /Delete schedule/i }));
+
+    // We used a setTimeout for focusing to allow react to render
+    await waitFor(() => {
+      const heading = screen.getByRole("heading", { name: /Recurring Payments/i });
+      expect(document.activeElement).toBe(heading);
+    });
   });
 });

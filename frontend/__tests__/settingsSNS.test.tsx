@@ -11,7 +11,7 @@
  */
 
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -57,6 +57,7 @@ global.fetch = jest.fn().mockResolvedValue({
 } as any);
 
 import SettingsPage from "../pages/settings";
+import { setNetworkConfig } from "@/lib/stellar";
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,41 @@ const defaultProps = {
 };
 
 describe("SettingsPage — Stellar Name Service section", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("associates custom endpoint errors and focuses the first invalid field", () => {
+    render(<SettingsPage {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    const horizonInput = screen.getByLabelText("Custom Horizon URL");
+    fireEvent.change(horizonInput, { target: { value: "http://horizon.example.com" } });
+    fireEvent.blur(horizonInput);
+
+    expect(horizonInput).toHaveAttribute("aria-invalid", "true");
+    expect(horizonInput).toHaveAttribute("aria-describedby", "custom-horizon-error");
+    expect(screen.getByText("Horizon URL must use HTTPS.")).toBeInTheDocument();
+    expect(horizonInput).toHaveFocus();
+    expect(setNetworkConfig).not.toHaveBeenCalled();
+  });
+
+  it("rejects RPC endpoints on a different explicit network", () => {
+    render(<SettingsPage {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    const horizonInput = screen.getByLabelText("Custom Horizon URL");
+    const rpcInput = screen.getByLabelText("Custom Soroban RPC URL");
+    fireEvent.change(horizonInput, { target: { value: "https://horizon-testnet.example.com" } });
+    fireEvent.change(rpcInput, { target: { value: "https://soroban-mainnet.example.com" } });
+    fireEvent.blur(rpcInput);
+
+    expect(rpcInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("RPC URL must use the same network as the Horizon URL.")).toBeInTheDocument();
+    expect(rpcInput).toHaveFocus();
+    expect(setNetworkConfig).not.toHaveBeenCalled();
+  });
+
   it("renders the 'Stellar Name Service' heading", () => {
     render(<SettingsPage {...defaultProps} />);
     expect(

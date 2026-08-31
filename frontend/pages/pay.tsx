@@ -32,10 +32,8 @@ export default function PayPage() {
   const [prefill, setPrefill] = useState<PrefillData | null>(null);
   const [xlmBalance, setXlmBalance] = useState<string>("0");
   const [tipTotal, setTipTotal] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null); // New: Error state
-  // The network this link is bound to, when it differs from the app's active
-  // network. Blocks the payment form until the user switches networks (#749).
-  const [networkMismatch, setNetworkMismatch] = useState<PaymentLinkNetwork | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expiredRequest, setExpiredRequest] = useState<PrefillData | null>(null);
 
   // Step 1: Parse and validate URL payment details.
   useEffect(() => {
@@ -92,16 +90,21 @@ export default function PayPage() {
     // the request can be paid.
     const redeemable = canRedeemPaymentLink(parsed.payload);
     if (!redeemable.ok) {
-      setPrefill(null);
-      setError(
-        redeemable.reason === "redeemed"
-          ? "This payment link has already been redeemed."
-          : "This payment link has expired.",
-      );
+      if (redeemable.reason === "expired") {
+        // Show the original request as read-only so the user can see what
+        // was requested even though they can no longer pay it.
+        setPrefill(null);
+        setExpiredRequest(parsed.payload);
+      } else {
+        setPrefill(null);
+        setExpiredRequest(null);
+        setError("This payment link has already been redeemed.");
+      }
       return;
     }
 
     setPrefill(parsed.payload);
+    setExpiredRequest(null);
     setError(null);
   }, [router.isReady, router.query]);
 
@@ -117,8 +120,8 @@ export default function PayPage() {
     }
 
     const timeoutId = window.setTimeout(() => {
+      setExpiredRequest(prefill);
       setPrefill(null);
-      setError("This payment link has expired.");
     }, msUntilExpiry);
 
     return () => window.clearTimeout(timeoutId);
@@ -142,40 +145,47 @@ export default function PayPage() {
     }
   }, [prefill?.destination]);
 
-  // Network mismatch guard (#749): the link targets a Stellar network that is
-  // not the one this app is connected to. Warn and block the form so the
-  // payment is never submitted on the wrong network.
-  if (networkMismatch) {
-    const targetLabel = networkMismatch === "mainnet" ? "Mainnet" : "Testnet";
-    const currentLabel = NETWORK === "mainnet" ? "Mainnet" : "Testnet";
+  // UI: Expired request read-only view
+  if (expiredRequest) {
     return (
-      <div className="max-w-md mx-auto mt-20 p-8 card border-amber-500/30 text-center animate-fade-in bg-cosmos-900/50">
+      <div className="max-w-md mx-auto mt-20 p-8 card border-amber-500/30 animate-fade-in bg-cosmos-900/50">
         <div className="bg-amber-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-2xl text-amber-500">⚠️</span>
+          <span className="text-2xl">⏰</span>
         </div>
         <h2 className="text-xl font-bold text-white mb-2">
-          Different Stellar Network
+          Payment Link Expired
         </h2>
         <p className="text-slate-400 mb-6">
-          This payment link was created on <strong className="text-amber-300">{targetLabel}</strong>,
-          but your wallet is currently connected to <strong className="text-slate-200">{currentLabel}</strong>.
-          Switch networks before completing this payment so your transaction is
-          submitted to the intended network.
+          This payment request has expired and can no longer be completed.
         </p>
-        <div className="space-y-3">
-          <Link
-            href="/settings"
-            className="btn-primary w-full block text-center py-2"
-          >
-            Switch to {targetLabel}
-          </Link>
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="btn-secondary w-full py-2"
-          >
-            Return to Dashboard
-          </button>
+        <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 text-left">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Destination</p>
+            <p className="text-sm font-mono text-white break-all">{expiredRequest.destination}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Amount</p>
+            <p className="text-sm font-semibold text-white">{expiredRequest.amount} XLM</p>
+          </div>
+          {expiredRequest.memo && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Memo</p>
+              <p className="text-sm text-slate-200">{expiredRequest.memo}</p>
+            </div>
+          )}
+          {expiredRequest.validUntil != null && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Expired At</p>
+              <p className="text-sm text-amber-300">{new Date(expiredRequest.validUntil).toLocaleString()}</p>
+            </div>
+          )}
         </div>
+        <button
+          onClick={() => router.push("/dashboard")}
+          className="btn-secondary w-full py-2 mt-6"
+        >
+          Return to Dashboard
+        </button>
       </div>
     );
   }

@@ -7,6 +7,8 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -40,6 +42,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
+  // Clean up every outstanding auto-dismiss timer when the provider unmounts,
+  // so no consumer is left holding a timer for a toast that no longer exists.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
     const timer = timersRef.current.get(id);
@@ -65,8 +77,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [removeToast]
   );
 
+  // One provider-owned value. Consumers that read via useToastContext share
+  // this single source of truth; memoising keeps the reference stable across
+  // renders where the toast list has not changed.
+  const value = useMemo(
+    () => ({ toasts, addToast, removeToast }),
+    [toasts, addToast, removeToast]
+  );
+
   return (
-    <ToastContext.Provider value={{ toasts, addToast, removeToast }}>
+    <ToastContext.Provider value={value}>
       {children}
     </ToastContext.Provider>
   );
