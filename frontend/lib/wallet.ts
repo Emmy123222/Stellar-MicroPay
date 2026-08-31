@@ -24,14 +24,18 @@ import { getNetworkPassphrase } from "./stellar";
 
 let jwtToken: string | null = null;
 /** Store the SEP-0010 JWT token in memory for the current session. */
-export function setJwtToken(token: string | null) { jwtToken = token; }
+export function setJwtToken(token: string | null) {
+  jwtToken = token;
+}
 /** Returns the SEP-0010 JWT token currently held in memory, or null if not authenticated. */
-export function getJwtToken() { return jwtToken; }
+export function getJwtToken() {
+  return jwtToken;
+}
 
 async function fetchAuthChallenge(publicKey: string): Promise<string> {
   const data = await apiFetch<{ transaction: string }>(
     `/api/auth?account=${encodeURIComponent(publicKey)}`,
-    { credentials: "include", raw: true },
+    { credentials: "include", raw: true }
   );
   return data.transaction;
 }
@@ -70,10 +74,8 @@ export function detectBrowser(): SupportedBrowser {
 }
 
 export const EXTENSION_URLS: Record<SupportedBrowser, string> = {
-  chrome:
-    "https://chrome.google.com/webstore/detail/freighter/bcacfldlkkdogcmkkibnjlakofdplcbk",
-  firefox:
-    "https://addons.mozilla.org/en-US/firefox/addon/freighter/",
+  chrome: "https://chrome.google.com/webstore/detail/freighter/bcacfldlkkdogcmkkibnjlakofdplcbk",
+  firefox: "https://addons.mozilla.org/en-US/firefox/addon/freighter/",
   other: "https://freighter.app",
 };
 
@@ -122,8 +124,7 @@ export async function connectWallet(): Promise<{
   if (!installed) {
     return {
       publicKey: null,
-      error:
-        "Freighter wallet is not installed. Visit https://freighter.app to install it.",
+      error: "Freighter wallet is not installed. Visit https://freighter.app to install it.",
     };
   }
 
@@ -135,7 +136,9 @@ export async function connectWallet(): Promise<{
     if (access.error) {
       return {
         publicKey: null,
-        error: access.error.message || "Connection rejected. Please approve the connection in Freighter.",
+        error:
+          access.error.message ||
+          "Connection rejected. Please approve the connection in Freighter.",
       };
     }
 
@@ -213,7 +216,10 @@ export async function signTransactionWithWallet(
   transactionXDR: string
 ): Promise<{ signedXDR: string | null; error: string | null }> {
   if (typeof window === "undefined") {
-    return { signedXDR: null, error: "Wallet signing is not available during server-side rendering." };
+    return {
+      signedXDR: null,
+      error: "Wallet signing is not available during server-side rendering.",
+    };
   }
   try {
     const signed = await signTransaction(transactionXDR, {
@@ -258,13 +264,18 @@ export const isLedgerSupported = async () => false;
 /**
  * Placeholder for Ledger signing.
  */
-export async function signTransactionWithLedger(xdr: string): Promise<{ signedXDR: string | null; error: string | null }> {
+export async function signTransactionWithLedger(
+  xdr: string
+): Promise<{ signedXDR: string | null; error: string | null }> {
   return { signedXDR: null, error: "Ledger support not implemented." };
 }
 
 /**
  * Placeholder for fetching Ledger public key.
  */
-export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; error: string | null }> {
+export async function getLedgerPublicKey(): Promise<{
+  publicKey: string | null;
+  error: string | null;
+}> {
   return { publicKey: null, error: "Ledger support not implemented." };
 }

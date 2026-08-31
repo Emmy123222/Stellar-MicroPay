@@ -113,8 +113,6 @@ export const WithInvalidRow: Story = {
     const sendButton = canvas.getByRole("button", { name: /send batch/i });
     await userEvent.click(sendButton);
 
-    await expect(
-      canvas.getByText("Invalid Stellar address.")
-    ).toBeInTheDocument();
+    await expect(canvas.getByText("Invalid Stellar address.")).toBeInTheDocument();
   },
 };

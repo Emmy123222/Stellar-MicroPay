@@ -29,7 +29,7 @@ export const Pending: Story = {
     failedStep: null,
     stepTimings: defaultStepTimings,
     onClose: () => console.log("close"),
-  }
+  },
 };
 
 export const Success: Story = {
@@ -47,7 +47,7 @@ export const Success: Story = {
       confirming: { startedAt: Date.now() - 5000, completedAt: Date.now() - 2000, error: null },
     },
     onClose: () => console.log("close"),
-  }
+  },
 };
 
 export const Failed: Story = {
@@ -64,5 +64,5 @@ export const Failed: Story = {
       confirming: { startedAt: null, completedAt: null, error: null },
     },
     onClose: () => console.log("close"),
-  }
+  },
 };

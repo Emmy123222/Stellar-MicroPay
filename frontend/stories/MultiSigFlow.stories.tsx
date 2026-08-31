@@ -68,8 +68,7 @@ export const PartialSignatures: Story = {
   parameters: {
     docs: {
       description: {
-        story:
-          "Collect step with 1 of 3 signatures (initiator signed, awaiting co-signers).",
+        story: "Collect step with 1 of 3 signatures (initiator signed, awaiting co-signers).",
       },
     },
   },
@@ -86,8 +85,7 @@ export const ThresholdMet: Story = {
   parameters: {
     docs: {
       description: {
-        story:
-          "Collect step with threshold met (2 of 2 signatures). Proceed to Submit is enabled.",
+        story: "Collect step with threshold met (2 of 2 signatures). Proceed to Submit is enabled.",
       },
     },
   },
