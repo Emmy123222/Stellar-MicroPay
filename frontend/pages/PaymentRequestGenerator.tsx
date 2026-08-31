@@ -1,6 +1,8 @@
 import React, { useState, useRef } from "react";
+
 import clsx from "clsx";
 import { QRCodeCanvas } from "qrcode.react";
+
 import { buildPaymentLinkUrl, rememberPaymentLink } from "@/lib/paymentLinks";
 
 export default function PaymentRequestGenerator() {

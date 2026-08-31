@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+
 import {
   disconnectWallet as clearWalletConnection,
   getConnectedPublicKey,

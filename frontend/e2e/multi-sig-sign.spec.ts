@@ -7,6 +7,7 @@
  *  3. Submit becomes available once the threshold is met
  */
 import { test as base, expect } from '@playwright/test';
+
 import { test as authenticatedTest } from './fixtures';
 
 // Mock valid transaction XDR

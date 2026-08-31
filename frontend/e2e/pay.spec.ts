@@ -6,6 +6,7 @@
  *  3. Visiting /pay with an expired link shows an expired payment error.
  */
 import { test as base, expect } from '@playwright/test';
+
 import { test as authenticatedTest } from './fixtures';
 
 const VALID_DESTINATION = 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV';
@@ -25,7 +26,7 @@ base.describe('pay page - disconnected', () => {
     });
   });
 
-  base.test('visiting /pay with valid SEP-0007 params prompts for wallet connect and shows payment header', async ({ page }) => {
+  base('visiting /pay with valid SEP-0007 params prompts for wallet connect and shows payment header', async ({ page }) => {
     await page.goto(`/pay?to=${VALID_DESTINATION}&amount=${VALID_AMOUNT}&memo=${VALID_MEMO}`);
 
     await expect(page.getByRole('heading', { name: 'Complete Payment' })).toBeVisible();
@@ -35,7 +36,7 @@ base.describe('pay page - disconnected', () => {
     await expect(page.getByRole('button', { name: /Connect Freighter Wallet/i })).toBeVisible();
   });
 
-  base.test('visiting /pay with incomplete params shows malformed payment link error', async ({ page }) => {
+  base('visiting /pay with incomplete params shows malformed payment link error', async ({ page }) => {
     // Missing amount param
     await page.goto(`/pay?to=${VALID_DESTINATION}`);
 
@@ -47,7 +48,7 @@ base.describe('pay page - disconnected', () => {
     await expect(page.getByLabel('Destination')).not.toBeVisible();
   });
 
-  base.test('visiting /pay with invalid expiry timestamp shows invalid expiry error', async ({ page }) => {
+  base('visiting /pay with invalid expiry timestamp shows invalid expiry error', async ({ page }) => {
     await page.goto(`/pay?to=${VALID_DESTINATION}&amount=${VALID_AMOUNT}&expires=not_a_number`);
 
     await expect(page.getByRole('heading', { name: 'Payment Unavailable' })).toBeVisible();
@@ -55,7 +56,7 @@ base.describe('pay page - disconnected', () => {
     await expect(page.getByRole('button', { name: 'Return to Dashboard' })).toBeVisible();
   });
 
-  base.test('visiting /pay with an expired link shows link expired error', async ({ page }) => {
+  base('visiting /pay with an expired link shows link expired error', async ({ page }) => {
     // Timestamp 1000000000 (year 2001) is in the past
     await page.goto(`/pay?to=${VALID_DESTINATION}&amount=${VALID_AMOUNT}&expires=1000000000`);
 

@@ -29,7 +29,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -42,7 +42,7 @@ jobs:
 
       - name: Build contract WASM
         working-directory: contracts/stellar-micropay-contract
-        run: cargo build --target wasm32-unknown-unknown --release
+        run: cargo build --target wasm32v1-none --release
 
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0
@@ -56,7 +56,7 @@ jobs:
 
       - name: Verify release artifacts exist
         run: |
-          test -f target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
+          test -f target/wasm32v1-none/release/stellar_micropay_contract.wasm
           test -s contract-sbom.cyclonedx.json
           test -s contract-sbom.spdx.json
 
@@ -64,14 +64,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
+            target/wasm32v1-none/release/stellar_micropay_contract.wasm
             contract-sbom.cyclonedx.json
             contract-sbom.spdx.json
 
       - name: Attest WASM provenance
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
+          subject-path: target/wasm32v1-none/release/stellar_micropay_contract.wasm
 
   publish:
     needs: contract-release

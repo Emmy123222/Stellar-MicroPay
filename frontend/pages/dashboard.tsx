@@ -13,12 +13,13 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/router";
-import Link from "next/link";
+
 import dynamic from "next/dynamic";
 import Head from "next/head";
-import FloatingAssistantButton from "../components/FloatingAssistantButton";
-import { useTranslation } from "@/lib/i18n";
+import Link from "next/link";
+import { useRouter } from "next/router";
+
+
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
 const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), { ssr: false });
@@ -41,6 +42,7 @@ const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"),
 const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
 const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
 const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
+const ExternalPaymentBanner = dynamic(() => import("../components/ExternalPaymentBanner"), { ssr: false });
 
 // The assistant panel (and its dependencies) should not ship in the initial
 // bundle — it's only ever needed after the user opens the floating button,
@@ -72,8 +74,10 @@ import {
   BalanceSparkline,
   PaymentStats,
 } from "@/components/dashboard";
-import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
-
+import { useOnboarding } from "@/hooks/useOnboarding";
+import { getJwtToken } from "@/lib/auth";
+import { useTranslation } from "@/lib/i18n";
+import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import {
   getXLMBalance,
   getAccountReserveInfo,
@@ -88,12 +92,12 @@ import {
   fetchAllPayments,
   PaymentRecord,
 } from "@/lib/stellar";
-import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
 import { useToastContext } from "@/lib/ToastContext";
-import { getJwtToken } from "@/lib/auth";
-import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
-import { useOnboarding } from "@/hooks/useOnboarding";
+import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
+import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
+
+import FloatingAssistantButton from "../components/FloatingAssistantButton";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;

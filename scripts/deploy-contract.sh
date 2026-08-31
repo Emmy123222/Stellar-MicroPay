@@ -3,7 +3,7 @@
 # Build and deploy the Soroban smart contract to Stellar testnet or mainnet.
 #
 # Prerequisites:
-#   - Rust + wasm32-unknown-unknown target
+#   - Rust + wasm32v1-none target
 #   - Stellar CLI (cargo install --locked stellar-cli)
 #   - A funded Stellar identity (stellar keys generate alice --network testnet)
 #
@@ -19,7 +19,7 @@ set -euo pipefail
 NETWORK=${1:-testnet}
 IDENTITY=${2:-alice}
 CONTRACT_DIR="$(dirname "$0")/../contracts/stellar-micropay-contract"
-WASM="$CONTRACT_DIR/target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm"
+WASM="$CONTRACT_DIR/target/wasm32v1-none/release/stellar_micropay_contract.wasm"
 
 echo "🌟 Stellar MicroPay — Contract Deployment"
 echo "   Network:  $NETWORK"
@@ -44,7 +44,7 @@ fi
 
 echo "🔨 Building WASM contract..."
 cd "$CONTRACT_DIR"
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 if [[ ! -f "$WASM" ]]; then
   echo "❌ WASM file not found after build: $WASM"

@@ -7,8 +7,8 @@
  * Cancel — sender pulls the funds back, but only before release_ledger.
  */
 import { useState, useEffect, useRef } from "react";
+
 import WalletConnect from "@/components/WalletConnect";
-import { useWallet } from "@/lib/useWallet";
 import {
   buildCreateEscrowTransaction,
   buildClaimEscrowTransaction,
@@ -21,6 +21,7 @@ import {
   CONTRACT_ID,
   EscrowRecord,
 } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 import { signTransactionWithWallet } from "@/lib/wallet";
 
 export interface RawEscrowStruct {
@@ -224,7 +225,7 @@ export default function EscrowPage() {
         });
       }
       
-      if (escrow.status === "Released") {
+      if (escrow.status === "Claimed") {
         events.push({
           status: "Funded",
           timestamp: Date.now() - 43200000,

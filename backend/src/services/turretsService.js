@@ -18,13 +18,13 @@ const {
 } = require("@stellar/stellar-sdk");
 
 const { server } = require("../config/stellar");
-const logger = require("../utils/logger");
 const {
   turretsExecutionsTotal,
   turretsExecutionDuration,
   turretsDeploymentsTotal,
   turretsActiveDeployments,
 } = require("../metrics/registry");
+const logger = require("../utils/logger");
 
 const NETWORK_PASSPHRASE =
   process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;

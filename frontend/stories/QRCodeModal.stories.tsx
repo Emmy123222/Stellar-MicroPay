@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+
 import QRCodeModal from "@/components/QRCodeModal";
 
 /** Sample Stellar testnet address used across Storybook fixtures. */

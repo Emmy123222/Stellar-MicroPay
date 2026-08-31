@@ -7,13 +7,13 @@
 "use strict";
 
 const { server } = require("../config/stellar");
-const logger = require("../utils/logger");
 const {
   horizonCallsTotal,
   horizonCallDuration,
   horizonRetriesTotal,
   horizonErrorsTotal,
 } = require("../metrics/registry");
+const logger = require("../utils/logger");
 
 // ─── In-memory LRU cache for getAccount (5 s TTL) ────────────────────────────
 const ACCOUNT_CACHE_TTL_MS = 5_000;

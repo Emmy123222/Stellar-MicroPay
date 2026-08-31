@@ -5,10 +5,13 @@
  */
 
 import React from "react";
+
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+
 import "@testing-library/jest-dom";
-import CreatorTipsDashboard from "../components/CreatorTipsDashboard";
 import { exportTipsToCSV } from "@/utils/format";
+
+import CreatorTipsDashboard from "../components/CreatorTipsDashboard";
 
 jest.mock("@/utils/format", () => ({
   ...jest.requireActual("@/utils/format"),

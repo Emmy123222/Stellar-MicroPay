@@ -20,8 +20,10 @@
  */
 
 import { useState, useCallback, useEffect, useRef, useId } from "react";
+
 import { Transaction } from "@stellar/stellar-sdk";
 import clsx from "clsx";
+
 import {
   buildPaymentTransaction,
   collectSignatures,
@@ -283,12 +285,12 @@ export default function MultiSigFlow({
     setError(null);
     try {
       const xdrResult = await buildPaymentTransaction({
-        publicKey,
-        destination,
+        fromPublicKey: publicKey,
+        toPublicKey: destination,
         amount,
         memo,
       });
-      setUnsignedXDR(xdrResult);
+      setUnsignedXDR(xdrResult.toXDR());
       setStep("sign");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to build transaction");
@@ -358,9 +360,9 @@ export default function MultiSigFlow({
     setLoading(true);
     setError(null);
     try {
-      const combined = collectSignatures(unsignedXDR, allSignedXDRs);
-      const hash = await submitTransaction(combined);
-      setTxHash(hash);
+      const combined = await collectSignatures(unsignedXDR, allSignedXDRs);
+      const result = await submitTransaction(combined);
+      setTxHash(result.hash);
       setStep("success");
       clearMultiSigDraft(publicKey);
       onSuccess?.();
@@ -420,7 +422,7 @@ export default function MultiSigFlow({
                   {...(isActive ? { "aria-current": "step" } : {})}
                 >
                   {idx + 1}
-                },
+                </div>
                 <span className={clsx("text-xs mt-1", isActive ? "text-white font-medium" : "text-slate-400")}>
                   {STEP_LABELS[s]}
                 </span>

@@ -4,6 +4,7 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from "react";
+
 import { AlertCircleIcon } from "@/components/icons";
 
 interface Props {

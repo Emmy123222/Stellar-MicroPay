@@ -1,4 +1,5 @@
 import React from "react";
+
 import { StatsCard, formatStatsXLM } from "./StatsCard";
 
 export interface PaymentStats {

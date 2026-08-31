@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+
 import { formatXLM } from "@/utils/format";
 
 export interface RecurringSchedule {
@@ -122,6 +123,10 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
   // A11y enhancements
   const [announcement, setAnnouncement] = useState("");
   const headingRef = React.useRef<HTMLHeadingElement>(null);
+
+  const announce = (message: string) => {
+    setAnnouncement(message);
+  };
 
   useEffect(() => {
     setSchedules(loadSchedules());

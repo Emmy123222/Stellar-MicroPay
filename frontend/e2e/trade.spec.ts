@@ -8,6 +8,7 @@
  *  4. Submitting a trade shows pending status and then success notification.
  */
 import { test as base, expect } from '@playwright/test';
+
 import { test as authenticatedTest } from './fixtures';
 
 base.describe('trade page - disconnected', () => {
@@ -23,7 +24,7 @@ base.describe('trade page - disconnected', () => {
     });
   });
 
-  base.test('shows wallet connect prompt when wallet is not connected', async ({ page }) => {
+  base('shows wallet connect prompt when wallet is not connected', async ({ page }) => {
     await page.goto('/trade');
     await expect(page.getByRole('heading', { name: 'Stellar DEX Trading' })).toBeVisible();
     await expect(page.getByText('Connect your wallet to trade XLM and USDC on the Stellar DEX.')).toBeVisible();

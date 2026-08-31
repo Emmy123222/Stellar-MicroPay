@@ -6,12 +6,34 @@
  * Emmy123222/Stellar-MicroPay
  */
 
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import clsx from "clsx";
+
 import { withErrorBoundary } from "@/components/ErrorBoundary";
+import {
+  SendIcon,
+  CheckIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  StarIcon,
+  QrCodeIcon,
+  ReceiptIcon,
+} from "@/components/icons";
+import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import PaymentStatusModal, {
   type PaymentFlowStatus,
   type PaymentStepId,
   type PaymentStepTiming,
 } from "@/components/PaymentStatusModal";
+import {
+  type AddressBookContact,
+  loadAddressBookContacts,
+  saveAddressBookContacts,
+  subscribeToAddressBookContacts,
+  upsertAddressBookContact,
+} from "@/lib/addressBook";
+import { useTranslation } from "@/lib/i18n";
 import {
   buildPaymentTransaction,
   buildReceiptMintTransaction,
@@ -33,30 +55,9 @@ import {
   setNetworkConfig,
   getNetworkConfig
 } from "@/lib/stellar";
-import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
-import { signTransactionWithWallet } from "@/lib/wallet";
-import {
-  type AddressBookContact,
-  loadAddressBookContacts,
-  saveAddressBookContacts,
-  subscribeToAddressBookContacts,
-  upsertAddressBookContact,
-} from "@/lib/addressBook";
-import { formatXLM, shortenAddress } from "@/utils/format";
-import {
-  SendIcon,
-  CheckIcon,
-  CopyIcon,
-  ExternalLinkIcon,
-  StarIcon,
-  QrCodeIcon,
-  ReceiptIcon,
-} from "@/components/icons";
-import clsx from "clsx";
-
-import { useEffect, useRef, useState } from "react";
 import { useToastContext } from "@/lib/ToastContext";
-import { useTranslation } from "@/lib/i18n";
+import { signTransactionWithWallet } from "@/lib/wallet";
+import { formatXLM, shortenAddress } from "@/utils/format";
 
 
 interface SendPaymentFormProps {
@@ -675,8 +676,8 @@ function SendPaymentForm({
       setAmount("");
       setMemo("");
       setResolvedPaymentDestination(null);
-      setSnsResolved(null);
-      setSnsError(null);
+      setSnsResolvedAddress(null);
+      setDestinationResolutionError(null);
       setSnsResolving(false);
     }
     setStatus("idle");

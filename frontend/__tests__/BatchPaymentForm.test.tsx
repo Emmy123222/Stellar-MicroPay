@@ -1,15 +1,20 @@
 import React from "react";
+
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
 import "@testing-library/jest-dom";
 import BatchPaymentForm from "@/components/BatchPaymentForm";
+
 import {
   TEST_PUBLIC_KEY_A,
   TEST_PUBLIC_KEY_B,
   TEST_PUBLIC_KEY_C,
 } from "./fixtures/stellar";
 
-const mockSubmitTransaction = jest.fn(() => Promise.resolve({ hash: "tx-abc123" }));
+const mockSubmitTransaction = jest.fn((_signedXDR: string) =>
+  Promise.resolve({ hash: "tx-abc123" })
+);
 
 jest.mock("@/lib/stellar", () => ({
   isValidStellarAddress: jest.fn(
@@ -18,7 +23,7 @@ jest.mock("@/lib/stellar", () => ({
   buildPaymentTransaction: jest.fn(() =>
     Promise.resolve({ toXDR: () => "mocked-xdr" })
   ),
-  submitTransaction: (...args: unknown[]) => mockSubmitTransaction(...args),
+  submitTransaction: (signedXDR: string) => mockSubmitTransaction(signedXDR),
   STELLAR_MEMO_TEXT_MAX_BYTES: 28,
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM: 1,
   truncateMemoText: jest.fn((text: string) => text),

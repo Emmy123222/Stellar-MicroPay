@@ -5,6 +5,7 @@
 
 "use strict";
 
+const Sentry = require("@sentry/node");
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
@@ -17,6 +18,8 @@ const Sentry = require("@sentry/node");
 const swaggerUi = require("swagger-ui-express");
 
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
+const { metricsMiddleware } = require("./metrics/middleware");
+const metricsRoutes = require("./metrics/routes");
 const { apiDeprecationHeader } = require("./middleware/deprecation");
 const accountRoutes = require("./routes/accounts");
 const analyticsRoutes = require("./routes/analytics");
@@ -31,8 +34,6 @@ const { resumeAllMonitors } = require("./services/paymentMonitor");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const logger = require("./utils/logger");
-const { metricsMiddleware } = require("./metrics/middleware");
-const metricsRoutes = require("./metrics/routes");
 
 const app = express();
 const PORT = process.env.PORT || 4000;

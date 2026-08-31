@@ -9,30 +9,26 @@
  * - Escape and route changes dismiss the menu.
  */
 
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+
+import { NavStarIcon, MoonIcon, SunIcon, MenuIcon, XIcon } from "@/components/icons";
+import { useI18n } from "@/contexts/I18nContext";
 import {
   shortenAddress,
   getNetworkConfig,
   fetchNetworkFeeStats,
   type FeeLevel,
 } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 import {
   connectWallet as requestWalletConnection,
   performSEP0010Auth,
 } from "@/lib/wallet";
-import { useWallet } from "@/lib/useWallet";
 import { useTheme } from "@/pages/_app";
-import { useI18n } from "@/contexts/I18nContext";
-import {
-  NavStarIcon,
-  MoonIcon,
-  SunIcon,
-  MenuIcon,
-  XIcon,
-} from "@/components/icons";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */

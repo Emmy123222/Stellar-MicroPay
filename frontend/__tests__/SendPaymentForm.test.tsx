@@ -1,4 +1,5 @@
 import React from "react";
+
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -54,9 +55,11 @@ jest.mock("@/components/MultiSigFlow", () => ({
   MULTISIG_THRESHOLD_XLM: 1000,
 }));
 
-import SendPaymentForm from "../components/SendPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
+
+import SendPaymentForm from "../components/SendPaymentForm";
+
 import { TEST_PUBLIC_KEY_A, TEST_PUBLIC_KEY_B } from "./fixtures/stellar";
 
 const mockBuildPaymentTransaction = stellarModule.buildPaymentTransaction as jest.Mock;

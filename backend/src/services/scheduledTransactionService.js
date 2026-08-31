@@ -1,11 +1,11 @@
 "use strict";
 
 require("dotenv").config();
-const logger = require("../utils/logger");
 const {
   scheduledTxQueueDepth,
   scheduledTxSubmitTotal,
 } = require("../metrics/registry");
+const logger = require("../utils/logger");
 
 const logger = require("../utils/logger");
 

@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+
 import { fetchNetworkStats, NetworkStats } from "@/lib/stellar";
 import { getNetworkConfig } from "@/lib/stellarConfig";
 
@@ -33,6 +34,32 @@ function formatFee(stroops: number) {
 function formatMs(ms: number) {
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** Average latency across success samples, formatted as a string */
+function getAverageLatency(samples: LatencySample[]): string {
+  const success = samples.filter((s) => s.latencyMs !== null);
+  if (success.length === 0) return "—";
+  const avg = Math.round(
+    success.reduce((a, s) => a + (s.latencyMs ?? 0), 0) / success.length
+  );
+  return formatMs(avg);
+}
+
+/** Human-readable network health summary from samples and any error */
+function getHealthStatus(samples: LatencySample[], error: string | null): string {
+  if (error) return "Unavailable";
+  if (samples.length === 0) return "Unknown";
+  const outages = samples.filter((s) => s.latencyMs === null).length;
+  return outages > 0 ? "Degraded" : "Healthy";
+}
+
+/** Human-readable description of a single latency sample */
+function describeSample(sample: LatencySample): string {
+  const time = new Date(sample.time).toLocaleTimeString();
+  return sample.latencyMs !== null
+    ? `${formatMs(sample.latencyMs)} at ${time}`
+    : `Outage at ${time}`;
 }
 
 /** Colour bucket for a latency value */

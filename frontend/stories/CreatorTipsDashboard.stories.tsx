@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+
 import CreatorTipsDashboard from "@/components/CreatorTipsDashboard";
 
 const meta: Meta<typeof CreatorTipsDashboard> = {

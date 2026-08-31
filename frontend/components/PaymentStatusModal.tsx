@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+
 import Modal from "@/components/Modal";
 
 export type PaymentStepId = "building" | "signing" | "submitting" | "confirming";
