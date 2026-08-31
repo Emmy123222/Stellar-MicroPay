@@ -64,13 +64,13 @@ proptest! {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, MicroPayContract);
+        let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         client.initialize(&admin);
 
         let payer = Address::generate(&env);
-        let token_id = env.register_stellar_asset_contract(admin.clone());
+        let token_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
         token::StellarAssetClient::new(&env, &token_id).mint(&payer, &FUNDING);
         let token = token::Client::new(&env, &token_id);
 

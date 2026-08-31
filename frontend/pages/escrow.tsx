@@ -6,7 +6,7 @@
  * Claim  — recipient pulls the funds once release_ledger has elapsed.
  * Cancel — sender pulls the funds back, but only before release_ledger.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import WalletConnect from "@/components/WalletConnect";
 import { useWallet } from "@/lib/useWallet";
 import {
@@ -22,6 +22,62 @@ import {
   EscrowRecord,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
+
+export interface RawEscrowStruct {
+  sender: string;
+  recipient: string;
+  amount: string;
+  release_ledger: number;
+  claimed: boolean;
+  cancelled: boolean;
+}
+
+export type EscrowStatus = "pending" | "claimable" | "claimed" | "cancelled";
+
+export function resolveEscrowStatus(
+  raw: Pick<RawEscrowStruct, "cancelled" | "claimed" | "release_ledger">,
+  currentLedger?: number
+): EscrowStatus {
+  if (raw.cancelled) return "cancelled";
+  if (raw.claimed) return "claimed";
+  if (currentLedger !== undefined && currentLedger >= raw.release_ledger) return "claimable";
+  return "pending";
+}
+
+export const escrowDecodingFixtures: Record<EscrowStatus, RawEscrowStruct> = {
+  pending: {
+    sender: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    recipient: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    amount: "10000000",
+    release_ledger: 2000,
+    claimed: false,
+    cancelled: false,
+  },
+  claimable: {
+    sender: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    recipient: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    amount: "10000000",
+    release_ledger: 1000,
+    claimed: false,
+    cancelled: false,
+  },
+  claimed: {
+    sender: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    recipient: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    amount: "10000000",
+    release_ledger: 1000,
+    claimed: true,
+    cancelled: false,
+  },
+  cancelled: {
+    sender: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    recipient: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    amount: "10000000",
+    release_ledger: 1000,
+    claimed: false,
+    cancelled: true,
+  },
+};
 
 type LookupState =
   | { kind: "idle" }
@@ -47,6 +103,9 @@ export default function EscrowPage() {
   const [createdId, setCreatedId] = useState<number | null>(null);
   const [xlmBalance, setXlmBalance] = useState("0");
   const [latestLedger, setLatestLedger] = useState<number | null>(null);
+
+  const createResultRef = useRef<HTMLParagraphElement>(null);
+  const actionResultRef = useRef<HTMLDivElement>(null);
 
   // Manage-escrow (claim / cancel) state.
   const [lookupId, setLookupId] = useState("");
@@ -79,16 +138,18 @@ export default function EscrowPage() {
     };
   }, [publicKey]);
 
-  const isCreateDisabled = (() => {
-    if (!publicKey) return true;
-    if (!isValidStellarAddress(recipient)) return true;
+  const createDisabledReason = (() => {
+    if (!publicKey) return "Wallet not connected";
+    if (!isValidStellarAddress(recipient)) return "Invalid recipient address";
     const parsedAmount = parseFloat(amount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return true;
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return "Invalid amount";
     const parsedLedger = parseInt(releaseLedger, 10);
-    if (!Number.isFinite(parsedLedger)) return true;
-    if (latestLedger !== null && parsedLedger <= latestLedger) return true;
-    return creating;
+    if (!Number.isFinite(parsedLedger)) return "Invalid release ledger";
+    if (latestLedger !== null && parsedLedger <= latestLedger) return "Release ledger must be in the future";
+    if (creating) return "Transaction pending";
+    return "";
   })();
+  const isCreateDisabled = !!createDisabledReason;
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -116,6 +177,9 @@ export default function EscrowPage() {
       setRecipient("");
       setAmount("");
       setReleaseLedger("");
+      setTimeout(() => {
+        createResultRef.current?.focus();
+      }, 0);
     } catch (err: any) {
       setCreateError(err?.message ?? "Failed to create escrow.");
     } finally {
@@ -220,6 +284,9 @@ export default function EscrowPage() {
       
       // Refresh the cached escrow so the UI reflects the new status.
       await handleLookup();
+      setTimeout(() => {
+        actionResultRef.current?.focus();
+      }, 0);
     } catch (err: any) {
       setActionError(err?.message ?? `Failed to ${action} escrow.`);
     } finally {
@@ -291,21 +358,36 @@ export default function EscrowPage() {
                 </span>
               </label>
               {createError && (
-                <p className="text-sm text-red-600">{createError}</p>
+                <p className="text-sm text-red-600" role="alert" aria-live="assertive">{createError}</p>
               )}
               {createdId !== null && (
-                <p className="rounded bg-green-50 px-3 py-2 text-sm text-green-700">
+                <p 
+                  ref={createResultRef}
+                  tabIndex={-1}
+                  className="rounded bg-green-50 px-3 py-2 text-sm text-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  role="status"
+                  aria-live="polite"
+                >
                   Escrow created. Note the id from the transaction return
                   value to claim or cancel later.
                 </p>
               )}
-              <button
-                type="submit"
-                disabled={isCreateDisabled}
-                className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:bg-gray-300"
-              >
-                {creating ? "Locking funds…" : "Lock funds in escrow"}
-              </button>
+              <div className="space-y-1">
+                <button
+                  type="submit"
+                  disabled={isCreateDisabled}
+                  aria-disabled={isCreateDisabled}
+                  aria-describedby={isCreateDisabled ? "create-disabled-reason" : undefined}
+                  className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:bg-gray-300"
+                >
+                  {creating ? "Locking funds…" : "Lock funds in escrow"}
+                </button>
+                {isCreateDisabled && createDisabledReason && (
+                  <p id="create-disabled-reason" className="text-xs text-red-600">
+                    {createDisabledReason}
+                  </p>
+                )}
+              </div>
             </form>
           </section>
 
@@ -354,7 +436,13 @@ export default function EscrowPage() {
                 </dl>
 
                 {/* Timeline Section */}
-                <div className="mt-6 pt-4 border-t border-gray-200">
+                <div 
+                  className="mt-6 pt-4 border-t border-gray-200 focus:outline-none"
+                  ref={actionResultRef}
+                  tabIndex={-1}
+                  aria-live="polite"
+                  role="status"
+                >
                   <h3 className="text-sm font-semibold text-gray-700 mb-3">Status Timeline</h3>
                   <div className="relative pl-6 space-y-4">
                     {/* Vertical line */}
@@ -384,52 +472,83 @@ export default function EscrowPage() {
                 </div>
 
                 {lookup.escrow.status === "Pending" && (
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleAction("claim")}
-                      disabled={
-                        actionPending !== null ||
-                        lookup.currentLedger < lookup.escrow.releaseLedger ||
-                        publicKey !== lookup.escrow.to
-                      }
-                      title={
-                        publicKey !== lookup.escrow.to
-                          ? "Only the recipient can claim"
-                          : lookup.currentLedger < lookup.escrow.releaseLedger
-                            ? "Release ledger not reached"
-                            : ""
-                      }
-                      className="rounded bg-green-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
-                    >
-                      {actionPending === "claim" ? "Claiming…" : "Claim"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleAction("cancel")}
-                      disabled={
-                        actionPending !== null ||
-                        lookup.currentLedger >= lookup.escrow.releaseLedger ||
-                        publicKey !== lookup.escrow.from
-                      }
-                      title={
-                        publicKey !== lookup.escrow.from
-                          ? "Only the sender can cancel"
-                          : lookup.currentLedger >= lookup.escrow.releaseLedger
-                            ? "Release ledger already reached"
-                            : ""
-                      }
-                      className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:bg-gray-300"
-                    >
-                      {actionPending === "cancel" ? "Cancelling…" : "Cancel"}
-                    </button>
+                  <div className="mt-3 flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAction("claim")}
+                        disabled={
+                          actionPending !== null ||
+                          lookup.currentLedger < lookup.escrow.releaseLedger ||
+                          publicKey !== lookup.escrow.to
+                        }
+                        aria-disabled={
+                          actionPending !== null ||
+                          lookup.currentLedger < lookup.escrow.releaseLedger ||
+                          publicKey !== lookup.escrow.to
+                        }
+                        title={
+                          publicKey !== lookup.escrow.to
+                            ? "Only the recipient can claim"
+                            : lookup.currentLedger < lookup.escrow.releaseLedger
+                              ? "Release ledger not reached"
+                              : ""
+                        }
+                        className="rounded bg-green-600 px-4 py-2 text-sm text-white disabled:bg-gray-300 flex-1"
+                      >
+                        {actionPending === "claim" ? "Claiming…" : "Claim"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAction("cancel")}
+                        disabled={
+                          actionPending !== null ||
+                          lookup.currentLedger >= lookup.escrow.releaseLedger ||
+                          publicKey !== lookup.escrow.from
+                        }
+                        aria-disabled={
+                          actionPending !== null ||
+                          lookup.currentLedger >= lookup.escrow.releaseLedger ||
+                          publicKey !== lookup.escrow.from
+                        }
+                        title={
+                          publicKey !== lookup.escrow.from
+                            ? "Only the sender can cancel"
+                            : lookup.currentLedger >= lookup.escrow.releaseLedger
+                              ? "Release ledger already reached"
+                              : ""
+                        }
+                        className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:bg-gray-300 flex-1"
+                      >
+                        {actionPending === "cancel" ? "Cancelling…" : "Cancel"}
+                      </button>
+                    </div>
+                    {/* Explanatory text for disabled actions */}
+                    {(publicKey !== lookup.escrow.to || lookup.currentLedger < lookup.escrow.releaseLedger) && (
+                      <p className="text-xs text-red-600">
+                        Claim disabled: {
+                          publicKey !== lookup.escrow.to 
+                            ? "Only the recipient can claim." 
+                            : "Release ledger not reached."
+                        }
+                      </p>
+                    )}
+                    {(publicKey !== lookup.escrow.from || lookup.currentLedger >= lookup.escrow.releaseLedger) && (
+                      <p className="text-xs text-red-600">
+                        Cancel disabled: {
+                          publicKey !== lookup.escrow.from
+                            ? "Only the sender can cancel."
+                            : "Release ledger already reached."
+                        }
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
             )}
 
             {actionError && (
-              <p className="mt-3 text-sm text-red-600">{actionError}</p>
+              <p className="mt-3 text-sm text-red-600" role="alert" aria-live="assertive">{actionError}</p>
             )}
           </section>
         </>

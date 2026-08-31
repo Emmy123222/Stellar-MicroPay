@@ -11,7 +11,7 @@ on:
       update_snapshots:
         description: "Update baseline screenshots"
         required: true
-        default: false
+        default: "false"
         type: boolean
 
 jobs:

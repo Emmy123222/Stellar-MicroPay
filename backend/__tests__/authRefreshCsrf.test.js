@@ -14,6 +14,7 @@ process.env.ALLOWED_ORIGINS = "https://app.example.com";
 
 const { JWT_SECRET, SIGN_OPTIONS } = require("../src/middleware/auth");
 const authRoutes = require("../src/routes/auth");
+const tokenFamilyStore = require("../src/services/tokenFamilyStore");
 
 const PUBLIC_KEY = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
 
@@ -26,7 +27,11 @@ function app() {
 }
 
 function makeToken() {
-  return jwt.sign({ publicKey: PUBLIC_KEY }, JWT_SECRET, SIGN_OPTIONS);
+  const { familyId, jti } = tokenFamilyStore.createFamily(PUBLIC_KEY);
+  return jwt.sign({ publicKey: PUBLIC_KEY, fam: familyId }, JWT_SECRET, {
+    ...SIGN_OPTIONS,
+    jwtid: jti,
+  });
 }
 
 describe("POST /api/auth/refresh — CSRF origin check", () => {
