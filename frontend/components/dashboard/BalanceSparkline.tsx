@@ -18,6 +18,7 @@ export function BalanceSparkline({ data }: { data: number[] }) {
   const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
 
   const trend = data[data.length - 1] >= data[0];
+  const change = data[data.length - 1] - data[0];
   const color = trend ? "#22c55e" : "#ef4444";
   const fillColor = trend ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)";
 
@@ -27,7 +28,7 @@ export function BalanceSparkline({ data }: { data: number[] }) {
     ` L ${points[points.length - 1].x},${H - PAD} Z`;
 
   return (
-    <div className="relative inline-block" aria-label="Balance sparkline chart">
+    <div className="relative inline-block">
       <svg
         width={W}
         height={H}
@@ -35,7 +36,7 @@ export function BalanceSparkline({ data }: { data: number[] }) {
         role="img"
         aria-label={`Balance trend: ${trend ? "upward" : "downward"}`}
       >
-        <path d={fillPath} fill={fillColor} />
+        <path d={fillPath} fill={fillColor} aria-hidden="true" />
         <polyline
           points={polyline}
           fill="none"
@@ -43,9 +44,10 @@ export function BalanceSparkline({ data }: { data: number[] }) {
           strokeWidth="1.5"
           strokeLinejoin="round"
           strokeLinecap="round"
+          aria-hidden="true"
         />
         {points.map((p, i) => (
-          <g key={i} className="group">
+          <g key={i} className="group" aria-hidden="true">
             <circle
               cx={p.x}
               cy={p.y}
@@ -79,8 +81,30 @@ export function BalanceSparkline({ data }: { data: number[] }) {
         ))}
       </svg>
       <p className="text-xs mt-0.5" style={{ color, fontSize: "10px" }}>
-        {trend ? "▲ Upward trend" : "▼ Downward trend"}
+        {trend ? "▲ Upward trend" : "▼ Downward trend"}: {change >= 0 ? "+" : ""}
+        {change.toFixed(4)} XLM across {data.length} recent payments
       </p>
+      <details className="mt-1 text-[10px] text-slate-300">
+        <summary className="cursor-pointer text-stellar-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-stellar-400">
+          View balance trend data
+        </summary>
+        <table className="mt-2 min-w-[160px] text-left">
+          <thead>
+            <tr>
+              <th scope="col" className="pe-3">Payment</th>
+              <th scope="col">Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((value, index) => (
+              <tr key={index}>
+                <th scope="row" className="pe-3 font-normal">{index + 1}</th>
+                <td>{value >= 0 ? "+" : ""}{value.toFixed(4)} XLM</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
     </div>
   );
 }

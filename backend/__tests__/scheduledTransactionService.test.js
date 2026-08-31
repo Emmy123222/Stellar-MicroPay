@@ -6,6 +6,11 @@ const {
   getDueTransactions,
   incrementAttempt,
   removeTransaction,
+  markSubmitted,
+  reconcileTransaction,
+  reconcileByHash,
+  reconcileBySequence,
+  getUnreconciledTransactions,
 } = require("../src/services/scheduledTransactionService");
 
 describe("Scheduled Transaction Service", () => {
@@ -107,6 +112,129 @@ describe("Scheduled Transaction Service", () => {
       
       const updatedTx = getTransactionById(tx.id);
       expect(updatedTx.attempts).toBe(3);
+    });
+  });
+
+  describe("Reconciliation", () => {
+    it("marks a transaction as submitted with txHash", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+
+      markSubmitted(tx.id, "abc123def456", "12345");
+      const updated = getTransactionById(tx.id);
+
+      expect(updated.submissionState).toBe("unknown");
+      expect(updated.txHash).toBe("abc123def456");
+      expect(updated.sourceSequence).toBe("12345");
+    });
+
+    it("submitted transactions are excluded from due list", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+
+      let due = getDueTransactions().find(t => t.id === tx.id);
+      expect(due).toBeDefined();
+
+      markSubmitted(tx.id, "hash1");
+      due = getDueTransactions().find(t => t.id === tx.id);
+      expect(due).toBeUndefined();
+    });
+
+    it("reconcileByHash confirms when transaction found on-ledger", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      markSubmitted(tx.id, "hash1");
+
+      const result = reconcileByHash(tx.id, { successful: true });
+      expect(result).toBe("confirmed");
+      expect(getTransactionById(tx.id).submissionState).toBe("confirmed");
+    });
+
+    it("reconcileByHash fails when transaction not found", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      markSubmitted(tx.id, "hash1");
+
+      const result = reconcileByHash(tx.id, null);
+      expect(result).toBe("failed");
+      expect(getTransactionById(tx.id).submissionState).toBe("failed");
+    });
+
+    it("reconcileByHash fails when transaction failed on-ledger", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      markSubmitted(tx.id, "hash1");
+
+      const result = reconcileByHash(tx.id, { successful: false });
+      expect(result).toBe("failed");
+    });
+
+    it("reconcileBySequence confirms when sequence advanced", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      markSubmitted(tx.id, "hash1", "100");
+
+      const result = reconcileBySequence(tx.id, 101);
+      expect(result).toBe("confirmed");
+      expect(getTransactionById(tx.id).submissionState).toBe("confirmed");
+    });
+
+    it("reconcileBySequence fails when sequence unchanged", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      markSubmitted(tx.id, "hash1", "100");
+
+      const result = reconcileBySequence(tx.id, 100);
+      expect(result).toBe("failed");
+      expect(getTransactionById(tx.id).submissionState).toBe("failed");
+    });
+
+    it("returns unknown when sourceSequence not recorded", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      markSubmitted(tx.id, "hash1"); // no sourceSequence
+
+      const result = reconcileBySequence(tx.id, 100);
+      expect(result).toBe("unknown");
+      expect(getTransactionById(tx.id).submissionState).toBe("unknown");
+    });
+
+    it("getUnreconciledTransactions returns only unknown-state txs", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx1 = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      const tx2 = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      const tx3 = scheduleTransaction(validXDR, pastTime, validPublicKey);
+
+      markSubmitted(tx1.id, "hash1");
+      markSubmitted(tx2.id, "hash2");
+      reconcileTransaction(tx2.id, true);
+      // tx3 never submitted
+
+      const unreconciled = getUnreconciledTransactions();
+      const ids = unreconciled.map(t => t.id);
+      expect(ids).toContain(tx1.id);
+      expect(ids).not.toContain(tx2.id);
+      expect(ids).not.toContain(tx3.id);
+    });
+
+    it("confirmed transactions are excluded from due list", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      markSubmitted(tx.id, "hash1");
+      reconcileTransaction(tx.id, true);
+
+      const due = getDueTransactions().find(t => t.id === tx.id);
+      expect(due).toBeUndefined();
+    });
+
+    it("failed reconciliation leaves tx excluded from due (terminal)", () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      markSubmitted(tx.id, "hash1");
+      reconcileTransaction(tx.id, false, "Not found");
+
+      const due = getDueTransactions().find(t => t.id === tx.id);
+      expect(due).toBeUndefined();
     });
   });
 });

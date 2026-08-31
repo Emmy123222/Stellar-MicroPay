@@ -5,31 +5,31 @@
 
 "use strict";
 
-const express = require("express");
-const cors = require("cors");
-const cookieParser = require("cookie-parser");
 const compression = require("compression");
+const cookieParser = require("cookie-parser");
+const cors = require("cors");
+const express = require("express");
+const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
-const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 const Sentry = require("@sentry/node");
-
-const accountRoutes = require("./routes/accounts");
-const authRoutes = require("./routes/auth");
-const paymentRoutes = require("./routes/payments");
-const analyticsRoutes = require("./routes/analytics");
-const healthRoutes = require("./routes/health");
-const federationRoutes = require("./routes/federation");
-const turretsRoutes = require("./routes/turrets");
-const tipsRoutes = require("./routes/tips");
-const webhookRoutes = require("./routes/webhooks");
 const swaggerUi = require("swagger-ui-express");
+
+const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
+const accountRoutes = require("./routes/accounts");
+const analyticsRoutes = require("./routes/analytics");
+const authRoutes = require("./routes/auth");
+const federationRoutes = require("./routes/federation");
+const healthRoutes = require("./routes/health");
+const paymentRoutes = require("./routes/payments");
+const tipsRoutes = require("./routes/tips");
+const turretsRoutes = require("./routes/turrets");
+const webhookRoutes = require("./routes/webhooks");
+const { resumeAllMonitors } = require("./services/paymentMonitor");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
-const { resumeAllMonitors } = require("./services/paymentMonitor");
 const logger = require("./utils/logger");
-const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 
 const app = express();
 const PORT = process.env.PORT || 4000;

@@ -7,6 +7,7 @@
 
 "use strict";
 
+const emailService = require("./emailService");
 const stellarService = require("./stellarService");
 
 // ─── Cache Configuration ──────────────────────────────────────────────────────
@@ -482,8 +483,6 @@ async function getCohortBreakdown(publicKey, { period = "month", periods = 6 } =
     };
   });
 }
-
-const emailService = require("./emailService");
 
 // In-memory store for scheduled exports: Map<publicKey, { email, frequency, nextRunAt }>
 const exportSchedules = new Map();
