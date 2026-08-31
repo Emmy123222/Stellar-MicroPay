@@ -2,7 +2,9 @@ import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
-import RecurringPayments from "@/components/RecurringPayments";
+import RecurringPayments, {
+  RECURRING_SCHEDULES_STORAGE_KEY,
+} from "@/components/RecurringPayments";
 
 const RECIPIENT = "GDEST234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567";
 
@@ -129,7 +131,61 @@ describe("RecurringPayments — listing existing schedules (#513)", () => {
     unmount();
 
     renderRP();
-    expect(screen.getAllByText(/9 XLM/i).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/9 XLM/i)).length).toBeGreaterThan(0);
+  });
+
+  it("reloads valid schedules already stored in localStorage (#728)", async () => {
+    const stored = [
+      {
+        id: "schedule-1",
+        recipient: RECIPIENT,
+        amount: "7",
+        memo: "Rent",
+        frequency: "monthly" as const,
+        startDate: "2099-01-01",
+        nextDueDate: "2099-02-01",
+        createdAt: Date.now(),
+      },
+    ];
+    localStorage.setItem(RECURRING_SCHEDULES_STORAGE_KEY, JSON.stringify(stored));
+
+    renderRP();
+
+    expect(await screen.findByText(/7 XLM/i)).toBeInTheDocument();
+    expect(screen.getByText(/Rent/i)).toBeInTheDocument();
+  });
+
+  it("ignores corrupted localStorage without wiping valid entries on hydration (#728)", async () => {
+    localStorage.setItem(RECURRING_SCHEDULES_STORAGE_KEY, "{not-json");
+
+    renderRP();
+
+    expect(await screen.findByText(/No recurring schedules yet/i)).toBeInTheDocument();
+    expect(localStorage.getItem(RECURRING_SCHEDULES_STORAGE_KEY)).toBe("[]");
+  });
+
+  it("filters invalid schedule records from localStorage (#728)", async () => {
+    localStorage.setItem(
+      RECURRING_SCHEDULES_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "valid",
+          recipient: RECIPIENT,
+          amount: "4",
+          memo: "",
+          frequency: "weekly",
+          startDate: "2099-01-01",
+          nextDueDate: "2099-01-08",
+          createdAt: 1,
+        },
+        { id: "broken", amount: "bad" },
+      ])
+    );
+
+    renderRP();
+
+    expect(await screen.findByText(/4 XLM/i)).toBeInTheDocument();
+    expect(screen.queryByText(/bad/i)).not.toBeInTheDocument();
   });
 });
 
@@ -173,7 +229,7 @@ describe("RecurringPayments — pause / delete actions (#513)", () => {
 
     await user.click(screen.getAllByRole("button", { name: /Delete schedule/i })[0]);
 
-    expect(screen.queryAllByText(/3 XLM/i).length).toBe(0);
+    expect(screen.queryAllByText(/3 XLM/i)).toHaveLength(0);
     expect(screen.getByText(/No recurring schedules yet/i)).toBeInTheDocument();
   });
 

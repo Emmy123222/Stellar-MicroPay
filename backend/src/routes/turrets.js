@@ -6,8 +6,9 @@
 "use strict";
 
 const express = require("express");
-const { paymentLimiter } = require("../middleware/rateLimit");
+
 const controller = require("../controllers/turretsController");
+const { paymentLimiter } = require("../middleware/rateLimit");
 
 const router = express.Router();
 

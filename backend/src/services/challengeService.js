@@ -6,9 +6,10 @@
 
 "use strict";
 
-const sqlite3 = require("sqlite3").verbose();
-const path = require("path");
 const crypto = require("crypto");
+const path = require("path");
+
+const sqlite3 = require("sqlite3").verbose();
 
 // Database instance (singleton)
 let db = null;

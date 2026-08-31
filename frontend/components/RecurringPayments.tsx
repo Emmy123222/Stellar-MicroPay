@@ -14,7 +14,22 @@ export interface RecurringSchedule {
   pausedAt?: number; // New: timestamp when paused
 }
 
-const STORAGE_KEY = "stellar-micropay:recurring-schedules";
+export const RECURRING_SCHEDULES_STORAGE_KEY = "stellar-micropay:recurring-schedules";
+
+function isValidSchedule(value: unknown): value is RecurringSchedule {
+  if (!value || typeof value !== "object") return false;
+  const schedule = value as RecurringSchedule;
+  return (
+    typeof schedule.id === "string" &&
+    typeof schedule.recipient === "string" &&
+    typeof schedule.amount === "string" &&
+    typeof schedule.memo === "string" &&
+    (schedule.frequency === "weekly" || schedule.frequency === "monthly") &&
+    typeof schedule.startDate === "string" &&
+    typeof schedule.nextDueDate === "string" &&
+    typeof schedule.createdAt === "number"
+  );
+}
 
 function getActiveNetworkName(): string {
   if (typeof window === "undefined") return "testnet";
@@ -68,7 +83,11 @@ function migrateLegacySchedules(): RecurringSchedule[] {
 function readSchedulesFromKey(key: string): RecurringSchedule[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(key) ?? "[]");
+    const raw = localStorage.getItem(RECURRING_SCHEDULES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isValidSchedule);
   } catch {
     return [];
   }
@@ -82,7 +101,7 @@ function loadSchedules(): RecurringSchedule[] {
 
 function saveSchedules(schedules: RecurringSchedule[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(getSchedulesStorageKey(), JSON.stringify(schedules));
+  localStorage.setItem(RECURRING_SCHEDULES_STORAGE_KEY, JSON.stringify(schedules));
 }
 
 // Serialize a Date to a YYYY-MM-DD string using its *local* components.
@@ -149,6 +168,7 @@ const EMPTY_FORM: FormState = {
 
 export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) {
   const [schedules, setSchedules] = useState<RecurringSchedule[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -160,15 +180,16 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
 
   useEffect(() => {
     setSchedules(loadSchedules());
+    setHydrated(true);
   }, []);
 
-  const announce = (message: string) => {
-    setAnnouncement(message);
-  };
+  useEffect(() => {
+    if (!hydrated) return;
+    saveSchedules(schedules);
+  }, [schedules, hydrated]);
 
   const persist = (updated: RecurringSchedule[]) => {
     setSchedules(updated);
-    saveSchedules(updated);
   };
 
   const resetForm = () => {

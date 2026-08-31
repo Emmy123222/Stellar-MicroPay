@@ -40,7 +40,9 @@ fn deploy(env: &Env) -> (Address, crate::MicroPayContractClient) {
 
 #[cfg(test)]
 fn create_token(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
-    let token_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
+    let token_id = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
     let sac = token::StellarAssetClient::new(env, &token_id);
     sac.mint(to, &amount);
     token_id

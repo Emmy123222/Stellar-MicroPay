@@ -6,10 +6,11 @@
 "use strict";
 
 const express = require("express");
+
 const router = express.Router();
+const analyticsController = require("../controllers/analyticsController");
 const { strictLimiter } = require("../middleware/rateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
-const analyticsController = require("../controllers/analyticsController");
 
 /**
  * GET /api/analytics/:publicKey/summary

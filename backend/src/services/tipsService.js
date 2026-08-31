@@ -305,6 +305,40 @@ function getTopTippers(creatorPublicKey, limit = 5) {
   return result;
 }
 
+/** Create an isolated tips service. Useful for tests and independent app instances. */
+function createTipsService(store = new Map(), counter = { value: 1 }) {
+  const service = {
+    recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", memo = "", txHash = "" }) {
+      if (!senderPublicKey || !creatorPublicKey || !amount) {
+        const error = new Error("senderPublicKey, creatorPublicKey, and amount are required");
+        error.status = 400;
+        throw error;
+      }
+      const tip = { id: counter.value++, senderPublicKey, creatorPublicKey, amount: String(amount), asset, memo, txHash, timestamp: new Date().toISOString() };
+      if (!store.has(creatorPublicKey)) store.set(creatorPublicKey, []);
+      store.get(creatorPublicKey).unshift(tip);
+      return tip;
+    },
+    getTipsReceived(creatorPublicKey, options = {}) {
+      if (!creatorPublicKey) throw Object.assign(new Error("creatorPublicKey is required"), { status: 400 });
+      const { limit = 50, offset = 0 } = options;
+      const tips = store.get(creatorPublicKey) || [];
+      return { tips: tips.slice(offset, offset + limit), total: tips.length, limit, offset };
+    },
+    getTipsSent(senderPublicKey, options = {}) {
+      if (!senderPublicKey) throw Object.assign(new Error("senderPublicKey is required"), { status: 400 });
+      const { limit = 50, offset = 0 } = options;
+      const tips = Array.from(store.values()).flat().filter((tip) => tip.senderPublicKey === senderPublicKey);
+      tips.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return { tips: tips.slice(offset, offset + limit), total: tips.length, limit, offset };
+    },
+    validateTipInput,
+    store,
+    counter,
+  };
+  return service;
+}
+
 module.exports = {
   recordTip,
   getTipsReceived,
@@ -315,4 +349,5 @@ module.exports = {
   tipsByCreator,
   toStroops,
   formatStroops,
+  createTipsService,
 };

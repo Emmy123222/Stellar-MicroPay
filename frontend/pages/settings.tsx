@@ -116,7 +116,7 @@ export default function SettingsPage({
 
       try {
         const data = await listTurretsFunctions(publicKey);
-        setDeployments(data);
+        setDeployments(data || []);
       } catch (err) {
         setTurretsError(err instanceof Error ? err.message : "Failed to load Turrets deployments");
       } finally {
@@ -158,7 +158,7 @@ export default function SettingsPage({
 
     try {
       const data = await listTurretsFunctions(publicKey);
-      setDeployments(data);
+      setDeployments(data || []);
     } catch (err) {
       setTurretsError(err instanceof Error ? err.message : "Failed to refresh Turrets deployments");
     } finally {
