@@ -37,17 +37,28 @@ Out of scope:
 - Issues in third-party services (Vercel, Docker Hub, etc.)
 - Theoretical vulnerabilities without a practical attack path
 
-## Disclosure Policy
+## Disclosure & Remediation Policy
 
-We follow **coordinated disclosure**:
+We follow **coordinated disclosure** and adhere to defined severity SLAs:
+
+| Severity | CVSS Score | Triage SLA | Remediation & Patch SLA |
+|---|---|---|---|
+| **Critical** | 9.0 – 10.0 | **24 hours** | **7 days** (48h hotfix for active exploits) |
+| **High** | 7.0 – 8.9 | **48 hours** | **14 days** |
+| **Medium** | 4.0 – 6.9 | **5 business days** | **30 days** |
+| **Low / Info** | 0.1 – 3.9 | **10 business days** | **60–90 days** |
 
 1. Reporter notifies us privately.
-2. We investigate and develop a fix, targeting a patch release within **14 days** for
-   Critical/High issues and **30 days** for Medium/Low.
-3. We publish a patched release and credit the reporter in the changelog (unless
-   they prefer anonymity).
-4. Reporter may publish their findings 7 days after the patch is released, or sooner
-   by mutual agreement.
+2. We investigate and develop a fix following the target SLAs above.
+3. We publish a patched release and credit the reporter in the changelog (unless they prefer anonymity).
+4. Reporter may publish their findings 7 days after the patch is released, or sooner by mutual agreement.
+
+## Dependency Security & Exceptions
+
+- **Automated Fix Policy**: As detailed in [CONTRIBUTING.md](./CONTRIBUTING.md#dependency-management--security-remediation-policy), `npm audit fix --force` is strictly prohibited to prevent silent breaking major upgrades.
+- **Reviewed Lockfile Updates**: All dependency updates must be submitted via reviewed lockfile update PRs.
+- **Exception Ownership**: Security waivers or deferred remediations must be approved by **Repository Maintainers** and **Security Leads**, require documented compensating controls, and have a maximum time-bound duration of **90 days**.
+
 
 ## Preferred Languages
 

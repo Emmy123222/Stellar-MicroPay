@@ -10,7 +10,15 @@ const {
 } = require("../src/utils/webhookSignature");
 
 const SECRET = "supersecret-webhook-key";
-const PAYLOAD = { event: "payment.received", amount: "10.5", asset: "XLM" };
+const PAYLOAD = {
+  eventId: "12345",
+  attempt: 1,
+  createdAt: "2026-08-27T10:00:00Z",
+  network: "testnet",
+  event: "payment.received",
+  amount: "10.5",
+  asset: "XLM"
+};
 
 function sign(payload, secret) {
   return generateWebhookSignature(payload, secret);

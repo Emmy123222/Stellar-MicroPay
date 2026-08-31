@@ -24,8 +24,11 @@ import { NavStarIcon, MoonIcon, SunIcon } from "@/components/icons";
 
 
 export default function Navbar() {
-  const { t } = useTranslation("navbar");
-  
+  const router = useRouter();
+  const { publicKey, connectWallet, disconnectWallet } = useWallet();
+  const { theme, toggleTheme } = useTheme();
+  const { locale, setLocale, t, supportedLocales } = useI18n();
+
   const navLinks = [
     { href: "/", label: t("home") },
     { href: "/dashboard", label: t("dashboard") },
@@ -35,10 +38,6 @@ export default function Navbar() {
     { href: "/settings", label: t("settings") },
   ];
 
-  const router = useRouter();
-  const { publicKey, connectWallet, disconnectWallet } = useWallet();
-  const { theme, toggleTheme } = useTheme();
-  const { locale, setLocale, t, supportedLocales } = useI18n();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   const config = getNetworkConfig();

@@ -4,6 +4,7 @@
     "load-test": "node scripts/load-test.js",
     "smoke-test": "node scripts/smoke-test.js",
     "validate:compose": "node scripts/validate-compose.js",
+    "test:security-policy": "node scripts/test-security-policy.js",
     "generate:openapi": "node scripts/generate-openapi.js",
     "prepare": "husky install"
   },

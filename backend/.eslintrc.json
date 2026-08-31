@@ -8,6 +8,13 @@
     "ecmaVersion": "latest"
   },
   "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
     "import/order": [
       "error",
       {
@@ -24,6 +31,11 @@
           "order": "asc",
           "caseInsensitive": true
         }
+        "alphabetize": {
+          "order": "asc",
+          "caseInsensitive": true
+        },
+        "newlines-between": "always"
       }
     ]
   }
