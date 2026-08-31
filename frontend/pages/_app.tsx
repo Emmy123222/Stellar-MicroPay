@@ -3,21 +3,23 @@
  * Global app wrapper for theme, wallet, navigation, and shared overlays.
  */
 
-import type { AppProps } from "next/app";
 import { useState, useEffect } from "react";
+
+import type { AppProps } from "next/app";
 import Head from "next/head";
+
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
 import { ToastContainer } from "@/components/Toast";
-import { ToastProvider } from "@/lib/ToastContext";
-import { WalletProvider, useWallet } from "@/lib/useWallet";
+import { I18nProvider } from "@/contexts/I18nContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import {
   getStellarURIFromURL,
   registerProtocolHandler,
   type URIParseResult,
 } from "@/lib/sep0007";
-import { ThemeProvider } from "@/contexts/ThemeContext";
-import { I18nProvider } from "@/contexts/I18nContext";
+import { ToastProvider } from "@/lib/ToastContext";
+import { WalletProvider, useWallet } from "@/lib/useWallet";
 // Re-export ThemeContext and useTheme for backward-compat (Navbar still imports from here)
 export { ThemeContext, useTheme } from "@/contexts/ThemeContext";
 import "@/styles/globals.css";

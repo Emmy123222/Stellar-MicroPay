@@ -4,11 +4,13 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from "react";
+
 import Link from "next/link";
+
 import VirtualizedList from "@/components/VirtualizedList";
-import { formatXLM, shortenAddress, formatUSD, exportTipsToCSV } from "@/utils/format";
 import { apiFetch, API_TIMEOUT_MS } from "@/lib/api";
 import { RequestTimeoutError, OfflineError } from "@/lib/request";
+import { formatXLM, shortenAddress, formatUSD, exportTipsToCSV } from "@/utils/format";
 
 // Tip rows render virtualized past this count so long tip histories stay cheap to render.
 const VIRTUALIZE_THRESHOLD = 100;

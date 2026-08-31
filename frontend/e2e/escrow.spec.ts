@@ -7,6 +7,7 @@
  *  3. Refunding an escrow updates its status
  */
 import { test as base, expect } from '@playwright/test';
+
 import { test as authenticatedTest } from './fixtures';
 
 // Mock escrow contract responses

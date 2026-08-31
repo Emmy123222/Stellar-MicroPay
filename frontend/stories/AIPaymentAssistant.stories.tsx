@@ -1,5 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
+
+import type { Meta, StoryObj } from "@storybook/react";
+
 import AIPaymentAssistant from "@/components/AIPaymentAssistant";
 import FloatingAssistantButton from "@/components/FloatingAssistantButton";
 

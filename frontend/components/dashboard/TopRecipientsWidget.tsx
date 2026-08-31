@@ -1,4 +1,5 @@
 import React from "react";
+
 import { shortenAddress } from "@/utils/format";
 
 export function TopRecipientsWidget({

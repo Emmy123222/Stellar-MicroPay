@@ -4,10 +4,22 @@
  */
 
 import { useState, useEffect, useCallback, useRef, memo } from "react";
+
 import { useRouter } from "next/router";
+
+import clsx from "clsx";
 import type { FixedSizeList, ListOnItemsRenderedProps } from "react-window";
+
 import { withErrorBoundary } from "@/components/ErrorBoundary";
+import {
+  HistoryIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  RefreshIcon,
+  ExternalLinkIcon,
+} from "@/components/icons";
 import VirtualizedList from "@/components/VirtualizedList";
+import { loadAddressBookContacts, upsertAddressBookContact } from "@/lib/addressBook";
 import {
   getPaymentHistory,
   shortenAddress,
@@ -16,15 +28,6 @@ import {
   PaymentHistoryResponse,
 } from "@/lib/stellar";
 import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
-import { loadAddressBookContacts, upsertAddressBookContact } from "@/lib/addressBook";
-import {
-  HistoryIcon,
-  ArrowUpIcon,
-  ArrowDownIcon,
-  RefreshIcon,
-  ExternalLinkIcon,
-} from "@/components/icons";
-import clsx from "clsx";
 
 /** @internal Incremented only in test to assert memo bail-outs. */
 export let __transactionRowRenderCount = 0;

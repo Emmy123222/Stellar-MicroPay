@@ -11,6 +11,7 @@
  */
 
 import React from "react";
+
 import { fireEvent, render, screen } from "@testing-library/react";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
@@ -56,8 +57,9 @@ global.fetch = jest.fn().mockResolvedValue({
   json: jest.fn().mockResolvedValue({}),
 } as any);
 
-import SettingsPage from "../pages/settings";
 import { setNetworkConfig } from "@/lib/stellar";
+
+import SettingsPage from "../pages/settings";
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 

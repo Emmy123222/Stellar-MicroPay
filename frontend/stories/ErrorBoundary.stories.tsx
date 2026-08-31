@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function HealthyChild() {

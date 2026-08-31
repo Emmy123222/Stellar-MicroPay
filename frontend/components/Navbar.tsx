@@ -3,24 +3,27 @@
  * Top navigation bar with theme toggle, network status, and wallet controls.
  */
 
+import { useEffect, useState } from "react";
+
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+
 import clsx from "clsx";
+
+import { NavStarIcon, MoonIcon, SunIcon } from "@/components/icons";
+import { useI18n } from "@/contexts/I18nContext";
 import {
   shortenAddress,
   getNetworkConfig,
   fetchNetworkFeeStats,
   type FeeLevel,
 } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 import {
   connectWallet as requestWalletConnection,
   performSEP0010Auth,
 } from "@/lib/wallet";
-import { useWallet } from "@/lib/useWallet";
 import { useTheme } from "@/pages/_app";
-import { useI18n } from "@/contexts/I18nContext";
-import { NavStarIcon, MoonIcon, SunIcon } from "@/components/icons";
 
 
 export default function Navbar() {

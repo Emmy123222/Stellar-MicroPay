@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
+
 import clsx from "clsx";
 import { QRCodeSVG } from "qrcode.react"; // Ensure this is installed
+
 import { buildPaymentLinkUrl, rememberPaymentLink, listPaymentLinks, PaymentLinkRecord } from "@/lib/paymentLinks";
 
 /**

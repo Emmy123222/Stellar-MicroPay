@@ -4,6 +4,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+
 import {
   Locale,
   DEFAULT_LOCALE,
@@ -48,18 +49,27 @@ const TRANSLATION_DICTIONARY: Record<string, string> = {
   memo_required: "Memo is required for this exchange address",
 };
 
-function createT(locale: Locale): Translations & ((key: string) => string) {
+export type TranslateFn = (
+  key: string,
+  vars?: Record<string, string | number>
+) => string;
+
+function createT(locale: Locale): Translations & TranslateFn {
   const base = getTranslations(locale);
-  const fn = (key: string): string => {
-    return TRANSLATION_DICTIONARY[key] || key;
+  const fn: TranslateFn = (key, vars) => {
+    const template = TRANSLATION_DICTIONARY[key] || key;
+    if (!vars) return template;
+    return template.replace(/\{(\w+)\}/g, (match, name) =>
+      name in vars ? String(vars[name]) : match
+    );
   };
-  return Object.assign(fn, base) as any;
+  return Object.assign(fn, base) as Translations & TranslateFn;
 }
 
 interface I18nContextType {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: Translations & ((key: string) => string);
+  t: Translations & TranslateFn;
   isRTL: boolean;
   supportedLocales: Locale[];
 }
@@ -126,4 +136,4 @@ export function useI18n(): I18nContextType {
   return context;
 }
 
-export const useTranslation = useI18n;
+export const useTranslation = (_namespace?: string): I18nContextType => useI18n();

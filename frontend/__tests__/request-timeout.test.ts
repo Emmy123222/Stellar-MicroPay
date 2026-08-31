@@ -4,6 +4,7 @@
  * frontend API and Horizon request layers.
  */
 
+import { apiFetch, API_TIMEOUT_MS } from "@/lib/api";
 import {
   createTimeoutController,
   classifyFetchError,
@@ -11,7 +12,6 @@ import {
   RequestAbortedError,
   OfflineError,
 } from "@/lib/request";
-import { apiFetch, API_TIMEOUT_MS } from "@/lib/api";
 
 describe("createTimeoutController", () => {
   beforeEach(() => jest.useFakeTimers());

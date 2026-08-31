@@ -4,8 +4,9 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { useToast } from '../lib/useToast';
+
 import * as ToastContext from '../lib/ToastContext';
+import { useToast } from '../lib/useToast';
 
 jest.mock('../lib/ToastContext', () => ({
   useToastContext: jest.fn(),

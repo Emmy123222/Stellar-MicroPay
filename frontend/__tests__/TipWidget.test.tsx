@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
 import TipWidget from "@/components/TipWidget";
 import { getXLMBalance } from "@/lib/stellar";
 

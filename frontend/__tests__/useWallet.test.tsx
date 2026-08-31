@@ -4,7 +4,9 @@
  */
 
 import React from 'react';
+
 import { renderHook, act, waitFor } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
 import { WalletProvider, useWallet } from '../lib/useWallet';
 import * as walletLib from '../lib/wallet';

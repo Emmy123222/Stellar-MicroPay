@@ -1,11 +1,11 @@
 "use strict";
 
 require("dotenv").config();
-const logger = require("../utils/logger");
 const {
   scheduledTxQueueDepth,
   scheduledTxSubmitTotal,
 } = require("../metrics/registry");
+const logger = require("../utils/logger");
 
 // In-memory storage for scheduled transactions
 // In a production environment, this would be replaced with a database

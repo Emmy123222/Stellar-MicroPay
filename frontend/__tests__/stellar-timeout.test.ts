@@ -3,12 +3,12 @@
  * Coverage for the Horizon raw-fetch timeout wrapper in lib/stellar.
  */
 
+import { RequestTimeoutError, OfflineError } from "@/lib/request";
 import {
   fetchWithTimeout,
   HORIZON_FEE_STATS_TIMEOUT_MS,
   FRIENDBOT_TIMEOUT_MS,
 } from "@/lib/stellar";
-import { RequestTimeoutError, OfflineError } from "@/lib/request";
 
 describe("fetchWithTimeout", () => {
   beforeEach(() => {

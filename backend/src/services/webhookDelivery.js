@@ -8,13 +8,13 @@
 
 const dns = require("node:dns").promises;
 
-const logger = require("../utils/logger");
-const { generateWebhookSignature } = require("../utils/webhookSignature");
 const {
   webhookDeliveriesTotal,
   webhookDeliveryDuration,
   webhookDeliveryErrorsTotal,
 } = require("../metrics/registry");
+const logger = require("../utils/logger");
+const { generateWebhookSignature } = require("../utils/webhookSignature");
 
 const BLOCKED_IPV4 = [
   [/^0\./, "unspecified"],

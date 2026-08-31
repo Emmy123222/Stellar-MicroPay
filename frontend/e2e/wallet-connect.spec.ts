@@ -7,6 +7,7 @@
  *  3. Navigating to /transactions after connect shows the transaction list.
  */
 import { test as base, expect } from '@playwright/test';
+
 import { test as authenticatedTest } from './fixtures';
 
 // ── Scenario 1: no extension present ─────────────────────────────────────────
@@ -25,7 +26,7 @@ base.describe('wallet not connected', () => {
     });
   });
 
-  base.test('dashboard shows Connect wallet prompt and button', async ({ page }) => {
+  base('dashboard shows Connect wallet prompt and button', async ({ page }) => {
     await page.goto('/dashboard');
 
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
@@ -35,7 +36,7 @@ base.describe('wallet not connected', () => {
     ).toBeVisible();
   });
 
-  base.test('transactions page shows Connect wallet prompt and button', async ({ page }) => {
+  base('transactions page shows Connect wallet prompt and button', async ({ page }) => {
     await page.goto('/transactions');
 
     await expect(page.getByRole('heading', { name: 'Transaction History' })).toBeVisible();

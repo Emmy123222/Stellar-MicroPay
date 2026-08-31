@@ -14,6 +14,7 @@
 "use strict";
 
 const express = require("express");
+
 const { register } = require("./registry");
 
 const router = express.Router();
