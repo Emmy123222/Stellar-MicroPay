@@ -2029,15 +2029,6 @@ export function clearNameCache(): void {
 }
 
 /**
- * Clear the module-level Stellar name resolution cache.
- * Exported for tests — use `clearNameCache()` to reset cached
- * resolutions between test cases or on logout.
- */
-export function clearNameCache(): void {
-  resolvedNameCache.clear();
-}
-
-/**
  * Resolves a human-readable Stellar name to a public key (G... address).
  *
  * - Accepts federation addresses: `alice*domain.com`

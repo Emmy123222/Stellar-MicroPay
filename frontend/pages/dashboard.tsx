@@ -972,28 +972,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           badge: '/favicon.svg',
         });
       } catch (err) {
-  const handleTestNotification = async () => {
-    if (!notificationEnabled) return;
-
-    // In-app bubble for immediate visual feedback
-    setBubbleMessage('You received 10.00 XLM');
-    setShowBubble(true);
-    setTimeout(() => setShowBubble(false), 3000);
-
-    // Real notification via service worker — validates the actual push path
-    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-      try {
-        const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification('Stellar Pay — Test', {
-          body: 'You received 10.00 XLM',
-          icon: '/favicon.svg',
-          badge: '/favicon.svg',
-        });
-      } catch (err) {
         console.error('Test notification failed:', err);
       }
     }
   };
+
 
   const primeRealtimeCursor = useCallback(async () => {
     if (!publicKey) return;
@@ -1043,9 +1026,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         }
 
         try {
-          const bal = await getBalances(publicKey);
-          const xlm = bal.find((b) => b.assetCode === "XLM");
-          if (xlm) setXlmBalance(xlm.balance);
+          if (publicKey) {
+            const bal = await getBalances(publicKey);
+            const xlm = bal.find((b) => b.assetCode === "XLM");
+            if (xlm) setXlmBalance(xlm.balance);
+          }
         } catch {
           // Keep the previous balance if the refresh fails.
         }
@@ -1064,17 +1049,28 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const startPollingFallback = useCallback(() => {
     if (!publicKey || realtimePollRef.current !== null) return;
 
-    realtimePollRef.current = window.setInterval(async () => {
+    const poll = async () => {
       try {
-        const recent = await getRecentPaymentsForStats(publicKey, 1);
-        const latest = recent[0];
-        if (latest) {
-          void handleRealtimePayment(latest);
-        }
-      } catch (err) {
-        console.warn("Realtime polling fallback failed:", err);
+        const recent = await getRecentPaymentsForStats(publicKey, 5);
+        recent.forEach((payment) => {
+          void handleRealtimePayment(payment);
+        });
+      } catch (error) {
+        console.error("Realtime payment polling failed:", error);
       }
+    };
+
+    void poll();
+    realtimePollRef.current = window.setInterval(() => {
+      void poll();
     }, 10000);
+  }, [handleRealtimePayment, publicKey]);
+
+  // Real-time payment streaming for the connected wallet.
+  // On incoming payment: show OS notification when page is hidden,
+  // in-app bubble when page is visible.
+  useEffect(() => {
+    if (!publicKey) return;
 
     let cancelled = false;
     let eventSource: EventSource | null = null;

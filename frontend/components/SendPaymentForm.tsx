@@ -186,8 +186,6 @@ function SendPaymentForm({
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
-  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const destinationValidationRequestRef = useRef<number>(0);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
@@ -415,24 +413,24 @@ function SendPaymentForm({
     // Only trigger for SNS/federation names — raw addresses and usernames are
     // handled elsewhere.
     if (!isStellarName(trimmed)) {
-      setSnsResolved(null);
+      setSnsResolvedAddress(null);
       setSnsResolving(false);
       return;
     }
 
     setSnsResolving(true);
-    setSnsResolved(null);
+    setSnsResolvedAddress(null);
     setDestinationResolutionError(null);
 
     snsDebounceRef.current = setTimeout(async () => {
       try {
         const resolved = await resolveStellarName(trimmed);
-        setSnsResolved(resolved);
+        setSnsResolvedAddress(resolved);
         setDestinationResolutionError(null);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not resolve name";
         setDestinationResolutionError(message);
-        setSnsResolved(null);
+        setSnsResolvedAddress(null);
       } finally {
         setSnsResolving(false);
       }
@@ -580,8 +578,8 @@ function SendPaymentForm({
 
     // If we already resolved a SNS name in the debounced effect, use that
     // result directly — never submit the raw name string.
-    if (isStellarName(trimmedDestination) && snsResolved) {
-      return snsResolved;
+    if (isStellarName(trimmedDestination) && snsResolvedAddress) {
+      return snsResolvedAddress;
     }
 
     setIsResolvingDestination(true);
@@ -630,7 +628,7 @@ function SendPaymentForm({
     setDestination(address);
     setDestinationResolutionError(null);
     setResolvedPaymentDestination(null);
-    setSnsResolved(null);
+    setSnsResolvedAddress(null);
     setIsContactsDropdownOpen(false);
   };
 
@@ -1020,7 +1018,7 @@ function SendPaymentForm({
                 setDestination(val);
                 setDestinationResolutionError(null);
                 setResolvedPaymentDestination(null);
-                setSnsResolved(null);
+                setSnsResolvedAddress(null);
                 setDestAccountWarning(null);
                 setIsContactsDropdownOpen(true);
               }}
