@@ -257,4 +257,3 @@ fn benchmark_open_stream_at_limit() {
     );
     print_budget("open_stream_at_limit", &env);
 }
-

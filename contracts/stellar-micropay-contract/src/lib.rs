@@ -26,10 +26,9 @@ const INSTANCE_LIFETIME_THRESHOLD: u32 = 100_000;
 const INSTANCE_BUMP_AMOUNT: u32 = 500_000;
 
 fn bump_instance_ttl(env: &Env) {
-    env.storage().instance().extend_ttl(
-        INSTANCE_LIFETIME_THRESHOLD,
-        INSTANCE_BUMP_AMOUNT,
-    );
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 }
 
 /// Storage schema version written by `initialize` and advanced by `migrate`.
@@ -69,7 +68,6 @@ pub const MAX_BATCH_SEND_RECIPIENTS: u32 = 25;
 
 /// Maximum number of recipients permitted in a single stream (`open_stream`) (#787).
 pub const MAX_STREAM_RECIPIENTS: u32 = 20;
-
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -1513,7 +1511,12 @@ mod tests {
             amounts_over_limit.push_back(10);
         }
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.batch_send(&token_id, &from, &recipients_over_limit, &amounts_over_limit);
+            client.batch_send(
+                &token_id,
+                &from,
+                &recipients_over_limit,
+                &amounts_over_limit,
+            );
         }));
         assert!(res.is_err(), "batch_send over limit should panic");
     }
@@ -1541,7 +1544,14 @@ mod tests {
             recipients_at_limit.push_back(Address::generate(&env));
             weights_at_limit.push_back(1);
         }
-        let stream_id = client.open_stream(&token_id, &payer, &recipients_at_limit, &weights_at_limit, &rate_per_ledger, &deposit);
+        let stream_id = client.open_stream(
+            &token_id,
+            &payer,
+            &recipients_at_limit,
+            &weights_at_limit,
+            &rate_per_ledger,
+            &deposit,
+        );
         assert_eq!(stream_id, 0);
 
         // Over limit (51) should panic
@@ -1552,7 +1562,14 @@ mod tests {
             weights_over_limit.push_back(1);
         }
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.open_stream(&token_id, &payer, &recipients_over_limit, &weights_over_limit, &rate_per_ledger, &deposit);
+            client.open_stream(
+                &token_id,
+                &payer,
+                &recipients_over_limit,
+                &weights_over_limit,
+                &rate_per_ledger,
+                &deposit,
+            );
         }));
         assert!(res.is_err(), "open_stream over limit should panic");
     }
