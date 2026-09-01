@@ -67,7 +67,8 @@
     "tailwindcss": "^3.4.1",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@jest/globals": "^29.7.0"
   },
   "overrides": {
     "axios": "$axios",

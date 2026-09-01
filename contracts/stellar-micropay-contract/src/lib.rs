@@ -1417,6 +1417,7 @@ mod tests {
         testutils::{Address as _, Ledger as _},
         Address, Env,
     };
+    use soroban_sdk::storage::{Instance as _, Persistent as _};
 
     #[test]
     fn test_initialize() {
@@ -2301,6 +2302,7 @@ mod tests {
     /// contract must reconcile exactly against the total ever deposited.
     #[test]
     fn test_claim_and_top_up_same_ledger() {
+        let env = Env::default();
         let (contract_id, client, token_id, payer, recipient1) = stream_fixture(&env, DEPOSIT * 2);
         let recipient2 = Address::generate(&env);
         let recipient = recipient1.clone();
