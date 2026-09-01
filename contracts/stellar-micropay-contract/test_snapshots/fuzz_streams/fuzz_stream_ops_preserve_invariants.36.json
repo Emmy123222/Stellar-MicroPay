@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 6,
+    "address": 5,
     "nonce": 0,
     "mux_id": 0
   },
@@ -68,24 +68,18 @@
                   "vec": [
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                     }
                   ]
                 },
                 {
                   "vec": [
                     {
-                      "u32": 74
-                    },
-                    {
-                      "u32": 136
+                      "u32": 748
                     }
                   ]
                 },
                 {
-                  "i128": "989"
+                  "i128": "696"
                 },
                 {
                   "i128": "1000000000000"
@@ -157,47 +151,11 @@
     [],
     [],
     [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
     []
   ],
   "ledger": {
     "protocol_version": 27,
-    "sequence_number": 8934,
+    "sequence_number": 2895,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
@@ -367,7 +325,7 @@
                       "symbol": "rate_per_ledger"
                     },
                     "val": {
-                      "i128": "989"
+                      "i128": "696"
                     }
                   },
                   {
@@ -399,35 +357,7 @@
                                 "symbol": "weight"
                               },
                               "val": {
-                                "u32": 74
-                              }
-                            }
-                          ]
-                        },
-                        {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "claimed"
-                              },
-                              "val": {
-                                "i128": "0"
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "recipient"
-                              },
-                              "val": {
-                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "weight"
-                              },
-                              "val": {
-                                "u32": 136
+                                "u32": 748
                               }
                             }
                           ]
@@ -504,7 +434,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 13029
+        "live_until": 500000
       },
       {
         "entry": {
@@ -785,7 +715,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 500000
       }
     ]
   },
