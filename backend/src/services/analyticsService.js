@@ -10,8 +10,6 @@
 const emailService = require("./emailService");
 const stellarService = require("./stellarService");
 
-// ─── Cache Configuration ──────────────────────────────────────────────────────
-
 const CACHE_TTL = 60 * 1000; // 60 seconds in milliseconds
 const CACHE_MAX_SIZE = 100; // bounded LRU size
 
