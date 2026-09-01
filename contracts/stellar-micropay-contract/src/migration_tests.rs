@@ -17,7 +17,7 @@ use soroban_sdk::{
 
 use crate::{
     DataKey, Escrow, EscrowStatus, LegacyReceiptMetadata, MicroPayContract, MicroPayContractClient,
-    TipRecord, SCHEMA_VERSION,
+    ReceiptMetadata, TipRecord, SCHEMA_VERSION,
 };
 
 // ── v1 snapshot fixture builder ──────────────────────────────────────────────
@@ -244,7 +244,7 @@ fn test_migrate_v1_emits_correct_event() {
     let contract_id = env.register_contract(None, MicroPayContract);
     let client = MicroPayContractClient::new(&env, &contract_id);
 
-    let (admin, _payer, _tip_recipient, _token) = build_v1_snapshot(&env, &contract_id);
+    let (admin, payer, tip_recipient, token) = build_v1_snapshot(&env, &contract_id);
 
     env.mock_all_auths();
     client.migrate(&admin);

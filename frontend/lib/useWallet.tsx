@@ -11,9 +11,16 @@ import {
   getConnectedPublicKey,
   signTransactionWithWallet,
 } from "@/lib/wallet";
+import {
+  getNetworkConfig,
+  setNetworkConfig,
+  type NetworkConfig,
+} from "@/lib/stellarConfig";
 
 interface WalletContextValue {
   publicKey: string | null;
+  network: NetworkConfig["network"];
+  networkConfig: NetworkConfig;
   isWalletReady: boolean;
   connect: (nextPublicKey: string) => void;
   disconnect: () => void;
@@ -22,6 +29,7 @@ interface WalletContextValue {
   signTransaction: (
     transactionXDR: string,
   ) => Promise<{ signedXDR: string | null; error: string | null }>;
+  setNetwork: (config: NetworkConfig) => void;
 }
 
 const WalletContext = createContext<WalletContextValue | undefined>(undefined);
@@ -58,6 +66,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     loadLastPublicKey(),
   );
   const [isWalletReady, setIsWalletReady] = useState(false);
+  const [networkConfig, setNetworkConfigState] = useState<NetworkConfig>(() => getNetworkConfig());
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleNetworkChange = (e: Event) => {
+      const customEvent = e as CustomEvent<NetworkConfig>;
+      if (customEvent.detail) {
+        setNetworkConfigState(customEvent.detail);
+      } else {
+        setNetworkConfigState(getNetworkConfig());
+      }
+    };
+    window.addEventListener("stellar-micropay:network-changed", handleNetworkChange);
+    return () => {
+      window.removeEventListener("stellar-micropay:network-changed", handleNetworkChange);
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -82,6 +107,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WalletContextValue>(
     () => ({
       publicKey,
+      network: networkConfig.network,
+      networkConfig,
       isWalletReady,
       connect: (nextPublicKey: string) => {
         saveLastPublicKey(nextPublicKey);
@@ -104,8 +131,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       signTransaction: async (transactionXDR: string) => {
         return signTransactionWithWallet(transactionXDR);
       },
+      setNetwork: (config: NetworkConfig) => {
+        setNetworkConfig(config);
+        setNetworkConfigState(config);
+      },
     }),
-    [publicKey, isWalletReady],
+    [publicKey, isWalletReady, networkConfig]
   );
 
   return (
