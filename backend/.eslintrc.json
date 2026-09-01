@@ -15,6 +15,9 @@
         "varsIgnorePattern": "^_"
       }
     ],
+    // Enforce consistent import ordering: builtins → external packages →
+    // internal → relative (parent/sibling/index). Alphabetised within each
+    // group, case-insensitive, with a blank line between groups.
     "import/order": [
       "error",
       {

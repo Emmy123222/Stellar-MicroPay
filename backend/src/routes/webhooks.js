@@ -31,6 +31,9 @@ function sanitizeWebhook(webhook) {
   const sanitized = { ...webhook };
   delete sanitized.secret;
   return sanitized;
+// eslint-disable-next-line no-unused-vars
+function sanitizeWebhook({ secret: _secret, ...rest }) {
+  return rest;
 }
 
 /**
