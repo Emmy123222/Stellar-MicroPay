@@ -224,7 +224,7 @@ export default function EscrowPage() {
         });
       }
       
-      if (escrow.status === "Released") {
+      if (escrow.status === "Claimed") {
         events.push({
           status: "Funded",
           timestamp: Date.now() - 43200000,

@@ -12,7 +12,13 @@ jest.mock("../src/services/usernameService");
 function setupApp() {
   const app = express();
   app.use(express.json());
-  
+
+  // Simulate verifyJWT: sets req.user.publicKey from a SEP-10 JWT subject.
+  app.use("/api/accounts/register", (req, res, next) => {
+    req.user = { publicKey: req.body?.publicKey || null };
+    next();
+  });
+
   app.get("/api/accounts/resolve/:username", accountController.resolveUsername);
   app.get("/api/accounts/:publicKey/balance", accountController.getBalance);
   app.get("/api/accounts/:publicKey", accountController.getAccount);

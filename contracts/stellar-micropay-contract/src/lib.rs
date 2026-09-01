@@ -1,4 +1,9 @@
 #![no_std]
+// Event emission currently uses the classic `env.events().publish` API. The
+// `Events::publish` method is deprecated in favour of the `#[contractevent]`
+// macro; the event names/schema are part of the public contract ABI, so keep
+// the existing emission until a dedicated event-types migration lands (#798).
+#![allow(deprecated)]
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Env, String, Symbol,
@@ -188,12 +193,7 @@ pub struct Stream {
 
 /// Index of `recipients[i].recipient == addr`, if `addr` is on the stream.
 fn find_recipient(recipients: &soroban_sdk::Vec<StreamRecipient>, addr: &Address) -> Option<u32> {
-    for i in 0..recipients.len() {
-        if &recipients.get(i).unwrap().recipient == addr {
-            return Some(i);
-        }
-    }
-    None
+    (0..recipients.len()).find(|&i| &recipients.get(i).unwrap().recipient == addr)
 }
 
 fn total_weight(recipients: &soroban_sdk::Vec<StreamRecipient>) -> u32 {
@@ -715,7 +715,7 @@ impl MicroPayContract {
 
         // Lock funds: transfer from creator into the contract itself.
         let token = token::Client::new(&env, &token_address);
-        token.transfer(&from, &env.current_contract_address(), &amount);
+        token.transfer(&from, env.current_contract_address(), &amount);
 
         let count_key = DataKey::EscrowCount;
         let next_id: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
@@ -1033,7 +1033,7 @@ impl MicroPayContract {
 
         // Lock funds in the contract; claims and refunds are paid out of here.
         let token = token::Client::new(&env, &token_address);
-        token.transfer(&payer, &env.current_contract_address(), &deposit);
+        token.transfer(&payer, env.current_contract_address(), &deposit);
 
         let mut stream_recipients = soroban_sdk::Vec::new(&env);
         for i in 0..recipients.len() {
@@ -1142,7 +1142,7 @@ impl MicroPayContract {
         }
 
         let token = token::Client::new(&env, &stream.token);
-        token.transfer(&payer, &env.current_contract_address(), &amount);
+        token.transfer(&payer, env.current_contract_address(), &amount);
 
         stream.deposited += amount;
         save_stream(&env, stream_id, &stream);

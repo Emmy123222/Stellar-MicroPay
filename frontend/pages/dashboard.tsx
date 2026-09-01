@@ -18,6 +18,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import Head from "next/head";
 import FloatingAssistantButton from "../components/FloatingAssistantButton";
+import ExternalPaymentBanner from "../components/ExternalPaymentBanner";
 import { useTranslation } from "@/contexts/I18nContext";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
@@ -46,7 +47,7 @@ const RecurringPayments = dynamic(() => import("../components/RecurringPayments"
 // bundle — it's only ever needed after the user opens the floating button,
 // so it's loaded on demand with a visible loading state (#610).
 const AIPaymentAssistantLoading = () => {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
       <div className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-6 py-5 shadow-2xl">
@@ -196,7 +197,7 @@ function saveWidgetOrder(order: DashboardWidgetId[]) {
 }
 
 export default function Dashboard({ stellarURI }: DashboardProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation();
   const { publicKey, network } = useWallet();
   const activeContextKeyRef = useRef<string>("");
   const currentContextKey = `${publicKey ?? ""}:${network ?? "testnet"}`;
@@ -1360,7 +1361,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 )}
                 {staleBalanceAt && (
                   <p className="mt-1 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-200">
-                    {t("offline_snapshot", { time: formatSnapshotTime(staleBalanceAt) })}
+                    {t("offline_snapshot").replace("{time}", formatSnapshotTime(staleBalanceAt))}
                   </p>
                 )}
                 {!sparklineLoading && sparklineData.length > 0 && (

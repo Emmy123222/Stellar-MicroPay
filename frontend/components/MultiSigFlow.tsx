@@ -283,12 +283,12 @@ export default function MultiSigFlow({
     setError(null);
     try {
       const xdrResult = await buildPaymentTransaction({
-        publicKey,
-        destination,
+        fromPublicKey: publicKey,
+        toPublicKey: destination,
         amount,
         memo,
       });
-      setUnsignedXDR(xdrResult);
+      setUnsignedXDR(xdrResult.toXDR());
       setStep("sign");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to build transaction");
@@ -358,9 +358,9 @@ export default function MultiSigFlow({
     setLoading(true);
     setError(null);
     try {
-      const combined = collectSignatures(unsignedXDR, allSignedXDRs);
-      const hash = await submitTransaction(combined);
-      setTxHash(hash);
+      const combined = await collectSignatures(unsignedXDR, allSignedXDRs);
+      const result = await submitTransaction(combined);
+      setTxHash(result.hash);
       setStep("success");
       clearMultiSigDraft(publicKey);
       onSuccess?.();
@@ -407,7 +407,11 @@ export default function MultiSigFlow({
             const isCompleted = stepIndex > idx || step === "success";
 
             return (
-              <li key={s} className="flex flex-col items-center relative z-10">
+              <li
+                key={s}
+                className="flex flex-col items-center relative z-10"
+                {...(isActive ? { "aria-current": "step" } : {})}
+              >
                 <div
                   className={clsx(
                     "w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all",
@@ -417,10 +421,9 @@ export default function MultiSigFlow({
                       ? "bg-emerald-500 text-white"
                       : "bg-white/10 text-slate-400"
                   )}
-                  {...(isActive ? { "aria-current": "step" } : {})}
                 >
                   {idx + 1}
-                },
+                </div>
                 <span className={clsx("text-xs mt-1", isActive ? "text-white font-medium" : "text-slate-400")}>
                   {STEP_LABELS[s]}
                 </span>

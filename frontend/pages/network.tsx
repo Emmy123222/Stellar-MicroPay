@@ -42,6 +42,32 @@ function latencyColour(ms: number): "green" | "amber" | "red" {
   return "red";
 }
 
+/** Average round-trip latency across the recent samples (ms). */
+function getAverageLatency(samples: LatencySample[]): string {
+  const valid = samples.filter((s) => s.latencyMs !== null);
+  if (valid.length === 0) return "—";
+  const avg =
+    valid.reduce((sum, s) => sum + (s.latencyMs as number), 0) / valid.length;
+  return formatMs(Math.round(avg));
+}
+
+/** Overall health label derived from recent samples and any fetch error. */
+function getHealthStatus(samples: LatencySample[], error: string | null): string {
+  if (error) return "Degraded";
+  const last = samples[samples.length - 1];
+  if (!last) return "Checking…";
+  if (last.latencyMs === null) return "Degraded";
+  return last.latencyMs < 1500 ? "Healthy" : "Slow";
+}
+
+/** Accessible description for a single latency sample. */
+function describeSample(sample: LatencySample): string {
+  if (sample.latencyMs === null) {
+    return `${new Date(sample.time).toLocaleTimeString()} — request failed`;
+  }
+  return `${new Date(sample.time).toLocaleTimeString()} — ${formatMs(sample.latencyMs)} (${latencyColour(sample.latencyMs)})`;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Network() {

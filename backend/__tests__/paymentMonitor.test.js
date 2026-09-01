@@ -35,7 +35,7 @@ jest.mock("../src/services/cursorStore", () => ({
 }));
 
 const { Horizon } = require("@stellar/stellar-sdk");
-const { startMonitoring } = require("../src/services/paymentMonitor");
+const { startMonitoring, stopMonitoring } = require("../src/services/paymentMonitor");
 const { getWebhooksByPublicKey } = require("../src/services/webhookStore");
 const { deliverWebhook } = require("../src/services/webhookDelivery");
 const cursorStore = require("../src/services/cursorStore");
@@ -63,6 +63,10 @@ beforeEach(() => {
   lastCursorArg = null;
   cursorStore.get.mockReturnValue("now");
   getWebhooksByPublicKey.mockReturnValue([{ id: "w1", publicKey: PUBLIC_KEY }]);
+});
+
+afterEach(() => {
+  stopMonitoring(PUBLIC_KEY);
 });
 
 describe("paymentMonitor durable cursor (#773)", () => {

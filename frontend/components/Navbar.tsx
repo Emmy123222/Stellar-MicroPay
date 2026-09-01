@@ -128,8 +128,8 @@ export default function Navbar() {
 
           {feeLevel && (
             <span
-              title={t("network_title", { level: feeLevel.charAt(0).toUpperCase() + feeLevel.slice(1) })}
-              aria-label={t("network_aria", { level: feeLevel })}
+              title={t("network_title")}
+              aria-label={t("network_aria")}
               className={clsx(
                 "hidden h-2.5 w-2.5 rounded-full border transition-colors md:inline-block",
                 feeLevel === "normal" && "border-emerald-400/50 bg-emerald-400",

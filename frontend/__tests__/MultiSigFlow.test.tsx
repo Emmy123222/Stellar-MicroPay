@@ -8,9 +8,9 @@ import MultiSigFlow, {
   loadMultiSigDraft,
   saveMultiSigDraft,
   clearMultiSigDraft,
-} from "@components/MultiSigFlow";
+} from "@/components/MultiSigFlow";
 
-jest.mock("@lib/stellar", () => ({
+jest.mock("@/lib/stellar", () => ({
   buildPaymentTransaction: jest.fn(),
   collectSignatures: jest.fn(),
   submitTransaction: jest.fn(),
@@ -19,7 +19,7 @@ jest.mock("@lib/stellar", () => ({
   getNetworkConfig: () => ({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" }),
 }));
 
-jest.mock("@lib/wallet", () => ({
+jest.mock("@/lib/wallet", () => ({
   signTransactionWithWallet: jest.fn(),
 }));
 
@@ -110,7 +110,7 @@ describe("MultiSigFlow — accessible stepper & draft persistence (#825)", () =>
       />
     );
 
-    const panel = screen.getByLabelText("Share");
+    const panel = screen.getByRole("region", { name: "Share with Co-Signers" });
     expect(panel).toHaveAttribute("tabindex", "-1");
 
     await user.click(screen.getByRole("button", { name: "Collect Co-Signer Signatures →" }));

@@ -54,7 +54,7 @@ import {
 } from "@/components/icons";
 import clsx from "clsx";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useToastContext } from "@/lib/ToastContext";
 import { useTranslation } from "@/contexts/I18nContext";
 
@@ -141,7 +141,7 @@ function SendPaymentForm({
   hideMemoField = false,
   accountBalances = [],
 }: SendPaymentFormProps) {
-  const { t } = useTranslation("sendPayment");
+  const { t } = useTranslation();
   const { addToast } = useToastContext();
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
@@ -675,8 +675,8 @@ function SendPaymentForm({
       setAmount("");
       setMemo("");
       setResolvedPaymentDestination(null);
-      setSnsResolved(null);
-      setSnsError(null);
+      setSnsResolvedAddress(null);
+      setError(null);
       setSnsResolving(false);
     }
     setStatus("idle");
@@ -1078,9 +1078,9 @@ function SendPaymentForm({
         {!hideAmountField && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("amount", { asset: selectedAsset })}</label>
+              <label className="label mb-0">{t("amount")}</label>
               <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"}>
-                {t("max", { amount: formatXLM(maxSend) })}
+                {t("max")}
               </button>
             </div>
             <input
@@ -1124,7 +1124,7 @@ function SendPaymentForm({
           disabled={!canSubmit || status !== "idle"}
           className="btn-primary w-full flex items-center justify-center gap-2"
         >
-          {status === "idle" ? t("send_button", { amount: amount || "", asset: selectedAsset }) : t("processing")}
+          {status === "idle" ? t("send_button") : t("processing")}
         </button>
 
         {/* High-value warning — suggest multi-sig for large payments */}
@@ -1133,7 +1133,7 @@ function SendPaymentForm({
             <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
-            <span dangerouslySetInnerHTML={{ __html: t("high_value_warning", { threshold: String(MULTISIG_THRESHOLD_XLM) }).replace("Multi-Signature", "<strong class=\"text-amber-200\">Multi-Signature</strong>") }} />
+            <span dangerouslySetInnerHTML={{ __html: t("high_value_warning").replace("Multi-Signature", "<strong class=\"text-amber-200\">Multi-Signature</strong>") }} />
           </div>
         )}
       </div>
@@ -1178,7 +1178,7 @@ interface SendConfirmationModalProps {
 }
 
 function SendConfirmationModal({ isOpen, destination, amount, asset, memo, estimatedFee, onCancel, onConfirm }: SendConfirmationModalProps) {
-  const { t } = useTranslation("sendPayment");
+  const { t } = useTranslation();
   if (!isOpen) return null;
   const shortened = shortenAddress(destination, 8);
   return (

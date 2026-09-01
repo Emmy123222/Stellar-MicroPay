@@ -121,6 +121,7 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
   
   // A11y enhancements
   const [announcement, setAnnouncement] = useState("");
+  const announce = (message: string) => setAnnouncement(message);
   const headingRef = React.useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
