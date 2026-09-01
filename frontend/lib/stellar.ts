@@ -2023,6 +2023,11 @@ const SNS_CACHE_TTL_MS = 600_000;
  */
 export const resolvedNameCache = new Map<string, { address: string; expiry: number }>();
 
+/** Clears all cached name resolutions, forcing the next resolveStellarName call to hit the network. */
+export function clearNameCache(): void {
+  resolvedNameCache.clear();
+}
+
 /**
  * Resolves a human-readable Stellar name to a public key (G... address).
  *
