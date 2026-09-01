@@ -175,7 +175,7 @@ describe('ToastContext', () => {
       const consumer1 = screen.getByTestId('consumer1');
       const consumer2 = screen.getByTestId('consumer2');
 
-      const addButton1 = consumer1.querySelector('button[onClick]') as HTMLButtonElement;
+      const addButton1 = consumer1.querySelector('button') as HTMLButtonElement;
       
       act(() => {
         addButton1.click();

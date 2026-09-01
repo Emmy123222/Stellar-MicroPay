@@ -202,3 +202,59 @@ fn benchmark_mint_receipt() {
     let _id = client.mint_receipt(&payer, &payee, &1_000, &memo);
     print_budget("mint_receipt", &env);
 }
+
+// ── batch_send_at_limit ───────────────────────────────────────────────────────
+
+#[test]
+fn benchmark_batch_send_at_limit() {
+    let env = make_env();
+    let (admin, client) = deploy(&env);
+
+    let from = Address::generate(&env);
+    let amount_per_recipient: i128 = 10;
+    let total_amount = amount_per_recipient * (crate::MAX_BATCH_SEND_RECIPIENTS as i128);
+    let token_id = create_token(&env, &admin, &from, total_amount);
+
+    let mut recipients = soroban_sdk::Vec::new(&env);
+    let mut amounts = soroban_sdk::Vec::new(&env);
+    for _ in 0..crate::MAX_BATCH_SEND_RECIPIENTS {
+        recipients.push_back(Address::generate(&env));
+        amounts.push_back(amount_per_recipient);
+    }
+
+    env.budget().reset_default();
+    client.batch_send(&token_id, &from, &recipients, &amounts);
+    print_budget("batch_send_at_limit", &env);
+}
+
+// ── open_stream_at_limit ──────────────────────────────────────────────────────
+
+#[test]
+fn benchmark_open_stream_at_limit() {
+    let env = make_env();
+    let (admin, client) = deploy(&env);
+
+    let payer = Address::generate(&env);
+    let deposit: i128 = 1_000_000;
+    let rate_per_ledger: i128 = 100;
+    let token_id = create_token(&env, &admin, &payer, deposit);
+
+    let mut recipients = soroban_sdk::Vec::new(&env);
+    let mut weights = soroban_sdk::Vec::new(&env);
+    for _ in 0..crate::MAX_STREAM_RECIPIENTS {
+        recipients.push_back(Address::generate(&env));
+        weights.push_back(1u32);
+    }
+
+    env.budget().reset_default();
+    let _stream_id = client.open_stream(
+        &token_id,
+        &payer,
+        &recipients,
+        &weights,
+        &rate_per_ledger,
+        &deposit,
+    );
+    print_budget("open_stream_at_limit", &env);
+}
+

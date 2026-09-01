@@ -120,6 +120,11 @@ export function truncateMemoText(memo: string): string {
   return truncated;
 }
 
+/** Return the encoded UTF-8 size of a Stellar MEMO_TEXT value. */
+export function memoTextByteLength(memo: string): number {
+  return new TextEncoder().encode(memo).length;
+}
+
 /**
  * USDC issuer (Circle) for the active network.
  *
@@ -1288,7 +1293,7 @@ export async function buildReceiptMintTransaction({
   const contract = new Contract(CONTRACT_ID);
 
   const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
-  const memoStr = (memo ?? "").slice(0, 28);
+  const memoStr = truncateMemoText(memo ?? "");
   const memoScVal = nativeToScVal(memoStr, { type: "symbol" });
 
   const tx = new TransactionBuilder(sourceAccount, {
@@ -1608,11 +1613,72 @@ export interface TradeAggregation {
 /**
  * Represents an open DEX offer for an account.
  */
+/** Horizon balance/offer asset shape before SDK conversion. */
+export type HorizonAssetRecord = {
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+};
+
+/** Thrown when a balance or Horizon asset record cannot be converted safely. */
+export class InvalidAssetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidAssetError";
+  }
+}
+
+/**
+ * Convert a Horizon asset record (offer, path, trustline) into an SDK Asset.
+ * Rejects malformed issued assets missing code/issuer or with invalid issuers.
+ */
+export function horizonAssetToAsset(record: HorizonAssetRecord): Asset {
+  if (record.asset_type === "native") {
+    return Asset.native();
+  }
+
+  const code = record.asset_code?.trim();
+  const issuer = record.asset_issuer?.trim();
+  if (!code || !issuer) {
+    throw new InvalidAssetError(
+      "Issued asset is missing asset_code or asset_issuer"
+    );
+  }
+  if (!isValidStellarAddress(issuer)) {
+    throw new InvalidAssetError("Issued asset has an invalid issuer address");
+  }
+
+  return new Asset(code, issuer);
+}
+
+/**
+ * Convert a {@link WalletBalance} record into an SDK Asset.
+ * Accepts `"native"` balances and `"CODE:ISSUER"` issued identifiers.
+ */
+export function walletBalanceToAsset(balance: WalletBalance): Asset {
+  if (balance.asset === "native" || balance.assetCode === "XLM") {
+    return Asset.native();
+  }
+
+  const [code, issuer] = balance.asset.split(":");
+  if (!code || !issuer) {
+    throw new InvalidAssetError(
+      `Malformed wallet balance asset identifier: "${balance.asset}"`
+    );
+  }
+
+  return horizonAssetToAsset({
+    asset_type: "credit_alphanum4",
+    asset_code: code,
+    asset_issuer: issuer,
+  });
+}
+
 export interface OpenOffer {
   id: string | number;
   seller: string;
-  selling: { asset_type: string; asset_code?: string; asset_issuer?: string };
-  buying: { asset_type: string; asset_code?: string; asset_issuer?: string };
+  selling: Asset;
+  buying: Asset;
   amount: string;
   price: string;
 }
@@ -1679,8 +1745,8 @@ export async function fetchOpenOffers(publicKey: string): Promise<OpenOffer[]> {
   return result.records.map((r) => ({
     id: r.id,
     seller: r.seller,
-    selling: r.selling,
-    buying: r.buying,
+    selling: horizonAssetToAsset(r.selling),
+    buying: horizonAssetToAsset(r.buying),
     amount: r.amount,
     price: r.price,
   }));
@@ -1831,15 +1897,6 @@ export interface StrictSendQuote {
   path: Asset[];
 }
 
-function toAsset(record: {
-  asset_type: string;
-  asset_code?: string;
-  asset_issuer?: string;
-}): Asset {
-  if (record.asset_type === "native") return Asset.native();
-  return new Asset(record.asset_code as string, record.asset_issuer as string);
-}
-
 /**
  * Quote a strict-send trade: how much of `destAsset` the DEX would currently
  * return for `sendAmount` of `sendAsset`, plus the path that achieves it.
@@ -1851,6 +1908,13 @@ export async function fetchStrictSendQuote(
   sendAmount: string,
   destAsset: Asset
 ): Promise<StrictSendQuote | null> {
+  if (!sendAsset || !destAsset) {
+    throw new InvalidAssetError("Both send and destination assets are required");
+  }
+  if (sendAsset.isNative() && destAsset.isNative()) {
+    throw new InvalidAssetError("Cannot quote a path between identical native assets");
+  }
+
   const result = await server
     .strictSendPaths(sendAsset, sendAmount, [destAsset])
     .call();
@@ -1868,7 +1932,17 @@ export async function fetchStrictSendQuote(
 
   return {
     destinationAmount: best.destination_amount,
-    path: (best.path ?? []).map(toAsset),
+    path: (best.path ?? []).map((hop) => {
+      try {
+        return horizonAssetToAsset(hop);
+      } catch (err) {
+        throw new InvalidAssetError(
+          err instanceof Error
+            ? `Invalid path asset: ${err.message}`
+            : "Invalid path asset in strict-send quote"
+        );
+      }
+    }),
   };
 }
 
@@ -1949,6 +2023,11 @@ const SNS_CACHE_TTL_MS = 600_000;
  */
 export const resolvedNameCache = new Map<string, { address: string; expiry: number }>();
 
+/** Clear all entries from the resolved name cache. */
+export function clearNameCache(): void {
+  resolvedNameCache.clear();
+}
+
 /**
  * Clear the module-level Stellar name resolution cache.
  * Exported for tests — use `clearNameCache()` to reset cached
@@ -1985,21 +2064,21 @@ export async function resolveStellarName(name: string): Promise<string> {
 
   // Determine canonical federation address
   let federationAddress: string;
-  if (trimmed.endsWith(".xlm")) {
-    // alice.xlm → alice*xlm.money (xlm.money is the public SNS resolver for .xlm handles)
-    const localPart = trimmed.slice(0, trimmed.length - 4); // strip ".xlm"
-    if (!localPart) throw new Error(`Invalid .xlm name: "${trimmed}"`);
-    federationAddress = `${localPart}*xlm.money`;
+  const lower = trimmed.toLowerCase();
+  if (lower.endsWith(".xlm")) {
+    const localPart = lower.slice(0, lower.length - 4); // strip ".xlm"
+    if (!localPart) throw new Error(`Could not resolve "${trimmed}": Invalid .xlm name`);
+    federationAddress = `${localPart}*stellarnames.org`;
   } else if (trimmed.includes("*")) {
     // Standard federation address: alice*domain.com
     const parts = trimmed.split("*");
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
-      throw new Error(`Invalid federation address format: "${trimmed}". Expected "user*domain.com".`);
+      throw new Error(`Could not resolve "${trimmed}": Invalid federation address format.`);
     }
     federationAddress = trimmed;
   } else {
     throw new Error(
-      `Invalid Stellar name: "${trimmed}". Use a federation address (alice*domain.com) or .xlm name (alice.xlm).`
+      `Could not resolve "${trimmed}": Use a federation address (alice*domain.com) or .xlm name (alice.xlm).`
     );
   }
 
@@ -2013,6 +2092,7 @@ export async function resolveStellarName(name: string): Promise<string> {
     return record.account_id;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    if (message.startsWith("Could not resolve")) throw err;
     throw new Error(`Could not resolve "${trimmed}": ${message}`);
   }
 }
@@ -2022,7 +2102,7 @@ export async function resolveStellarName(name: string): Promise<string> {
  * Matches federation addresses (contains `*`) and .xlm shorthand (ends with `.xlm`).
  */
 export function isStellarName(value: string): boolean {
-  const v = value.trim();
+  const v = value.trim().toLowerCase();
   return v.endsWith(".xlm") || v.includes("*");
 }
 
