@@ -14,11 +14,10 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
+const Sentry = require("@sentry/node");
 const swaggerUi = require("swagger-ui-express");
 
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
-const { metricsMiddleware } = require("./metrics/middleware");
-const metricsRoutes = require("./metrics/routes");
 const { apiDeprecationHeader } = require("./middleware/deprecation");
 const accountRoutes = require("./routes/accounts");
 const analyticsRoutes = require("./routes/analytics");
