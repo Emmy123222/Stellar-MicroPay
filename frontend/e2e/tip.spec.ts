@@ -52,7 +52,7 @@ base.describe('tip page - disconnected', () => {
     });
   });
 
-  base.test('visiting a creator tip page shows profile details and preset tip amounts', async ({ page }) => {
+  base('visiting a creator tip page shows profile details and preset tip amounts', async ({ page }) => {
     await page.goto('/tip/alice');
 
     // Page title and creator profile heading
@@ -68,7 +68,7 @@ base.describe('tip page - disconnected', () => {
     await expect(page.getByRole('button', { name: /Connect wallet to tip/i })).toBeVisible();
   });
 
-  base.test('visiting an unregistered creator shows creator not found message', async ({ page }) => {
+  base('visiting an unregistered creator shows creator not found message', async ({ page }) => {
     await page.goto('/tip/unknown');
 
     await expect(page.getByRole('heading', { name: 'Creator not found' })).toBeVisible();

@@ -3,7 +3,6 @@ import { test, expect } from './fixtures';
 test.describe('Payment Request Links', () => {
   test('Generating a request link includes the entered amount/memo and opening it pre-fills payment', async ({
     page,
-    authenticatedPage,
   }) => {
     // We can simulate the generation and then opening the link.
     // The link expects base64 encoded JSON in the 'r' query parameter.

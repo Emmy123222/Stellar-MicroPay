@@ -1,6 +1,7 @@
 import { Asset } from "@stellar/stellar-sdk";
 import {
   TransactionCategory,
+  resolveEscrowStatus,
   horizonAssetToAsset,
   walletBalanceToAsset,
   InvalidAssetError,
@@ -16,12 +17,12 @@ describe("Stellar helper", () => {
   });
 
   it.each([
-    [0, "pending"],
-    [1, "claimable"],
-    [2, "claimed"],
-    [3, "cancelled"],
+    [0, "Pending"],
+    [1, "Claimable"],
+    [2, "Claimed"],
+    [3, "Cancelled"],
   ])("maps %i to %s", (status, expected) => {
-    expect(resolveEscrowStatus({ status })).toBe(expected);
+    expect(resolveEscrowStatus(status as Parameters<typeof resolveEscrowStatus>[0])).toBe(expected);
   });
 });
 
