@@ -778,6 +778,33 @@ export default function SettingsPage({
               </div>
             </div>
 
+            {/* Stellar Name Service (SNS) Section */}
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                Stellar Name Service
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                Use human-readable addresses like <code className="text-stellar-400">alice.xlm</code> instead of long public keys.
+                Note: Federation resolution requires a valid <code className="text-stellar-400">stellar.toml</code> file.
+              </p>
+              {publicKey && (
+                <div className="mb-4 p-3 bg-slate-50 dark:bg-cosmos-900 rounded-lg text-xs font-mono text-slate-600 dark:text-slate-300">
+                  Connected address: {shortenAddress(publicKey, 6)} ({publicKey})
+                </div>
+              )}
+              <a
+                href="https://stellarnames.org"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-stellar-500 hover:bg-stellar-600 text-white font-medium rounded-lg transition-colors text-sm"
+              >
+                Register your .xlm name on stellarnames.org
+              </a>
+            </div>
+
             {/* Username Registration Section */}
             {publicKey ? (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">

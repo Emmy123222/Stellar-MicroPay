@@ -3,15 +3,16 @@
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
+require("dotenv").config();
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
-require("dotenv").config();
 const Sentry = require("@sentry/node");
 const swaggerUi = require("swagger-ui-express");
 
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
+const { apiDeprecationHeader } = require("./middleware/deprecation");
 const accountRoutes = require("./routes/accounts");
 const analyticsRoutes = require("./routes/analytics");
 const authRoutes = require("./routes/auth");
@@ -61,6 +62,52 @@ app.use("/api/auth", authRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
+
+// Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
+// discover the SEP-0002 federation endpoint for `name*domain` addresses.
+app.get("/.well-known/stellar.toml", (req, res) => {
+  const serverUrl = getFederationServerUrl(req);
+  const tomlContent = `# Stellar MicroPay federation discovery
+FEDERATION_SERVER="${serverUrl}"
+`;
+
+  res.setHeader("Content-Type", "application/toml; charset=utf-8");
+  res.send(tomlContent);
+});
+
+// Global rate limiting — 100 requests per 15 minutes per IP.
+// standardHeaders: true  → emits RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset (RFC 6585 draft-7).
+// legacyHeaders: false   → suppresses deprecated X-RateLimit-* headers.
+// Clients should inspect RateLimit-Remaining and back off when it approaches 0.
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+app.use(limiter);
+
+// ─── API Versioning & Deprecation Policy (#853) ────────────────────────────────
+
+// Primary Versioned Routes (/api/v1/*)
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/accounts", accountRoutes);
+app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/v1/webhooks", webhookRoutes);
+app.use("/api/v1/analytics", analyticsRoutes);
+app.use("/api/v1/turrets", turretsRoutes);
+app.use("/api/v1/tips", tipsRoutes);
+app.use("/api/v1/health", healthRoutes);
+
+// Legacy Unversioned Routes (/api/*) — includes HTTP Deprecation & Sunset headers
+app.use("/api/auth", apiDeprecationHeader, authRoutes);
+app.use("/api/accounts", apiDeprecationHeader, accountRoutes);
+app.use("/api/payments", apiDeprecationHeader, paymentRoutes);
+app.use("/api/webhooks", apiDeprecationHeader, webhookRoutes);
+app.use("/api/analytics", apiDeprecationHeader, analyticsRoutes);
+app.use("/api/turrets", apiDeprecationHeader, turretsRoutes);
+app.use("/api/tips", apiDeprecationHeader, tipsRoutes);
 app.use("/federation", federationRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
