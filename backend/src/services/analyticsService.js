@@ -7,9 +7,8 @@
 
 "use strict";
 
+const emailService = require("./emailService");
 const stellarService = require("./stellarService");
-
-// ─── Cache Configuration ──────────────────────────────────────────────────────
 
 const CACHE_TTL = 60 * 1000; // 60 seconds in milliseconds
 const CACHE_MAX_SIZE = 100; // bounded LRU size
@@ -482,8 +481,6 @@ async function getCohortBreakdown(publicKey, { period = "month", periods = 6 } =
     };
   });
 }
-
-const emailService = require("./emailService");
 
 // In-memory store for scheduled exports: Map<publicKey, { email, frequency, nextRunAt }>
 const exportSchedules = new Map();

@@ -13,22 +13,26 @@ export function useCountUp(target: number, duration: number = 2000, startOnView:
 
   useEffect(() => {
     if (!startOnView) {
-      setIsVisible(true);
-    } else if (elementRef.current) {
-      const observer = new IntersectionObserver(
-        ([entry]) => {
-          if (entry.isIntersecting && !hasAnimated) {
-            setIsVisible(true);
-            setHasAnimated(true);
-          }
-        },
-        { threshold: 0.1 }
-      );
-
-      observer.observe(elementRef.current);
-      return () => observer.disconnect();
+      if (!isVisible) setIsVisible(true);
+      return;
     }
-  }, [startOnView, hasAnimated]);
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !hasAnimated) {
+          setIsVisible(true);
+          setHasAnimated(true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (elementRef.current) {
+      observer.observe(elementRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [startOnView, isVisible, hasAnimated]);
 
   useEffect(() => {
     if (!isVisible || hasAnimated) return;
@@ -38,9 +42,9 @@ export function useCountUp(target: number, duration: number = 2000, startOnView:
       return;
     }
 
-    let startTime: number;
+    let startTime: number | null = null;
     const animate = (currentTime: number) => {
-      if (!startTime) startTime = currentTime;
+      if (startTime === null) startTime = currentTime;
       const progress = Math.min((currentTime - startTime) / duration, 1);
 
       setCount(Math.floor(progress * target));

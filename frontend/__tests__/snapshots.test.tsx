@@ -66,6 +66,9 @@ jest.mock("@/lib/stellar", () => ({
   CONTRACT_ID: null,
   explorerUrl: jest.fn((hash: string) => `https://expert.stellar.org/tx/${hash}`),
   isValidStellarAddress: jest.fn((addr: string) => addr.startsWith("G") && addr.length === 56),
+  isStellarName: jest.fn((name: string) => name.endsWith(".xlm") || name.includes("*")),
+  resolveStellarName: jest.fn(() => Promise.resolve("GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZZZ")),
+  clearNameCache: jest.fn(),
   submitTransaction: jest.fn(),
   getNetworkConfig: jest.fn(() => ({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" })),
   fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })),
@@ -129,8 +132,11 @@ jest.mock("@/utils/format", () => ({
   formatDate: jest.fn(() => "2026-01-01"),
 }));
 
+
+
 // ─── Component imports ────────────────────────────────────────────────────────
 
+import { I18nProvider } from "@/contexts/I18nContext";
 import Navbar from "@/components/Navbar";
 import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
@@ -143,7 +149,11 @@ import Transactions from "@/pages/transactions";
 
 describe("Navbar snapshot", () => {
   it("renders disconnected state", () => {
-    const { container } = render(<Navbar />);
+    const { container } = render(
+      <I18nProvider>
+        <Navbar />
+      </I18nProvider>
+    );
     expect(container).toMatchSnapshot();
   });
 });

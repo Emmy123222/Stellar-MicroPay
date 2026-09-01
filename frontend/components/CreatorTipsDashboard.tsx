@@ -3,10 +3,12 @@
  * Dashboard component for creators to view tips received.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import VirtualizedList from "@/components/VirtualizedList";
 import { formatXLM, shortenAddress, formatUSD, exportTipsToCSV } from "@/utils/format";
+import { apiFetch, API_TIMEOUT_MS } from "@/lib/api";
+import { RequestTimeoutError, OfflineError } from "@/lib/request";
 
 // Tip rows render virtualized past this count so long tip histories stay cheap to render.
 const VIRTUALIZE_THRESHOLD = 100;
@@ -50,36 +52,52 @@ export default function CreatorTipsDashboard({
   const [page, setPage] = useState(0);
   const pageSize = 10;
 
+  // Abort in-flight requests when the component unmounts or publicKey/page changes.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
   const fetchTips = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setError(null);
 
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      
+
       // Fetch tips received
-      const tipsResponse = await fetch(
-        `${apiBase}/api/tips/received/${encodeURIComponent(publicKey)}?limit=${pageSize}&offset=${page * pageSize}`
+      const tipsPayload = await apiFetch<{
+        tips: TipRecord[];
+        stats: TipsStats | null;
+      }>(
+        `${apiBase}/api/tips/received/${encodeURIComponent(publicKey)}?limit=${pageSize}&offset=${page * pageSize}`,
+        { signal: controller.signal },
+        API_TIMEOUT_MS,
       );
-      
-      if (!tipsResponse.ok) {
-        throw new Error("Failed to load tips");
-      }
-      
-      const tipsPayload = await tipsResponse.json();
-      
-      if (tipsPayload?.success) {
-        setTips(tipsPayload.data.tips || []);
-        setStats(tipsPayload.data.stats || null);
-      } else {
-        setTips([]);
-      }
+
+      setTips(tipsPayload.tips || []);
+      setStats(tipsPayload.stats || null);
     } catch (err) {
+      if (err instanceof RequestTimeoutError) {
+        console.error("Tips request timed out:", err);
+        setError("Loading tips timed out. Please try again.");
+        return;
+      }
+      if (err instanceof OfflineError) {
+        console.error("Tips request failed while offline:", err);
+        setError("You appear to be offline. Check your connection and try again.");
+        return;
+      }
       console.error("Error fetching tips:", err);
       setError("Unable to load tips. Make sure you have a registered username.");
       setTips([]);
     } finally {
-      setLoading(false);
+      if (abortRef.current === controller) {
+        setLoading(false);
+      }
     }
   }, [publicKey, page]);
 

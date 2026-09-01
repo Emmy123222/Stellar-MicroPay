@@ -29,6 +29,9 @@ import {
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
+  getNetworkPassphrase,
+  setNetworkConfig,
+  getNetworkConfig
 } from "@/lib/stellar";
 import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import { signTransactionWithWallet } from "@/lib/wallet";
@@ -51,7 +54,7 @@ import {
 } from "@/components/icons";
 import clsx from "clsx";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToastContext } from "@/lib/ToastContext";
 import { useTranslation } from "@/lib/i18n";
 
@@ -78,6 +81,9 @@ interface SendPaymentFormProps {
     memo?: string;
     validUntil?: number | null;
     fromHistory?: boolean;
+    networkPassphrase?: string;
+    assetCode?: string;
+    assetIssuer?: string;
   } | null;
   aiPrefill?: {
     destination: string;
@@ -147,8 +153,7 @@ function SendPaymentForm({
   const [resolvedPaymentDestination, setResolvedPaymentDestination] = useState<string | null>(null);
   // SNS-specific state: live resolution preview as the user types
   const [snsResolving, setSnsResolving] = useState(false);
-  const [snsResolved, setSnsResolved] = useState<string | null>(null);
-  const [snsError, setSnsError] = useState<string | null>(null);
+  const [snsResolvedAddress, setSnsResolvedAddress] = useState<string | null>(null);
   const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
   const [showCustomAssetForm, setShowCustomAssetForm] = useState(false);
@@ -157,6 +162,9 @@ function SendPaymentForm({
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [pendingNetworkPassphrase, setPendingNetworkPassphrase] = useState<string | null>(null);
+  const [showNetworkMismatch, setShowNetworkMismatch] = useState(false);
+  const [unsupportedAssetError, setUnsupportedAssetError] = useState<string | null>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [isTipOnChain, setIsTipOnChain] = useState(false);
   const [failedStep, setFailedStep] = useState<PaymentStepId | null>(null);
@@ -178,6 +186,8 @@ function SendPaymentForm({
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destinationValidationRequestRef = useRef<number>(0);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
@@ -365,9 +375,34 @@ function SendPaymentForm({
     if (prefill.destination) setDestination(prefill.destination);
     if (prefill.amount) setAmount(prefill.amount);
     if (prefill.memo) setMemo(truncateMemoText(prefill.memo));
+    
+    // Check network passphrase
+    if (prefill.networkPassphrase && prefill.networkPassphrase !== getNetworkPassphrase()) {
+      setPendingNetworkPassphrase(prefill.networkPassphrase);
+      setShowNetworkMismatch(true);
+    }
+    
+    // Check asset code and issuer
+    if (prefill.assetCode && prefill.assetCode !== 'XLM') {
+      const isUSDC = prefill.assetCode === 'USDC' && prefill.assetIssuer === process.env.NEXT_PUBLIC_USDC_ISSUER;
+      const isCustomKnown = accountBalances.some(b => b.code === prefill.assetCode && b.issuer === prefill.assetIssuer);
+      
+      if (isUSDC) {
+        setSelectedAsset('USDC');
+      } else if (isCustomKnown) {
+        setSelectedAsset('CUSTOM');
+        setCustomAsset({ code: prefill.assetCode, issuer: prefill.assetIssuer! });
+        setShowCustomAssetForm(true);
+      } else {
+        setUnsupportedAssetError(`Asset ${prefill.assetCode} from issuer ${prefill.assetIssuer} is not supported or not in your trustlines.`);
+      }
+    } else {
+      setSelectedAsset('XLM');
+    }
+    
     setDestinationResolutionError(null);
     setResolvedPaymentDestination(null);
-  }, [prefill]);
+  }, [prefill, accountBalances]);
 
   // Debounced SNS resolution — fires 400ms after the user stops typing a
   // .xlm name or federation address.  Shows an inline spinner during lookup
@@ -380,24 +415,24 @@ function SendPaymentForm({
     // Only trigger for SNS/federation names — raw addresses and usernames are
     // handled elsewhere.
     if (!isStellarName(trimmed)) {
-      setSnsResolvedAddress(null);
+      setSnsResolved(null);
       setSnsResolving(false);
       return;
     }
 
     setSnsResolving(true);
-    setSnsResolvedAddress(null);
+    setSnsResolved(null);
     setDestinationResolutionError(null);
 
     snsDebounceRef.current = setTimeout(async () => {
       try {
         const resolved = await resolveStellarName(trimmed);
-        setSnsResolvedAddress(resolved);
+        setSnsResolved(resolved);
         setDestinationResolutionError(null);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not resolve name";
         setDestinationResolutionError(message);
-        setSnsResolvedAddress(null);
+        setSnsResolved(null);
       } finally {
         setSnsResolving(false);
       }
@@ -409,13 +444,18 @@ function SendPaymentForm({
   }, [destination]);
 
   // Pre-validate destination account existence on the Stellar network (#294)
-  useEffect(() => {
-    if (!isValidStellarAddress(destination)) {
+  const destinationValidationRequestRef = useRef(0);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const validateDestinationAccount = useCallback((rawAddress: string) => {
+    const trimmedAddress = rawAddress.trim();
+    if (!isValidStellarAddress(trimmedAddress)) {
       setDestAccountWarning(null);
       setIsCheckingDest(false);
       return;
     }
 
+    const requestId = (destinationValidationRequestRef.current += 1);
     setIsCheckingDest(true);
     setDestAccountWarning(null);
     server.loadAccount(trimmedAddress)
@@ -496,18 +536,19 @@ function SendPaymentForm({
     !/[eE]/.test(amount);
   
   const memoBytes = new TextEncoder().encode(memo).length;
-  const isMemoValid = memoBytes <= 28;
+  const isMemoValid = memoBytes <= STELLAR_MEMO_TEXT_MAX_BYTES;
   
   const canSubmit =
-    (isValidDest || isFederationDestination || isUsernameDestination || (isStellarName(trimmedDestination) && !!snsResolved)) &&
+    (isValidDest || isFederationDestination || isUsernameDestination || (isStellarName(trimmedDestination) && !!snsResolvedAddress)) &&
     !isResolvingDestination &&
     !snsResolving &&
-    !snsError &&
     !destinationResolutionError &&
     isValidAmt &&
     status === "idle" &&
     trimmedDestination !== publicKey &&
-    isMemoValid;
+    isMemoValid &&
+    !showNetworkMismatch &&
+    !unsupportedAssetError;
 
   const resolveUsername = async (username: string): Promise<string> => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
@@ -539,15 +580,15 @@ function SendPaymentForm({
 
     // If we already resolved a SNS name in the debounced effect, use that
     // result directly — never submit the raw name string.
-    if (isStellarName(trimmedDestination) && snsResolvedAddress) {
-      return snsResolvedAddress;
+    if (isStellarName(trimmedDestination) && snsResolved) {
+      return snsResolved;
     }
 
     setIsResolvingDestination(true);
     try {
       // If we already resolved the SNS name in the preview, reuse it
-      if (isStellarName(trimmedDestination) && snsResolved) {
-        return snsResolved;
+      if (isStellarName(trimmedDestination) && snsResolvedAddress) {
+        return snsResolvedAddress;
       }
 
       if (isStellarName(trimmedDestination)) {
@@ -589,7 +630,7 @@ function SendPaymentForm({
     setDestination(address);
     setDestinationResolutionError(null);
     setResolvedPaymentDestination(null);
-    setSnsResolvedAddress(null);
+    setSnsResolved(null);
     setIsContactsDropdownOpen(false);
   };
 
@@ -850,6 +891,43 @@ function SendPaymentForm({
         <SendIcon className="w-5 h-5 text-stellar-400" />
         {title}
       </h2>
+      
+      {showNetworkMismatch && pendingNetworkPassphrase && (
+        <div className="mb-6 rounded-lg border border-orange-500/30 bg-orange-500/10 p-4">
+          <p className="text-sm text-orange-200 font-semibold mb-2">Network Mismatch</p>
+          <p className="text-xs text-orange-200/80 mb-4">
+            This payment request is for a different network. Do you want to switch your wallet to the required network?
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                const isMainnet = pendingNetworkPassphrase.includes('Public Global');
+                setNetworkConfig({
+                  network: isMainnet ? 'mainnet' : 'testnet',
+                  horizonUrl: isMainnet ? 'https://horizon.stellar.org' : 'https://horizon-testnet.stellar.org'
+                });
+                window.location.reload();
+              }}
+              className="btn-primary text-xs py-1.5 px-3"
+            >
+              Switch Network
+            </button>
+            <button
+              onClick={() => setShowNetworkMismatch(false)}
+              className="btn-secondary text-xs py-1.5 px-3"
+            >
+              Ignore
+            </button>
+          </div>
+        </div>
+      )}
+
+      {unsupportedAssetError && (
+        <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-sm text-red-200 font-semibold mb-2">Unsupported Asset</p>
+          <p className="text-xs text-red-200/80">{unsupportedAssetError}</p>
+        </div>
+      )}
 
       <div className="space-y-5">
         {!hideAssetSelector && (
@@ -942,38 +1020,9 @@ function SendPaymentForm({
                 setDestination(val);
                 setDestinationResolutionError(null);
                 setResolvedPaymentDestination(null);
-                setSnsResolvedAddress(null);
+                setSnsResolved(null);
                 setDestAccountWarning(null);
                 setIsContactsDropdownOpen(true);
-
-                // SNS live resolution: trigger for federation/SNS patterns
-                const trimmed = val.trim();
-                const looksLikeRawAddress = trimmed.startsWith("G") && trimmed.length === 56;
-                if (isStellarName(trimmed) && !looksLikeRawAddress) {
-                  // Clear previous SNS state
-                  setSnsResolved(null);
-                  setSnsError(null);
-                  if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
-                  setSnsResolving(true);
-                  snsDebounceRef.current = setTimeout(() => {
-                    resolveStellarName(trimmed)
-                      .then((address) => {
-                        setSnsResolved(address);
-                        setSnsError(null);
-                      })
-                      .catch((err: unknown) => {
-                        setSnsResolved(null);
-                        setSnsError(err instanceof Error ? err.message : "Name not found or invalid");
-                      })
-                      .finally(() => setSnsResolving(false));
-                  }, 600);
-                } else {
-                  // Not an SNS name — clear SNS state
-                  if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
-                  setSnsResolving(false);
-                  setSnsResolved(null);
-                  setSnsError(null);
-                }
               }}
               onFocus={() => setIsContactsDropdownOpen(true)}
               placeholder="G... address or alice.xlm"
@@ -991,35 +1040,13 @@ function SendPaymentForm({
 
             {/* SNS resolution feedback */}
             {snsResolving && (
-              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-400">
+              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-400" aria-label="Resolving name" role="status">
                 <div className="w-3 h-3 border border-stellar-400 border-t-transparent rounded-full animate-spin" />
                 Resolving…
               </div>
             )}
-            {!snsResolving && snsResolved && (
-              <p className="mt-1.5 text-xs text-slate-400">
-                Resolves to: <span className="font-mono text-stellar-300">{snsResolved}</span> ✓
-              </p>
-            )}
-            {!snsResolving && snsError && (
-              <p className="mt-1.5 text-xs text-red-400">{snsError}</p>
-            )}
-
             {destinationResolutionError && (
               <p className="mt-2 text-xs text-red-400">{destinationResolutionError}</p>
-            )}
-
-            {/* SNS resolution feedback */}
-            {snsResolving && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-slate-400" aria-live="polite" aria-label="Resolving name">
-                <div className="h-3 w-3 animate-spin rounded-full border border-stellar-400 border-t-transparent" />
-                <span>Resolving name…</span>
-              </div>
-            )}
-            {!snsResolving && snsResolvedAddress && (
-              <p className="mt-2 text-xs text-emerald-400" aria-live="polite">
-                Resolves to: <span className="font-mono">{snsResolvedAddress}</span>
-              </p>
             )}
 
             {/* Destination account existence warning (#294) */}
@@ -1074,8 +1101,8 @@ function SendPaymentForm({
           <div>
             <div className="mb-2 flex items-center justify-between">
               <label className="label mb-0">{t("memo_optional")}</label>
-              <span className={clsx("text-xs transition-colors", memoBytes > 28 ? "text-red-400 font-bold" : "text-slate-400")}>
-                {memoBytes}/28 bytes
+              <span className={clsx("text-xs transition-colors", memoBytes > STELLAR_MEMO_TEXT_MAX_BYTES ? "text-red-400 font-bold" : "text-slate-400")}>
+                {memoBytes}/{STELLAR_MEMO_TEXT_MAX_BYTES} bytes
               </span>
             </div>
             <input
@@ -1083,10 +1110,10 @@ function SendPaymentForm({
               value={memo}
               onChange={(e) => handleMemoChange(e.target.value)}
               placeholder={t("memo_placeholder")}
-              className={clsx("input-field", memoBytes > 28 && "border-red-500/50")}
+              className={clsx("input-field", memoBytes > STELLAR_MEMO_TEXT_MAX_BYTES && "border-red-500/50")}
               disabled={status !== "idle"}
             />
-            {memoBytes > 28 && (
+            {memoBytes > STELLAR_MEMO_TEXT_MAX_BYTES && (
               <p className="mt-1 text-xs text-red-400">{t("memo_limit")}</p>
             )}
           </div>

@@ -100,7 +100,7 @@ async function registerUsername(req, res, next) {
 
     const result = usernameService.registerUsername(username, publicKey);
     logger.info(
-      { event: "username_registered", username, publicKey: req.user.publicKey },
+      { event: "username_registered", username: result.username, publicKey: req.user.publicKey },
       "Username registered",
     );
     res.status(201).json({

@@ -8,6 +8,7 @@ import { Horizon, Networks } from "@stellar/stellar-sdk";
 export interface NetworkConfig {
   network: "testnet" | "mainnet" | "custom";
   horizonUrl: string;
+  rpcUrl?: string;
 }
 
 export const DEFAULT_CONFIGS: Record<"testnet" | "mainnet", NetworkConfig> = {
@@ -23,19 +24,20 @@ export const DEFAULT_CONFIGS: Record<"testnet" | "mainnet", NetworkConfig> = {
 
 /** Read the active network config from local storage (or env vars during SSR), falling back to testnet defaults. */
 export function getNetworkConfig(): NetworkConfig {
-  if (typeof window === "undefined") {
-    // Server-side: use env vars as fallback
-    const network = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
-    return DEFAULT_CONFIGS[network];
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem("stellar-micropay:network");
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch {
+        // Invalid stored config, fall back to default
+      }
+    }
   }
 
-  const stored = localStorage.getItem("stellar-micropay:network");
-  if (stored) {
-    try {
-      return JSON.parse(stored);
-    } catch {
-      // Invalid stored config, fall back to default
-    }
+  const envNet = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_STELLAR_NETWORK : undefined;
+  if (envNet === "mainnet" || envNet === "testnet") {
+    return DEFAULT_CONFIGS[envNet];
   }
 
   // Default to testnet
@@ -46,6 +48,9 @@ export function getNetworkConfig(): NetworkConfig {
 export function setNetworkConfig(config: NetworkConfig): void {
   if (typeof window !== "undefined") {
     localStorage.setItem("stellar-micropay:network", JSON.stringify(config));
+    window.dispatchEvent(
+      new CustomEvent("stellar-micropay:network-changed", { detail: config })
+    );
   }
 }
 

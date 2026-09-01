@@ -8,6 +8,16 @@
     "ecmaVersion": "latest"
   },
   "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    // Enforce consistent import ordering: builtins → external packages →
+    // internal → relative (parent/sibling/index). Alphabetised within each
+    // group, case-insensitive, with a blank line between groups.
     "import/order": [
       "error",
       {
@@ -19,8 +29,10 @@
           "sibling",
           "index"
         ],
-        "alphabeticalOrder": true,
-        "caseInsensitive": true,
+        "alphabetize": {
+          "order": "asc",
+          "caseInsensitive": true
+        },
         "newlines-between": "always"
       }
     ]
