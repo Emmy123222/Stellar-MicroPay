@@ -72,7 +72,7 @@ export function parseStellarURI(uri: string): URIParseResult {
     }
 
     // Validate destination format (basic check for Stellar address)
-    if (!destination.startsWith('G') || destination.length !== 56) {
+    if (!destination.startsWith('G') || destination.length < 40) {
       return {
         success: false,
         error: 'Invalid destination address format'

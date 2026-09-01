@@ -1,4 +1,4 @@
-import { isValidStellarAddress } from "@/lib/stellar";
+import { isValidStellarAddress } from "./stellar";
 
 export interface AddressBookContact {
   id: string;

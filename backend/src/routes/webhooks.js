@@ -25,6 +25,8 @@ const {
  * @param {{ secret?: string, [key: string]: unknown }} webhook
  */
 function sanitizeWebhook({ secret: _secret, ...rest }) { // eslint-disable-line no-unused-vars
+// eslint-disable-next-line no-unused-vars
+function sanitizeWebhook({ secret: _secret, ...rest }) {
   return rest;
 }
 

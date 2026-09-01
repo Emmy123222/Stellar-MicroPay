@@ -247,4 +247,47 @@ describe('useWallet hook', () => {
       localStorage.setItem = originalSetItem;
     });
   });
+
+  describe('Network and rapid context switching (#739)', () => {
+    it('exposes network in useWallet and updates when setNetwork is called', async () => {
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await waitFor(() => {
+        expect(result.current.isWalletReady).toBe(true);
+      });
+
+      expect(result.current.network).toBe('testnet');
+
+      act(() => {
+        result.current.setNetwork({
+          network: 'mainnet',
+          horizonUrl: 'https://horizon.stellar.org',
+        });
+      });
+
+      expect(result.current.network).toBe('mainnet');
+      expect(result.current.networkConfig.horizonUrl).toBe('https://horizon.stellar.org');
+    });
+
+    it('dispatches and responds to stellar-micropay:network-changed events', async () => {
+      const { result } = renderHook(() => useWallet(), { wrapper });
+
+      await waitFor(() => {
+        expect(result.current.isWalletReady).toBe(true);
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('stellar-micropay:network-changed', {
+            detail: {
+              network: 'mainnet',
+              horizonUrl: 'https://horizon.stellar.org',
+            },
+          })
+        );
+      });
+
+      expect(result.current.network).toBe('mainnet');
+    });
+  });
 });
