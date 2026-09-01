@@ -651,4 +651,5 @@ module.exports = {
   startRunner,
   stopRunner,
   _getXlmUsdPrice: getXlmUsdPrice,
+  _resetPriceCache: () => { priceCache = { value: null, fetchedAt: 0, updatedAt: 0 }; },
 };

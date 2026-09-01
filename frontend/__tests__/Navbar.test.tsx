@@ -1,5 +1,5 @@
-import Navbar from '.../components/Navbar';
+import Navbar from '../components/Navbar';
 
-test 'Navbar exists', () => {
+test('Navbar exists', () => {
   expect(Navbar).toBeDefined();
 });

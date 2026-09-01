@@ -12,6 +12,12 @@ jest.mock("../src/services/usernameService");
 function setupApp() {
   const app = express();
   app.use(express.json());
+  app.use((req, res, next) => {
+    if (req.body && req.body.publicKey) {
+      req.user = { publicKey: req.body.publicKey };
+    }
+    next();
+  });
   
   app.get("/api/accounts/resolve/:username", accountController.resolveUsername);
   app.get("/api/accounts/:publicKey/balance", accountController.getBalance);

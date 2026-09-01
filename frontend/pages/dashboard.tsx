@@ -971,24 +971,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           badge: '/favicon.svg',
         });
       } catch (err) {
-  const handleTestNotification = async () => {
-    if (!notificationEnabled) return;
-
-    // In-app bubble for immediate visual feedback
-    setBubbleMessage('You received 10.00 XLM');
-    setShowBubble(true);
-    setTimeout(() => setShowBubble(false), 3000);
-
-    // Real notification via service worker — validates the actual push path
-    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-      try {
-        const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification('Stellar Pay — Test', {
-          body: 'You received 10.00 XLM',
-          icon: '/favicon.svg',
-          badge: '/favicon.svg',
-        });
-      } catch (err) {
         console.error('Test notification failed:', err);
       }
     }
