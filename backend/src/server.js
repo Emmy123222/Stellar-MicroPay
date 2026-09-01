@@ -8,15 +8,16 @@
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
+require("dotenv").config();
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
-require("dotenv").config();
 const Sentry = require("@sentry/node");
 const swaggerUi = require("swagger-ui-express");
 
 const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
+const { apiDeprecationHeader } = require("./middleware/deprecation");
 const accountRoutes = require("./routes/accounts");
 const analyticsRoutes = require("./routes/analytics");
 const authRoutes = require("./routes/auth");
@@ -243,7 +244,6 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // ─── API Versioning & Deprecation Policy (#853) ────────────────────────────────
-const { apiDeprecationHeader } = require("./middleware/deprecation");
 
 // Primary Versioned Routes (/api/v1/*)
 app.use("/api/v1/auth", authRoutes);
