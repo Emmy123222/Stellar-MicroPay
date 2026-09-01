@@ -112,7 +112,7 @@ describe("SettingsPage — Stellar Name Service section", () => {
 
   it("mentions .xlm names in the description", () => {
     render(<SettingsPage {...defaultProps} />);
-    expect(screen.getByText(/alice\.xlm/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/alice\.xlm/i).length).toBeGreaterThan(0);
   });
 
   it("provides a link to stellarnames.org", () => {

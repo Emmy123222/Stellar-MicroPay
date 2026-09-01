@@ -24,6 +24,7 @@ const {
  * Strip the secret field before sending a webhook to the client.
  * @param {{ secret?: string, [key: string]: unknown }} webhook
  */
+// eslint-disable-next-line no-unused-vars
 function sanitizeWebhook({ secret: _secret, ...rest }) {
   return rest;
 }
