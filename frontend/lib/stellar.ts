@@ -42,6 +42,14 @@ import {
 
 import { apiFetch } from "./api";
 
+import {
+  createTimeoutController,
+  classifyFetchError,
+  RequestTimeoutError,
+  RequestAbortedError,
+  OfflineError,
+} from "./request";
+
 export {
   server,
   getServer,
@@ -54,6 +62,8 @@ export {
   getNetworkPassphrase,
   NETWORK_PASSPHRASE,
 };
+
+export { RequestTimeoutError, RequestAbortedError, OfflineError };
 
 /** One XLM is divided into 10,000,000 stroops, Stellar's smallest unit. */
 export const STELLAR_STROOPS_PER_XLM = 10_000_000;
@@ -145,6 +155,9 @@ export function getKnownAssets() {
 /** Soroban RPC server URL. Defaults to testnet. */
 export function getSorobanRpcUrl(): string {
   const config = getNetworkConfig();
+  if (config.rpcUrl?.trim()) {
+    return config.rpcUrl.trim();
+  }
   if (config.network === "mainnet") {
     return "https://soroban.stellar.org";
   } else if (config.network === "testnet") {
@@ -282,6 +295,46 @@ export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
 export const FRIENDBOT_URL =
   process.env.NEXT_PUBLIC_FRIENDBOT_URL || "https://friendbot.stellar.org";
 
+// ─── Operation-specific request timeout budgets ───────────────────────────
+// Horizon and Soroban RPC endpoints can remain pending during upstream
+// outages. Every raw network call carries its own budget so a slow endpoint
+// never hangs the UI indefinitely. The active network (testnet vs. mainnet)
+// is always explicit via getNetworkConfig(), matching the rest of this module.
+
+/** Budget for the Horizon `/fee_stats` endpoint used when building payments. */
+export const HORIZON_FEE_STATS_TIMEOUT_MS = 5_000;
+
+/** Budget for Friendbot funding (testnet only). */
+export const FRIENDBOT_TIMEOUT_MS = 15_000;
+
+/**
+ * Fetch a URL with an operation-specific timeout budget and classify the
+ * result so callers can distinguish timeouts, offline failures, and abort
+ * (unmount) conditions.
+ *
+ * @param url - The URL to fetch.
+ * @param timeoutMs - Timeout budget for this operation.
+ * @param externalSignal - Optional caller signal (e.g. component unmount).
+ * @throws {RequestTimeoutError} When the budget elapses before a response.
+ * @throws {OfflineError} When the browser is offline / network failed.
+ * @throws {RequestAbortedError} When the caller cancelled the request.
+ */
+export async function fetchWithTimeout(
+  url: string,
+  timeoutMs: number,
+  externalSignal?: AbortSignal | null,
+): Promise<Response> {
+  const { controller, cleanup, wasTimeout } = createTimeoutController(timeoutMs, externalSignal);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    cleanup();
+    return res;
+  } catch (err: unknown) {
+    cleanup();
+    throw classifyFetchError(err, controller.signal.aborted, wasTimeout());
+  }
+}
+
 /** Polling options for waiting until an account exists on Horizon. */
 export interface FundingPollOptions {
   intervalMs?: number;
@@ -345,8 +398,9 @@ export async function getFriendBotFunding(publicKey: string): Promise<void> {
     throw new Error("Friendbot is only available on Stellar testnet.");
   }
 
-  const res = await fetch(
-    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`
+  const res = await fetchWithTimeout(
+    `${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`,
+    FRIENDBOT_TIMEOUT_MS
   );
 
   if (!res.ok) {
@@ -572,7 +626,10 @@ export async function buildPaymentTransaction({
   let baseFeeStroops: string = STELLAR_BASE_FEE_STROOPS_STRING;
   try {
     const config = getNetworkConfig();
-    const feeRes = await fetch(`${config.horizonUrl}/fee_stats`);
+    const feeRes = await fetchWithTimeout(
+      `${config.horizonUrl}/fee_stats`,
+      HORIZON_FEE_STATS_TIMEOUT_MS
+    );
     if (feeRes.ok) {
       const feeData = await feeRes.json() as {
         fee_charged?: { p50?: string };
@@ -1471,7 +1528,7 @@ export async function fetchNetworkFeeStats(): Promise<NetworkFeeStats> {
   const config = getNetworkConfig();
   const url = `${config.horizonUrl}/fee_stats`;
 
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url, HORIZON_FEE_STATS_TIMEOUT_MS);
   if (!res.ok) {
     throw new Error(`Horizon fee_stats returned ${res.status}`);
   }
@@ -1529,6 +1586,67 @@ export interface TradeAggregation {
 /**
  * Represents an open DEX offer for an account.
  */
+/** Horizon balance/offer asset shape before SDK conversion. */
+export type HorizonAssetRecord = {
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+};
+
+/** Thrown when a balance or Horizon asset record cannot be converted safely. */
+export class InvalidAssetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidAssetError";
+  }
+}
+
+/**
+ * Convert a Horizon asset record (offer, path, trustline) into an SDK Asset.
+ * Rejects malformed issued assets missing code/issuer or with invalid issuers.
+ */
+export function horizonAssetToAsset(record: HorizonAssetRecord): Asset {
+  if (record.asset_type === "native") {
+    return Asset.native();
+  }
+
+  const code = record.asset_code?.trim();
+  const issuer = record.asset_issuer?.trim();
+  if (!code || !issuer) {
+    throw new InvalidAssetError(
+      "Issued asset is missing asset_code or asset_issuer"
+    );
+  }
+  if (!isValidStellarAddress(issuer)) {
+    throw new InvalidAssetError("Issued asset has an invalid issuer address");
+  }
+
+  return new Asset(code, issuer);
+}
+
+/**
+ * Convert a {@link WalletBalance} record into an SDK Asset.
+ * Accepts `"native"` balances and `"CODE:ISSUER"` issued identifiers.
+ */
+export function walletBalanceToAsset(balance: WalletBalance): Asset {
+  if (balance.asset === "native" || balance.assetCode === "XLM") {
+    return Asset.native();
+  }
+
+  const [code, issuer] = balance.asset.split(":");
+  if (!code || !issuer) {
+    throw new InvalidAssetError(
+      `Malformed wallet balance asset identifier: "${balance.asset}"`
+    );
+  }
+
+  return horizonAssetToAsset({
+    asset_type: "credit_alphanum4",
+    asset_code: code,
+    asset_issuer: issuer,
+  });
+}
+
 export interface OpenOffer {
   id: string | number;
   seller: string;
@@ -1600,8 +1718,8 @@ export async function fetchOpenOffers(publicKey: string): Promise<OpenOffer[]> {
   return result.records.map((r) => ({
     id: r.id,
     seller: r.seller,
-    selling: toAsset(r.selling),
-    buying: toAsset(r.buying),
+selling: horizonAssetToAsset(r.selling),
+    buying: horizonAssetToAsset(r.buying),
     amount: r.amount,
     price: r.price,
   }));
@@ -1752,15 +1870,6 @@ export interface StrictSendQuote {
   path: Asset[];
 }
 
-function toAsset(record: {
-  asset_type: string;
-  asset_code?: string;
-  asset_issuer?: string;
-}): Asset {
-  if (record.asset_type === "native") return Asset.native();
-  return new Asset(record.asset_code as string, record.asset_issuer as string);
-}
-
 /**
  * Quote a strict-send trade: how much of `destAsset` the DEX would currently
  * return for `sendAmount` of `sendAsset`, plus the path that achieves it.
@@ -1772,6 +1881,13 @@ export async function fetchStrictSendQuote(
   sendAmount: string,
   destAsset: Asset
 ): Promise<StrictSendQuote | null> {
+  if (!sendAsset || !destAsset) {
+    throw new InvalidAssetError("Both send and destination assets are required");
+  }
+  if (sendAsset.isNative() && destAsset.isNative()) {
+    throw new InvalidAssetError("Cannot quote a path between identical native assets");
+  }
+
   const result = await server
     .strictSendPaths(sendAsset, sendAmount, [destAsset])
     .call();
@@ -1789,7 +1905,17 @@ export async function fetchStrictSendQuote(
 
   return {
     destinationAmount: best.destination_amount,
-    path: (best.path ?? []).map(toAsset),
+    path: (best.path ?? []).map((hop) => {
+      try {
+        return horizonAssetToAsset(hop);
+      } catch (err) {
+        throw new InvalidAssetError(
+          err instanceof Error
+            ? `Invalid path asset: ${err.message}`
+            : "Invalid path asset in strict-send quote"
+        );
+      }
+    }),
   };
 }
 
@@ -1871,8 +1997,9 @@ const SNS_CACHE_TTL_MS = 600_000;
 export const resolvedNameCache = new Map<string, { address: string; expiry: number }>();
 
 /**
- * Clears the module-level name resolution cache.
- * Useful for tests and forced re-resolution.
+ * Clears the module-level Stellar name resolution cache.
+ * Exported for tests — use `clearNameCache()` to reset cached
+ * resolutions between test cases or on logout.
  */
 export function clearNameCache(): void {
   resolvedNameCache.clear();
@@ -1953,6 +2080,43 @@ export function isStellarName(value: string): boolean {
 // public key as the auth source and return a built+preflighted Transaction
 // ready to hand to signTransactionWithWallet().
 
+/** Typed escrow statuses used by the UI after ledger state resolution. */
+export type EscrowStatus = "Pending" | "Claimable" | "Claimed" | "Cancelled";
+
+/** Raw status values that can come back from the Soroban ledger state. */
+export type RawEscrowStatus = number | "Pending" | "Claimable" | "Claimed" | "Cancelled";
+
+/** Raw Soroban `get_escrow` return shape. */
+export interface RawEscrowStruct {
+  id: number;
+  from: string;
+  to: string;
+  token: string;
+  amount: number | bigint;
+  release_ledger: number;
+  status: RawEscrowStatus;
+}
+
+/** Resolve a raw ledger status value to the typed escrow status. */
+export function resolveEscrowStatus(status: RawEscrowStatus): EscrowStatus {
+  switch (status) {
+    case 0:
+    case "Pending":
+      return "Pending";
+    case 1:
+    case "Claimable":
+      return "Claimable";
+    case 2:
+    case "Claimed":
+      return "Claimed";
+    case 3:
+    case "Cancelled":
+      return "Cancelled";
+    default:
+      throw new Error(`Unknown escrow status: ${String(status)}`);
+  }
+}
+
 export interface EscrowRecord {
   id: number;
   from: string;
@@ -1960,23 +2124,7 @@ export interface EscrowRecord {
   token: string;
   amount: string; // stroops as string
   releaseLedger: number;
-  status: "Pending" | "Released" | "Cancelled";
-}
-
-interface RawEscrowStruct {
-  id: number | string;
-  from: string;
-  to: string;
-  token: string;
-  amount: number | string;
-  release_ledger: number | string;
-  status?: { tag?: string } | string;
-}
-
-function resolveEscrowStatus(raw: RawEscrowStruct["status"]): EscrowRecord["status"] {
-  if (raw == null) return "Pending";
-  if (typeof raw === "string") return raw as EscrowRecord["status"];
-  return (raw.tag ?? "Pending") as EscrowRecord["status"];
+  status: EscrowStatus;
 }
 
 /** Build and preflight a Soroban transaction that creates a new escrow locking funds for a recipient until a release ledger. */

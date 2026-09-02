@@ -12,6 +12,8 @@ import {
   fetchStrictSendQuote,
   submitTransaction,
   NETWORK_PASSPHRASE,
+  USDC,
+  walletBalanceToAsset,
   type StrictSendQuote,
 } from "@/lib/stellar";
 import { formatAsset } from "@/utils/format";
@@ -24,11 +26,10 @@ interface TradeFormProps {
   onSuccess: (message: string) => void;
 }
 
-const USDC_ISSUER =
-  process.env.NEXT_PUBLIC_USDC_ISSUER || "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
-
 const getAsset = (assetType: "XLM" | "USDC"): Asset =>
-  assetType === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
+  assetType === "XLM"
+    ? walletBalanceToAsset({ asset: "native", balance: "0", assetCode: "XLM" })
+    : USDC;
 
 const SLIPPAGE_PRESETS = ["0.1", "0.5", "1"];
 const DEFAULT_SLIPPAGE = "0.5";

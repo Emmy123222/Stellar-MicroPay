@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchNetworkStats, NetworkStats } from "@/lib/stellar";
+import { getNetworkConfig } from "@/lib/stellarConfig";
 
 // ─── Latency sample ───────────────────────────────────────────────────────────
 
@@ -41,10 +42,35 @@ function latencyColour(ms: number): "green" | "amber" | "red" {
   return "red";
 }
 
+function getAverageLatency(samples: LatencySample[]): string {
+  const valid = samples.filter((s) => s.latencyMs !== null);
+  if (valid.length === 0) return "N/A";
+  const avg = valid.reduce((sum, s) => sum + s.latencyMs!, 0) / valid.length;
+  return formatMs(Math.round(avg));
+}
+
+function getHealthStatus(samples: LatencySample[], error: string | null): string {
+  if (error) return "Error";
+  if (samples.length === 0) return "Unknown";
+  const valid = samples.filter((s) => s.latencyMs !== null);
+  const greenCount = valid.filter((s) => latencyColour(s.latencyMs!) === "green").length;
+  const ratio = valid.length > 0 ? greenCount / valid.length : 0;
+  if (ratio >= 0.8) return "Healthy";
+  if (ratio >= 0.5) return "Degraded";
+  return "Down";
+}
+
+function describeSample(sample: LatencySample): string {
+  const time = new Date(sample.time).toLocaleTimeString();
+  if (sample.latencyMs === null) return `Failed at ${time}`;
+  return `Latency ${formatMs(sample.latencyMs)} at ${time}`;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Network() {
   const [stats, setStats] = useState<NetworkStats | null>(null);
+  const networkConfig = getNetworkConfig();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previousLedgerSequence, setPreviousLedgerSequence] = useState<number | null>(null);
@@ -145,6 +171,40 @@ export default function Network() {
 
       {/* ── Latency / Uptime Chart ─────────────────────────────────────────── */}
       <LatencyChart samples={samples} />
+
+      <section
+        aria-labelledby="network-health-heading"
+        className="sr-only"
+        role="region"
+      >
+        <h2 id="network-health-heading">Network health</h2>
+        <dl>
+          <div>
+            <dt>Network</dt>
+            <dd>{networkConfig.network === "mainnet" ? "Mainnet" : "Testnet"}</dd>
+          </div>
+          <div>
+            <dt>Account</dt>
+            <dd>Network-wide statistics</dd>
+          </div>
+          <div>
+            <dt>Node</dt>
+            <dd>Horizon API</dd>
+          </div>
+          <div>
+            <dt>Ledger</dt>
+            <dd>{stats!.latestLedgerSequence.toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>Average latency</dt>
+            <dd>{getAverageLatency(samples)}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>{getHealthStatus(samples, error)}</dd>
+          </div>
+        </dl>
+      </section>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
@@ -392,6 +452,7 @@ function LatencyChart({ samples }: LatencyChartProps) {
               preserveAspectRatio="none"
               aria-label="Latency history chart"
               role="img"
+              aria-hidden="true"
               style={{ display: "block" }}
             >
               {padded.map((sample, i) => {
@@ -463,6 +524,20 @@ function LatencyChart({ samples }: LatencyChartProps) {
                 );
               })}
             </svg>
+
+            <div className="sr-only" aria-label="Selectable latency samples">
+              {samples.map((sample, i) => (
+                <button
+                  key={`${sample.time}-${i}`}
+                  type="button"
+                  onFocus={() => setHoveredIdx(i + padded.length - samples.length)}
+                  onBlur={() => setHoveredIdx(null)}
+                  onClick={() => setHoveredIdx(i + padded.length - samples.length)}
+                >
+                  {describeSample(sample)}
+                </button>
+              ))}
+            </div>
 
             {/* Y-axis labels */}
             <div className="flex justify-between mt-1 text-xs text-slate-500 select-none">

@@ -180,7 +180,7 @@ export function getLocaleDisplayName(locale: Locale): string {
 }
 
 /**
- * Check if locale is RTL (right-to-left)
+ * Check if locale is RTL right-to-left)
  * Currently all supported locales are LTR, but this prepares for future RTL support
  */
 export function isRTL(locale: Locale): boolean {
@@ -232,6 +232,7 @@ const FLAT_EN: Record<string, string> = {
   custom: 'Custom',
   dashboard: 'Dashboard',
   destination: 'Destination',
+  destination_placeholder: 'G... address or alice.xlm',
   disable_notifications: 'Disable notifications',
   disconnect_confirm: 'Disconnect wallet?',
   enable_notifications: 'Enable notifications',
@@ -242,9 +243,11 @@ const FLAT_EN: Record<string, string> = {
   loading_ai: 'Loading AI assistant…',
   mainnet: 'Mainnet',
   max: 'Max: {amount}',
+  memo: 'Memo',
   memo_limit: 'Memo is limited to 28 bytes',
   memo_optional: 'Memo (optional)',
   memo_placeholder: 'Enter a memo for this payment',
+  memo_required: 'Memo is required for this exchange address',
   mint_receipt: 'Mint receipt',
   mint_success: 'Receipt minted successfully',
   minting_receipt: 'Minting receipt…',
@@ -260,8 +263,11 @@ const FLAT_EN: Record<string, string> = {
   remove_contact: 'Remove contact',
   save_contact: 'Save contact',
   scan_qr: 'Scan QR code',
+  send: 'Send',
   send_another: 'Send another payment',
   send_button: 'Send {amount} {asset}',
+  send_payment: 'Send Payment',
+  sending: 'Sending…',
   settings: 'Settings',
   show_full: 'Show full address',
   stellar_micropay: 'Stellar MicroPay',
@@ -298,6 +304,7 @@ const FLAT_ES: Record<string, string> = {
   custom: 'Personalizado',
   dashboard: 'Panel',
   destination: 'Destino',
+  destination_placeholder: 'Dirección G... o alice.xlm',
   disable_notifications: 'Desactivar notificaciones',
   disconnect_confirm: '¿Desconectar billetera?',
   enable_notifications: 'Activar notificaciones',
@@ -308,9 +315,11 @@ const FLAT_ES: Record<string, string> = {
   loading_ai: 'Cargando asistente de IA…',
   mainnet: 'Red principal',
   max: 'Máx: {amount}',
+  memo: 'Memo',
   memo_limit: 'El memo está limitado a 28 bytes',
   memo_optional: 'Memo (opcional)',
   memo_placeholder: 'Introduce un memo para este pago',
+  memo_required: 'Se requiere memo para esta dirección de intercambio',
   mint_receipt: 'Acuñar recibo',
   mint_success: 'Recibo acuñado con éxito',
   minting_receipt: 'Acuñando recibo…',
@@ -326,8 +335,11 @@ const FLAT_ES: Record<string, string> = {
   remove_contact: 'Eliminar contacto',
   save_contact: 'Guardar contacto',
   scan_qr: 'Escanear código QR',
+  send: 'Enviar',
   send_another: 'Enviar otro pago',
   send_button: 'Enviar {amount} {asset}',
+  send_payment: 'Enviar pago',
+  sending: 'Enviando…',
   settings: 'Configuración',
   show_full: 'Mostrar dirección completa',
   stellar_micropay: 'Stellar MicroPay',

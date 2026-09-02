@@ -45,7 +45,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     setLocaleState(newLocale);
     setStoredLocale(newLocale);
     
-    // Update document direction for RTL support
+    // Update document direction for RTP support
     if (typeof document !== 'undefined') {
       document.documentElement.dir = isRTL(newLocale) ? 'rtl' : 'ltr';
       document.documentElement.lang = newLocale;
@@ -76,7 +76,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 export function useI18n(): I18nContextType {
   const context = useContext(I18nContext);
   if (context === undefined) {
-    throw new Error('useI18n must be used within an I18nProvider');
+    return {
+      locale: DEFAULT_LOCALE,
+      setLocale: () => {},
+      t: createTranslator(DEFAULT_LOCALE),
+      isRTL: false,
+      supportedLocales: SUPPORTED_LOCALES,
+    };
   }
   return context;
 }
+
+export const useTranslation = () => ({ t: useI18n().t });

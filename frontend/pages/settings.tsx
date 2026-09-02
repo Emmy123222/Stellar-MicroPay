@@ -3,7 +3,7 @@
  * Settings page with network switcher for testnet/mainnet/custom Horizon URL.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
@@ -38,6 +38,10 @@ export default function SettingsPage({
     horizonUrl: "https://horizon-testnet.stellar.org",
   });
   const [customUrl, setCustomUrl] = useState("");
+  const [customRpcUrl, setCustomRpcUrl] = useState("");
+  const [endpointErrors, setEndpointErrors] = useState({ horizon: "", rpc: "" });
+  const customHorizonRef = useRef<HTMLInputElement>(null);
+  const customRpcRef = useRef<HTMLInputElement>(null);
   const [showMainnetWarning, setShowMainnetWarning] = useState(false);
   const [pendingNetwork, setPendingNetwork] = useState<"testnet" | "mainnet" | "custom" | null>(null);
 
@@ -112,7 +116,7 @@ export default function SettingsPage({
 
       try {
         const data = await listTurretsFunctions(publicKey);
-        setDeployments(data);
+        setDeployments(data || []);
       } catch (err) {
         setTurretsError(err instanceof Error ? err.message : "Failed to load Turrets deployments");
       } finally {
@@ -128,10 +132,16 @@ export default function SettingsPage({
     setConfig(currentConfig);
     if (currentConfig.network === "custom") {
       setCustomUrl(currentConfig.horizonUrl);
+      setCustomRpcUrl(currentConfig.rpcUrl || "");
     }
   }, []);
 
   const handleNetworkChange = (network: "testnet" | "mainnet" | "custom") => {
+    if (network === "custom") {
+      setConfig((current) => ({ ...current, network: "custom" }));
+      setEndpointErrors({ horizon: "", rpc: "" });
+      return;
+    }
     if (network === "mainnet" && config.network !== "mainnet") {
       setPendingNetwork(network);
       setShowMainnetWarning(true);
@@ -148,7 +158,7 @@ export default function SettingsPage({
 
     try {
       const data = await listTurretsFunctions(publicKey);
-      setDeployments(data);
+      setDeployments(data || []);
     } catch (err) {
       setTurretsError(err instanceof Error ? err.message : "Failed to refresh Turrets deployments");
     } finally {
@@ -235,6 +245,62 @@ export default function SettingsPage({
     }
   };
 
+  const validateEndpoint = (value: string, label: string, required = true) => {
+    if (!value.trim()) return required ? `${label} URL is required.` : "";
+    try {
+      const url = new URL(value.trim());
+      if (url.protocol !== "https:") return `${label} URL must use HTTPS.`;
+      if (!url.hostname) return `${label} URL must include a hostname.`;
+    } catch {
+      return `${label} URL is invalid.`;
+    }
+    return "";
+  };
+
+  const endpointNetwork = (value: string) => {
+    try {
+      const hostname = new URL(value).hostname.toLowerCase();
+      if (hostname.includes("testnet")) return "testnet";
+      if (hostname.includes("mainnet")) return "mainnet";
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
+  const handleCustomEndpointsBlur = () => {
+    const horizonError = validateEndpoint(customUrl, "Horizon");
+    const rpcError = validateEndpoint(customRpcUrl, "RPC", false);
+    const horizonNetwork = endpointNetwork(customUrl);
+    const rpcNetwork = endpointNetwork(customRpcUrl);
+    const networkError =
+      !horizonError && !rpcError && horizonNetwork && rpcNetwork && horizonNetwork !== rpcNetwork
+        ? "RPC URL must use the same network as the Horizon URL."
+        : "";
+    const errors = { horizon: horizonError, rpc: rpcError || networkError };
+    setEndpointErrors(errors);
+    if (errors.horizon) {
+      customHorizonRef.current?.focus();
+      return;
+    }
+    if (errors.rpc) {
+      customRpcRef.current?.focus();
+      return;
+    }
+
+    const newConfig: NetworkConfig = {
+      network: "custom",
+      horizonUrl: customUrl.trim(),
+      ...(customRpcUrl.trim() ? { rpcUrl: customRpcUrl.trim() } : {}),
+    };
+    setNetworkConfig(newConfig);
+    setConfig(newConfig);
+    if (publicKey) {
+      disconnectWallet();
+      onDisconnect();
+    }
+  };
+
   const applyNetworkChange = (network: "testnet" | "mainnet" | "custom") => {
     let horizonUrl: string;
     if (network === "testnet") {
@@ -242,8 +308,8 @@ export default function SettingsPage({
     } else if (network === "mainnet") {
       horizonUrl = "https://horizon.stellar.org";
     } else {
-      horizonUrl = customUrl.trim();
-      if (!horizonUrl) return; // Don't allow empty custom URL
+      handleCustomEndpointsBlur();
+      return;
     }
 
     const newConfig: NetworkConfig = { network, horizonUrl };
@@ -258,21 +324,6 @@ export default function SettingsPage({
 
     setShowMainnetWarning(false);
     setPendingNetwork(null);
-  };
-
-  const handleCustomUrlChange = (url: string) => {
-    setCustomUrl(url);
-    if (config.network === "custom") {
-      const newConfig: NetworkConfig = { network: "custom", horizonUrl: url };
-      setNetworkConfig(newConfig);
-      setConfig(newConfig);
-
-      // Disconnect wallet on URL change
-      if (publicKey) {
-        disconnectWallet();
-        onDisconnect();
-      }
-    }
   };
 
   // Username registration handler
@@ -511,19 +562,41 @@ export default function SettingsPage({
 
                 {config.network === "custom" && (
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    <label htmlFor="custom-horizon-url" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                       Custom Horizon URL
                     </label>
                     <input
+                      id="custom-horizon-url"
                       type="url"
                       value={customUrl}
                       onChange={(e) => setCustomUrl(e.target.value)}
-                      onBlur={() => handleCustomUrlChange(customUrl)}
+                      onBlur={handleCustomEndpointsBlur}
+                      ref={customHorizonRef}
+                      aria-invalid={Boolean(endpointErrors.horizon)}
+                      aria-describedby={endpointErrors.horizon ? "custom-horizon-error" : "custom-horizon-help"}
                       placeholder="https://horizon.example.com"
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
                     />
-                    <p className="text-xs text-slate-400 dark:text-slate-400 mt-1">
-                      Enter a custom Horizon server URL. Changes take effect immediately.
+                    <p id={endpointErrors.horizon ? "custom-horizon-error" : "custom-horizon-help"} role={endpointErrors.horizon ? "alert" : undefined} className={`text-xs mt-1 ${endpointErrors.horizon ? "text-red-400" : "text-slate-400 dark:text-slate-400"}`}>
+                      {endpointErrors.horizon || "Enter a custom Horizon server URL. Changes take effect after both endpoints are valid."}
+                    </p>
+                    <label htmlFor="custom-rpc-url" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mt-4 mb-2">
+                      Custom Soroban RPC URL
+                    </label>
+                    <input
+                      id="custom-rpc-url"
+                      type="url"
+                      value={customRpcUrl}
+                      onChange={(e) => setCustomRpcUrl(e.target.value)}
+                      onBlur={handleCustomEndpointsBlur}
+                      ref={customRpcRef}
+                      aria-invalid={Boolean(endpointErrors.rpc)}
+                      aria-describedby={endpointErrors.rpc ? "custom-rpc-error" : "custom-rpc-help"}
+                      placeholder="https://soroban.example.com"
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
+                    />
+                    <p id={endpointErrors.rpc ? "custom-rpc-error" : "custom-rpc-help"} role={endpointErrors.rpc ? "alert" : undefined} className={`text-xs mt-1 ${endpointErrors.rpc ? "text-red-400" : "text-slate-400 dark:text-slate-400"}`}>
+                      {endpointErrors.rpc || "Use an RPC endpoint on the same network as Horizon."}
                     </p>
                   </div>
                 )}

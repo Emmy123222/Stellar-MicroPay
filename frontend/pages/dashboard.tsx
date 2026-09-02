@@ -148,6 +148,22 @@ function formatSnapshotTime(savedAt: number) {
   });
 }
 
+function getRealtimePaymentKey(payment: PaymentRecord): string {
+  const candidate = payment as PaymentRecord & {
+    pagingToken?: string;
+    transactionId?: string;
+    transactionHash?: string;
+    id?: string;
+  };
+  return (
+    candidate.pagingToken ??
+    candidate.transactionId ??
+    candidate.transactionHash ??
+    candidate.id ??
+    `${payment.createdAt}:${payment.amount}:${payment.type}`
+  );
+}
+
 // ─── Dashboard widget drag-to-reorder (#622) ────────────────────────────────
 
 const DASHBOARD_WIDGET_IDS = ["stats", "monthlySpending", "thirtyDayVolume", "analytics"] as const;
@@ -356,6 +372,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const realtimeSourceRef = useRef<EventSource | null>(null);
   const realtimePollRef = useRef<number | null>(null);
   const latestPaymentIdRef = useRef<string | null>(null);
+  const seenRealtimePaymentIdsRef = useRef<Set<string>>(new Set());
+  const notificationEnabledRef = useRef(notificationEnabled);
+  const bubbleTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    notificationEnabledRef.current = notificationEnabled;
+  }, [notificationEnabled]);
 
 
   // Fetch username for connected wallet
@@ -916,7 +939,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         console.error('Test notification failed:', err);
       }
     }
-  };
+};
 
   // Real-time payment streaming for the connected wallet.
   // On incoming payment: show OS notification when page is hidden,
@@ -1074,6 +1097,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     return () => {
       cancelled = true;
       stopPollingFallback();
+      if (bubbleTimeoutRef.current !== null) {
+        window.clearTimeout(bubbleTimeoutRef.current);
+        bubbleTimeoutRef.current = null;
+      }
+      seenRealtimePaymentIdsRef.current.clear();
+      latestPaymentIdRef.current = null;
       realtimeSourceRef.current?.close();
       realtimeSourceRef.current = null;
       eventSource?.close();

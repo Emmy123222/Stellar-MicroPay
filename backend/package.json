@@ -17,7 +17,7 @@
   "dependencies": {
     "@sentry/node": "^10.71.0",
     "@stellar/stellar-sdk": "^15.1.0",
-    "axios": "^1.6.8",
+    "axios": "^1.20.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -30,6 +30,7 @@
     "nodemailer": "^9.0.3",
     "pino": "^9.0.0",
     "pino-http": "^10.3.0",
+    "sqlite3": "^5.1.7",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1"
   },
@@ -42,6 +43,9 @@
     "nock": "^14.0.15",
     "nodemon": "^3.1.2",
     "supertest": "^7.2.2"
+  },
+  "overrides": {
+    "axios": "$axios"
   },
   "engines": {
     "node": "20.19.5"

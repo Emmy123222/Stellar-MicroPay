@@ -1273,6 +1273,32 @@ const options = {
           },
         },
       },
+      "/api/auth/logout-all": {
+        post: {
+          tags: ["Authentication"],
+          summary: "Revoke every active refresh-token family for the authenticated user (log out of all devices)",
+          responses: {
+            200: {
+              description: "All sessions revoked",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      revokedFamilies: {
+                        type: "integer",
+                        description: "Number of token families revoked",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: "Unauthorized: missing or invalid token" },
+          },
+        },
+      },
       "/api/analytics/{publicKey}/export-schedule": {
         get: {
           tags: ["Analytics"],

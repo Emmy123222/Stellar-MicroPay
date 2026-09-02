@@ -29,6 +29,9 @@ import {
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
+  getNetworkPassphrase,
+  setNetworkConfig,
+  getNetworkConfig
 } from "@/lib/stellar";
 import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import { signTransactionWithWallet } from "@/lib/wallet";
@@ -78,6 +81,9 @@ interface SendPaymentFormProps {
     memo?: string;
     validUntil?: number | null;
     fromHistory?: boolean;
+    networkPassphrase?: string;
+    assetCode?: string;
+    assetIssuer?: string;
   } | null;
   aiPrefill?: {
     destination: string;
@@ -157,6 +163,9 @@ function SendPaymentForm({
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [pendingNetworkPassphrase, setPendingNetworkPassphrase] = useState<string | null>(null);
+  const [showNetworkMismatch, setShowNetworkMismatch] = useState(false);
+  const [unsupportedAssetError, setUnsupportedAssetError] = useState<string | null>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [isTipOnChain, setIsTipOnChain] = useState(false);
   const [failedStep, setFailedStep] = useState<PaymentStepId | null>(null);
@@ -367,9 +376,34 @@ function SendPaymentForm({
     if (prefill.destination) setDestination(prefill.destination);
     if (prefill.amount) setAmount(prefill.amount);
     if (prefill.memo) setMemo(truncateMemoText(prefill.memo));
+    
+    // Check network passphrase
+    if (prefill.networkPassphrase && prefill.networkPassphrase !== getNetworkPassphrase()) {
+      setPendingNetworkPassphrase(prefill.networkPassphrase);
+      setShowNetworkMismatch(true);
+    }
+    
+    // Check asset code and issuer
+    if (prefill.assetCode && prefill.assetCode !== 'XLM') {
+      const isUSDC = prefill.assetCode === 'USDC' && prefill.assetIssuer === process.env.NEXT_PUBLIC_USDC_ISSUER;
+      const isCustomKnown = accountBalances.some(b => b.code === prefill.assetCode && b.issuer === prefill.assetIssuer);
+      
+      if (isUSDC) {
+        setSelectedAsset('USDC');
+      } else if (isCustomKnown) {
+        setSelectedAsset('CUSTOM');
+        setCustomAsset({ code: prefill.assetCode, issuer: prefill.assetIssuer! });
+        setShowCustomAssetForm(true);
+      } else {
+        setUnsupportedAssetError(`Asset ${prefill.assetCode} from issuer ${prefill.assetIssuer} is not supported or not in your trustlines.`);
+      }
+    } else {
+      setSelectedAsset('XLM');
+    }
+    
     setDestinationResolutionError(null);
     setResolvedPaymentDestination(null);
-  }, [prefill]);
+  }, [prefill, accountBalances]);
 
   // Debounced SNS resolution — fires 400ms after the user stops typing a
   // .xlm name or federation address.  Shows an inline spinner during lookup
@@ -515,12 +549,13 @@ function SendPaymentForm({
     (isValidDest || isFederationDestination || isUsernameDestination || (isStellarName(trimmedDestination) && !!snsResolved)) &&
     !isResolvingDestination &&
     !snsResolving &&
-    !snsError &&
     !destinationResolutionError &&
     isValidAmt &&
     status === "idle" &&
     trimmedDestination !== publicKey &&
-    isMemoValid;
+    isMemoValid &&
+    !showNetworkMismatch &&
+    !unsupportedAssetError;
 
   const resolveUsername = async (username: string): Promise<string> => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
@@ -854,6 +889,43 @@ void validateDestinationAccount(destination);
         <SendIcon className="w-5 h-5 text-stellar-400" />
         {title}
       </h2>
+      
+      {showNetworkMismatch && pendingNetworkPassphrase && (
+        <div className="mb-6 rounded-lg border border-orange-500/30 bg-orange-500/10 p-4">
+          <p className="text-sm text-orange-200 font-semibold mb-2">Network Mismatch</p>
+          <p className="text-xs text-orange-200/80 mb-4">
+            This payment request is for a different network. Do you want to switch your wallet to the required network?
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                const isMainnet = pendingNetworkPassphrase.includes('Public Global');
+                setNetworkConfig({
+                  network: isMainnet ? 'mainnet' : 'testnet',
+                  horizonUrl: isMainnet ? 'https://horizon.stellar.org' : 'https://horizon-testnet.stellar.org'
+                });
+                window.location.reload();
+              }}
+              className="btn-primary text-xs py-1.5 px-3"
+            >
+              Switch Network
+            </button>
+            <button
+              onClick={() => setShowNetworkMismatch(false)}
+              className="btn-secondary text-xs py-1.5 px-3"
+            >
+              Ignore
+            </button>
+          </div>
+        </div>
+      )}
+
+      {unsupportedAssetError && (
+        <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-sm text-red-200 font-semibold mb-2">Unsupported Asset</p>
+          <p className="text-xs text-red-200/80">{unsupportedAssetError}</p>
+        </div>
+      )}
 
       <div className="space-y-5">
         {!hideAssetSelector && (
@@ -949,35 +1021,6 @@ void validateDestinationAccount(destination);
                 setSnsResolved(null);
                 setDestAccountWarning(null);
                 setIsContactsDropdownOpen(true);
-
-                // SNS live resolution: trigger for federation/SNS patterns
-                const trimmed = val.trim();
-                const looksLikeRawAddress = trimmed.startsWith("G") && trimmed.length === 56;
-                if (isStellarName(trimmed) && !looksLikeRawAddress) {
-                  // Clear previous SNS state
-                  setSnsResolved(null);
-                  setSnsError(null);
-                  if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
-                  setSnsResolving(true);
-                  snsDebounceRef.current = setTimeout(() => {
-                    resolveStellarName(trimmed)
-                      .then((address) => {
-                        setSnsResolved(address);
-                        setSnsError(null);
-                      })
-                      .catch((err: unknown) => {
-                        setSnsResolved(null);
-                        setSnsError(err instanceof Error ? err.message : "Name not found or invalid");
-                      })
-                      .finally(() => setSnsResolving(false));
-                  }, 600);
-                } else {
-                  // Not an SNS name — clear SNS state
-                  if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
-                  setSnsResolving(false);
-                  setSnsResolved(null);
-                  setSnsError(null);
-                }
               }}
               onFocus={() => setIsContactsDropdownOpen(true)}
               placeholder="G... address or alice.xlm"
@@ -1000,15 +1043,6 @@ void validateDestinationAccount(destination);
                 Resolving…
               </div>
             )}
-            {!snsResolving && snsResolved && (
-              <p className="mt-1.5 text-xs text-slate-400">
-                Resolves to: <span className="font-mono text-stellar-300">{snsResolved}</span> ✓
-              </p>
-            )}
-            {!snsResolving && snsError && (
-              <p className="mt-1.5 text-xs text-red-400">{snsError}</p>
-            )}
-
             {destinationResolutionError && (
               <p className="mt-2 text-xs text-red-400">{destinationResolutionError}</p>
             )}
