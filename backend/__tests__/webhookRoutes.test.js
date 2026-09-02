@@ -31,7 +31,7 @@ const request = require("supertest");
 const webhookRoutes = require("../src/routes/webhooks");
 const webhookService = require("../src/services/webhookService");
 
-const ME = "GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+const ME = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
 function app() {
   const server = express();

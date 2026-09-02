@@ -15,6 +15,44 @@ const tipsByCreator = new Map();
 
 let tipIdCounter = 1;
 
+// ── Stroop-safe arithmetic helpers ──────────────────────────────────────────
+// Stellar amounts have 7 decimal places (stroops). Using parseFloat introduces
+// rounding errors (e.g. 0.1 + 0.2 !== 0.3). We aggregate in integer base units
+// (stroops = amount * 10^7) using string math, then format back.
+const STROOP_EXPONENT = 7;
+const STROOP_DIVISOR = BigInt(10 ** STROOP_EXPONENT); // 10_000_000n
+
+/**
+ * Convert a decimal amount string to integer stroops (BigInt).
+ * Handles up to 7 decimal places; more are truncated.
+ * Returns null for unparseable / non-positive values.
+ * @param {string} amount
+ * @returns {bigint|null}
+ */
+function toStroops(amount) {
+  const s = String(amount).trim();
+  const m = s.match(/^(\d+)(?:\.(\d{1,7}))?$/);
+  if (!m) return null;
+  const whole = BigInt(m[1]);
+  const frac = (m[2] || "").padEnd(STROOP_EXPONENT, "0");
+  const result = whole * STROOP_DIVISOR + BigInt(frac);
+  return result > 0n ? result : null;
+}
+
+/**
+ * Format a stroops integer back to a decimal string, trimming trailing zeros
+ * and the decimal point when the fractional part is empty.
+ * @param {bigint} stroops
+ * @returns {string}
+ */
+function formatStroops(stroops) {
+  const sign = stroops < 0n ? "-" : "";
+  const abs = stroops < 0n ? -stroops : stroops;
+  const whole = abs / STROOP_DIVISOR;
+  const frac = (abs % STROOP_DIVISOR).toString().padStart(STROOP_EXPONENT, "0").replace(/0+$/, "");
+  return frac ? `${sign}${whole}.${frac}` : `${sign}${whole}`;
+}
+
 /**
  * Record a tip sent to a creator.
  * @param {string} senderPublicKey - The Stellar public key of the sender
@@ -103,29 +141,50 @@ function getTipsStats(creatorPublicKey) {
     smallestTip: null,
   };
 
-  // Calculate totals by asset
+  // Aggregate each asset in integer base units (stroops) to avoid
+  // floating-point rounding errors.
+  const perAsset = {}; // asset → { count, total, largest, smallest }
+
   for (const tip of tips) {
     const asset = tip.asset || "XLM";
-    if (!stats.totalByAsset[asset]) {
-      stats.totalByAsset[asset] = { count: 0, amount: 0 };
+    const s = toStroops(tip.amount);
+    if (s === null) continue; // skip unparseable amounts
+
+    if (!perAsset[asset]) {
+      perAsset[asset] = { count: 0, total: 0n, largest: null, smallest: null };
     }
-    stats.totalByAsset[asset].count++;
-    stats.totalByAsset[asset].amount += parseFloat(tip.amount);
+    const bucket = perAsset[asset];
+    bucket.count++;
+    bucket.total += s;
+    if (bucket.largest === null || s > bucket.largest) bucket.largest = s;
+    if (bucket.smallest === null || s < bucket.smallest) bucket.smallest = s;
   }
 
-  // Convert amounts to strings with proper precision
-  for (const asset of Object.keys(stats.totalByAsset)) {
-    stats.totalByAsset[asset].amount = String(stats.totalByAsset[asset].amount);
+  // Build output, computing per-asset averages
+  let globalLargest = null;
+  let globalSmallest = null;
+  let totalAllTips = 0n;
+  let tipCountAll = 0;
+
+  for (const [asset, bucket] of Object.entries(perAsset)) {
+    const average = bucket.count > 0 ? bucket.total / BigInt(bucket.count) : 0n;
+    stats.totalByAsset[asset] = {
+      count: bucket.count,
+      amount: formatStroops(bucket.total),
+      average: formatStroops(average),
+    };
+
+    totalAllTips += bucket.total;
+    tipCountAll += bucket.count;
+    if (globalLargest === null || bucket.largest > globalLargest) globalLargest = bucket.largest;
+    if (globalSmallest === null || bucket.smallest < globalSmallest) globalSmallest = bucket.smallest;
   }
 
-  // Calculate average
-  if (tips.length > 0) {
-    const totalAmount = tips.reduce((sum, tip) => sum + parseFloat(tip.amount), 0);
-    stats.averageTip = String(totalAmount / tips.length);
-    
-    const amounts = tips.map(t => parseFloat(t.amount));
-    stats.largestTip = String(Math.max(...amounts));
-    stats.smallestTip = String(Math.min(...amounts));
+  // Legacy top-level fields: computed across all assets for backward compat.
+  if (tipCountAll > 0) {
+    stats.averageTip = formatStroops(totalAllTips / BigInt(tipCountAll));
+    stats.largestTip = formatStroops(globalLargest);
+    stats.smallestTip = formatStroops(globalSmallest);
   }
 
   return stats;
@@ -218,28 +277,66 @@ function getTopTippers(creatorPublicKey, limit = 5) {
 
   const tips = tipsByCreator.get(creatorPublicKey) || [];
   
-  // Aggregate total tipped per sender
-  const totals = new Map();
+  // Aggregate total tipped per sender using stroop-safe integer math
+  const totals = new Map(); // sender → BigInt
   for (const tip of tips) {
     const sender = tip.senderPublicKey;
-    const amount = parseFloat(tip.amount) || 0;
-    totals.set(sender, (totals.get(sender) || 0) + amount);
+    const s = toStroops(tip.amount);
+    if (s === null) continue;
+    totals.set(sender, (totals.get(sender) || 0n) + s);
   }
 
   // Convert to array
-  const entries = Array.from(totals.entries()).map(([senderPublicKey, totalAmount]) => ({
+  const entries = Array.from(totals.entries()).map(([senderPublicKey, totalStroops]) => ({
     senderPublicKey,
-    totalAmount: totalAmount.toFixed(7),
+    totalAmount: formatStroops(totalStroops),
   }));
 
   // Sort descending by amount
-  // If there are ties, JavaScript's stable sort (or standard array sorting) preserves order
-  entries.sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
+  entries.sort((a, b) => {
+    const sa = toStroops(a.totalAmount) || 0n;
+    const sb = toStroops(b.totalAmount) || 0n;
+    return sb > sa ? 1 : sb < sa ? -1 : 0;
+  });
 
   // Limit result count
   const result = entries.slice(0, limit);
 
   return result;
+}
+
+/** Create an isolated tips service. Useful for tests and independent app instances. */
+function createTipsService(store = new Map(), counter = { value: 1 }) {
+  const service = {
+    recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", memo = "", txHash = "" }) {
+      if (!senderPublicKey || !creatorPublicKey || !amount) {
+        const error = new Error("senderPublicKey, creatorPublicKey, and amount are required");
+        error.status = 400;
+        throw error;
+      }
+      const tip = { id: counter.value++, senderPublicKey, creatorPublicKey, amount: String(amount), asset, memo, txHash, timestamp: new Date().toISOString() };
+      if (!store.has(creatorPublicKey)) store.set(creatorPublicKey, []);
+      store.get(creatorPublicKey).unshift(tip);
+      return tip;
+    },
+    getTipsReceived(creatorPublicKey, options = {}) {
+      if (!creatorPublicKey) throw Object.assign(new Error("creatorPublicKey is required"), { status: 400 });
+      const { limit = 50, offset = 0 } = options;
+      const tips = store.get(creatorPublicKey) || [];
+      return { tips: tips.slice(offset, offset + limit), total: tips.length, limit, offset };
+    },
+    getTipsSent(senderPublicKey, options = {}) {
+      if (!senderPublicKey) throw Object.assign(new Error("senderPublicKey is required"), { status: 400 });
+      const { limit = 50, offset = 0 } = options;
+      const tips = Array.from(store.values()).flat().filter((tip) => tip.senderPublicKey === senderPublicKey);
+      tips.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return { tips: tips.slice(offset, offset + limit), total: tips.length, limit, offset };
+    },
+    validateTipInput,
+    store,
+    counter,
+  };
+  return service;
 }
 
 module.exports = {
@@ -249,4 +346,8 @@ module.exports = {
   getTipsSent,
   validateTipInput,
   getTopTippers,
+  tipsByCreator,
+  toStroops,
+  formatStroops,
+  createTipsService,
 };

@@ -10,13 +10,16 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "jest",
-    "lint": "eslint src/**/*.js"
+    "test:openapi": "jest __tests__/openapi-drift.test.js",
+    "lint": "eslint src/**/*.js",
+    "generate:openapi": "node ../../scripts/generate-openapi.js"
   },
   "dependencies": {
-    "@sentry/node": "^8.53.0",
+    "@sentry/node": "^10.71.0",
     "@stellar/stellar-sdk": "^15.1.0",
-    "axios": "^1.6.8",
+    "axios": "^1.20.0",
     "compression": "^1.8.1",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
@@ -27,6 +30,7 @@
     "nodemailer": "^9.0.3",
     "pino": "^9.0.0",
     "pino-http": "^10.3.0",
+    "sqlite3": "^5.1.7",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1"
   },
@@ -39,6 +43,9 @@
     "nock": "^14.0.15",
     "nodemon": "^3.1.2",
     "supertest": "^7.2.2"
+  },
+  "overrides": {
+    "axios": "$axios"
   },
   "engines": {
     "node": "20.19.5"

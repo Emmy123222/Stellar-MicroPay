@@ -85,10 +85,30 @@ function getAllWebhooks() {
   return Array.from(webhooks.values());
 }
 
+/** Create an isolated webhook store for tests or an independently configured app. */
+function createWebhookStore(store = new Map(), counter = { value: 1 }) {
+  return {
+    registerWebhook(publicKeyOrData, urlArg, secretArg) {
+      let publicKey, url, secret;
+      if (typeof publicKeyOrData === "object" && publicKeyOrData !== null) ({ publicKey, url, secret } = publicKeyOrData);
+      else ({ publicKey, url, secret } = { publicKey: publicKeyOrData, url: urlArg, secret: secretArg });
+      const webhook = { id: String(counter.value++), publicKey, url, secret, createdAt: new Date().toISOString() };
+      store.set(webhook.id, webhook);
+      return webhook;
+    },
+    getWebhooksByPublicKey: (publicKey) => Array.from(store.values()).filter((webhook) => webhook.publicKey === publicKey),
+    getWebhookById: (id) => store.get(id),
+    deleteWebhook: (id) => store.delete(id),
+    getAllWebhooks: () => Array.from(store.values()),
+    store,
+  };
+}
+
 module.exports = {
   registerWebhook,
   getWebhooksByPublicKey,
   getWebhookById,
   deleteWebhook,
   getAllWebhooks,
+  createWebhookStore,
 };

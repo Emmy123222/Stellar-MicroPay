@@ -36,6 +36,9 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - frontend
+      - backend
 
   frontend:
     build:
@@ -66,3 +69,12 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    networks:
+      - frontend
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true

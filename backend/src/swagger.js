@@ -306,6 +306,73 @@ const options = {
             createdAt: { type: "string", format: "date-time" },
           },
         },
+        Webhook: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            publicKey: { type: "string", description: "Stellar public key being monitored" },
+            url: { type: "string", description: "Destination URL for POST notifications" },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
+        WebhookCreateRequest: {
+          type: "object",
+          required: ["publicKey", "url", "secret"],
+          properties: {
+            publicKey: {
+              type: "string",
+              pattern: "^G[A-Z0-9]{55}$",
+              description: "Stellar public key to monitor",
+            },
+            url: {
+              type: "string",
+              format: "uri",
+              description: "HTTPS URL to receive webhook notifications",
+            },
+            secret: {
+              type: "string",
+              minLength: 32,
+              description: "HMAC signing secret (min 32 chars)",
+            },
+          },
+        },
+        WebhookRegistrationResponse: {
+          type: "object",
+          properties: {
+            success: { type: "boolean", example: true },
+            webhook: { $ref: "#/components/schemas/Webhook" },
+          },
+        },
+        WebhookListResponse: {
+          type: "object",
+          properties: {
+            webhooks: {
+              type: "array",
+              items: { $ref: "#/components/schemas/Webhook" },
+            },
+          },
+        },
+        ExportSchedule: {
+          type: "object",
+          properties: {
+            publicKey: { type: "string" },
+            email: { type: "string", format: "email" },
+            frequency: { type: "string", enum: ["daily", "weekly", "monthly"] },
+            nextRunAt: { type: "string", format: "date-time" },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
+        ExportScheduleRequest: {
+          type: "object",
+          required: ["email", "frequency"],
+          properties: {
+            email: { type: "string", format: "email" },
+            frequency: {
+              type: "string",
+              enum: ["daily", "weekly", "monthly"],
+            },
+          },
+        },
       },
     },
     paths: {
@@ -1166,6 +1233,290 @@ const options = {
               },
             },
             404: { description: "Deployment not found" },
+            429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/auth/refresh": {
+        post: {
+          tags: ["Authentication"],
+          summary: "Refresh an expired access token within the grace window",
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    token: { type: "string", description: "Current JWT token" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "New JWT token",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      token: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: "Token invalid or expired beyond grace window" },
+          },
+        },
+      },
+      "/api/auth/logout-all": {
+        post: {
+          tags: ["Authentication"],
+          summary: "Revoke every active refresh-token family for the authenticated user (log out of all devices)",
+          responses: {
+            200: {
+              description: "All sessions revoked",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      revokedFamilies: {
+                        type: "integer",
+                        description: "Number of token families revoked",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: "Unauthorized: missing or invalid token" },
+          },
+        },
+      },
+      "/api/analytics/{publicKey}/export-schedule": {
+        get: {
+          tags: ["Analytics"],
+          summary: "Get scheduled export configuration",
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Export schedule",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: { $ref: "#/components/schemas/ExportSchedule" },
+                    },
+                  },
+                },
+              },
+            },
+            404: { description: "No export schedule found" },
+          },
+        },
+        post: {
+          tags: ["Analytics"],
+          summary: "Set up recurring email export",
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ExportScheduleRequest" },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Export scheduled",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: { $ref: "#/components/schemas/ExportSchedule" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Invalid request body" },
+          },
+        },
+      },
+      "/api/analytics/{publicKey}/export-trigger": {
+        post: {
+          tags: ["Analytics"],
+          summary: "Manually trigger sending export email",
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Export triggered",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      message: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            404: { description: "No export schedule found" },
+          },
+        },
+      },
+      "/api/tips/leaderboard/{creatorPublicKey}": {
+        get: {
+          tags: ["Tips"],
+          summary: "Get top tippers for a creator",
+          parameters: [
+            {
+              name: "creatorPublicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Top tippers",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            publicKey: { type: "string" },
+                            totalAmount: { type: "string" },
+                            count: { type: "integer" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/webhooks": {
+        post: {
+          tags: ["Webhooks"],
+          summary: "Register a new webhook",
+          description: "Register a webhook to receive notifications when payments occur for a specific Stellar public key.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/WebhookCreateRequest" },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Webhook registered",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/WebhookRegistrationResponse" },
+                },
+              },
+            },
+            400: { description: "Invalid request body" },
+            429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/webhooks/{publicKey}": {
+        get: {
+          tags: ["Webhooks"],
+          summary: "List webhooks for an account",
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "List of webhooks (secrets stripped)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/WebhookListResponse" },
+                },
+              },
+            },
+            429: { description: "Rate limit exceeded" },
+          },
+        },
+      },
+      "/api/webhooks/{id}": {
+        delete: {
+          tags: ["Webhooks"],
+          summary: "Delete a webhook",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Webhook deleted",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                    },
+                  },
+                },
+              },
+            },
+            404: { description: "Webhook not found" },
             429: { description: "Rate limit exceeded" },
           },
         },
