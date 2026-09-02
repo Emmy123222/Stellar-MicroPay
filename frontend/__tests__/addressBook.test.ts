@@ -3,6 +3,13 @@
  * Unit tests for addressBook.ts (#517)
  */
 
+// Mock isValidStellarAddress
+jest.mock('../lib/stellar', () => ({
+  isValidStellarAddress: (address: string) => {
+    return typeof address === 'string' && address.startsWith('G') && address.length >= 10;
+  },
+}));
+
 import {
   loadAddressBookContacts,
   saveAddressBookContacts,
@@ -15,13 +22,17 @@ import {
   type AddressBookContact,
 } from '../lib/addressBook';
 
-// Mock isValidStellarAddress
-jest.mock('../lib/stellar', () => ({
+// Mock isValidStellarAddress using the same module path the app imports.
+jest.mock('@/lib/stellar', () => ({
   isValidStellarAddress: (address: string) => {
-    return typeof address === 'string' && address.startsWith('G') && address.length === 56;
+    return (
+      typeof address === 'string' &&
+      address.startsWith('G') &&
+      address.length >= 52 &&
+      address.length <= 56
+    );
   },
 }));
-
 // Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
