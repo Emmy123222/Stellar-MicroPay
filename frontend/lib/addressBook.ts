@@ -1,4 +1,4 @@
-import { isValidStellarAddress } from "@/lib/stellar";
+import { isValidStellarAddress } from "./stellar";
 
 export interface AddressBookContact {
   id: string;
@@ -16,6 +16,48 @@ const ADDRESS_BOOK_STORAGE_KEY = "stellar-micropay:contacts";
 const LEGACY_CONTACTS_STORAGE_KEY = "stellar-micropay-contacts";
 const LEGACY_FAVOURITES_STORAGE_KEY = "stellar-micropay:favourites";
 const CONTACTS_UPDATED_EVENT = "stellar-micropay:contacts-updated";
+const QUARANTINE_STORAGE_KEY = "stellar-micropay:contacts-quarantine";
+
+/** Current storage schema version. Bump when the envelope shape changes. */
+const SCHEMA_VERSION = 2;
+
+interface VersionedEnvelope {
+  version: number;
+  contacts: LegacyContact[];
+}
+
+/** Quarantined entry: a record that failed validation during load. */
+export interface QuarantinedContact {
+  raw: unknown;
+  reason: string;
+  quarantinedAt: number;
+}
+
+/** Load quarantine log from storage. */
+function readQuarantine(): QuarantinedContact[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(QUARANTINE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeQuarantine(entries: QuarantinedContact[]) {
+  if (typeof window === "undefined") return;
+  try {
+    if (entries.length === 0) {
+      window.localStorage.removeItem(QUARANTINE_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(QUARANTINE_STORAGE_KEY, JSON.stringify(entries));
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
 
 interface LegacyContact {
   id?: string;
@@ -55,15 +97,46 @@ function makeContact(input: LegacyContact): AddressBookContact | null {
   };
 }
 
-function readContactsFromKey(key: string): AddressBookContact[] {
+function readContactsFromKey(
+  key: string,
+  quarantineSink?: QuarantinedContact[],
+): AddressBookContact[] {
   if (typeof window === "undefined") return [];
 
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as LegacyContact[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(makeContact).filter((contact): contact is AddressBookContact => Boolean(contact));
+    const parsed = JSON.parse(raw);
+
+    // Accept versioned envelope { version, contacts } or legacy bare array.
+    let contacts: LegacyContact[];
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      "version" in parsed &&
+      Array.isArray((parsed as VersionedEnvelope).contacts)
+    ) {
+      contacts = (parsed as VersionedEnvelope).contacts;
+    } else if (Array.isArray(parsed)) {
+      contacts = parsed;
+    } else {
+      return [];
+    }
+
+    return contacts
+      .map((rawContact, index) => {
+        const contact = makeContact(rawContact);
+        if (!contact && quarantineSink) {
+          quarantineSink.push({
+            raw: rawContact,
+            reason: "Failed validation: missing address, nickname, or invalid Stellar key",
+            quarantinedAt: now(),
+          });
+        }
+        return contact;
+      })
+      .filter((c): c is AddressBookContact => c !== null);
   } catch {
     return [];
   }
@@ -80,18 +153,66 @@ function dedupeContacts(contacts: AddressBookContact[]) {
 
 /** Load and merge all stored contacts (current and legacy storage keys), deduplicated by address. */
 export function loadAddressBookContacts(): AddressBookContact[] {
-  const primaryContacts = readContactsFromKey(ADDRESS_BOOK_STORAGE_KEY);
-  const legacyContacts = readContactsFromKey(LEGACY_CONTACTS_STORAGE_KEY);
-  const legacyFavourites = readContactsFromKey(LEGACY_FAVOURITES_STORAGE_KEY);
+  const quarantine: QuarantinedContact[] = [];
+  const primaryContacts = readContactsFromKey(ADDRESS_BOOK_STORAGE_KEY, quarantine);
+  const legacyContacts = readContactsFromKey(LEGACY_CONTACTS_STORAGE_KEY, quarantine);
+  const legacyFavourites = readContactsFromKey(LEGACY_FAVOURITES_STORAGE_KEY, quarantine);
+
+  // Persist quarantined entries so the UI can surface a recoverable warning.
+  if (quarantine.length > 0) {
+    const existing = readQuarantine();
+    const merged = [...existing, ...quarantine];
+    // Cap at 100 entries to prevent unbounded growth.
+    writeQuarantine(merged.slice(-100));
+  }
+
   return dedupeContacts([...primaryContacts, ...legacyContacts, ...legacyFavourites]);
 }
 
-/** Persist the given contacts to local storage and notify listeners via a custom event. */
+/**
+ * Return quarantined contacts from the last load(s).
+ * The UI should display a recoverable warning when this list is non-empty.
+ */
+export function getQuarantinedContacts(): QuarantinedContact[] {
+  return readQuarantine();
+}
+
+/**
+ * Dismiss quarantined entries (user acknowledged the warning).
+ */
+export function clearQuarantinedContacts() {
+  writeQuarantine([]);
+}
+
+/**
+ * Attempt to restore a quarantined entry by re-validating it.
+ * If it passes validation, it is added to the address book and removed
+ * from quarantine. Returns true on success.
+ */
+export function restoreQuarantinedContact(entry: QuarantinedContact): boolean {
+  const contact = makeContact(entry.raw as LegacyContact);
+  if (!contact) return false;
+
+  const contacts = loadAddressBookContacts();
+  const exists = contacts.some((c) => c.address === contact.address);
+  if (!exists) {
+    contacts.unshift(contact);
+    saveAddressBookContacts(contacts);
+  }
+
+  // Remove this entry from quarantine
+  const remaining = readQuarantine().filter((q) => q !== entry);
+  writeQuarantine(remaining);
+  return true;
+}
+
+/** Persist the given contacts to local storage with a versioned envelope, and notify listeners via a custom event. */
 export function saveAddressBookContacts(contacts: AddressBookContact[]) {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.setItem(ADDRESS_BOOK_STORAGE_KEY, JSON.stringify(contacts));
+    const envelope: VersionedEnvelope = { version: SCHEMA_VERSION, contacts };
+    window.localStorage.setItem(ADDRESS_BOOK_STORAGE_KEY, JSON.stringify(envelope));
     window.dispatchEvent(new CustomEvent(CONTACTS_UPDATED_EVENT, { detail: contacts }));
   } catch {
     // Ignore storage failures (private browsing, full quota, etc.).

@@ -36,7 +36,16 @@ export type PaymentLinkQuery = Record<string, QueryValue>;
 
 export type ParsedPaymentLinkQuery =
   | { ok: true; payload: PaymentLinkPayload }
-  | { ok: false; reason: "missing" | "malformed" | "invalid-expiry" };
+  | { ok: false; reason: "missing" | "malformed" | "invalid-expiry" | "expired" };
+
+/**
+ * Check whether a payment link's expiry has already passed.
+ * Exported so callers (tests, pay.tsx, SendPaymentForm) can gate on it
+ * without re-implementing the clock boundary.
+ */
+export function isExpired(payload: PaymentLinkPayload, now = Date.now()): boolean {
+  return payload.validUntil != null && now > payload.validUntil;
+}
 
 function getQueryString(value: QueryValue): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -92,6 +101,11 @@ function coercePayload(raw: unknown): ParsedPaymentLinkQuery {
 
   if (!destination || !amount) return { ok: false, reason: "missing" };
   if (Number.isNaN(validUntil)) return { ok: false, reason: "invalid-expiry" };
+
+  // Validate expiry during parse — reject links that have already expired.
+  if (validUntil != null && Date.now() > validUntil) {
+    return { ok: false, reason: "expired" };
+  }
 
   return {
     ok: true,

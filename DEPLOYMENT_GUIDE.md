@@ -264,13 +264,18 @@ The implementation includes 13 comprehensive test functions:
 12. **test_invalid_rate** - Input validation for rates
 13. **test_invalid_deposit** - Input validation for deposits
 
+## Operations & Disaster Recovery (#856)
+
+For operational backups, encrypted data restoration, RPO/RTO targets, and restore drill procedures, refer to the [Disaster Recovery & Backup Runbook](./docs/RUNBOOK_DISASTER_RECOVERY.md).
+
 ## Next Steps
 
 1. **Deploy to Testnet**: Test the contract on Stellar testnet
 2. **Integration Testing**: Test with real Stellar accounts
 3. **Security Audit**: Review for potential vulnerabilities
 4. **Mainnet Deployment**: Deploy to production after testing
-5. **Documentation**: Create user guides and API documentation
+5. **Disaster Recovery Drills**: Run quarterly restore verification ([`docs/RUNBOOK_DISASTER_RECOVERY.md`](./docs/RUNBOOK_DISASTER_RECOVERY.md))
+6. **Documentation**: Create user guides and API documentation
 
 ## Support
 

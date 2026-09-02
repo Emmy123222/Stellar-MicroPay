@@ -5,30 +5,32 @@
 
 "use strict";
 
-const express = require("express");
-const cors = require("cors");
 const compression = require("compression");
+const cookieParser = require("cookie-parser");
+const cors = require("cors");
+require("dotenv").config();
+const express = require("express");
+const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const pinoHttp = require("pino-http");
-const rateLimit = require("express-rate-limit");
-require("dotenv").config();
 const Sentry = require("@sentry/node");
-
-const accountRoutes = require("./routes/accounts");
-const authRoutes = require("./routes/auth");
-const paymentRoutes = require("./routes/payments");
-const analyticsRoutes = require("./routes/analytics");
-const healthRoutes = require("./routes/health");
-const federationRoutes = require("./routes/federation");
-const turretsRoutes = require("./routes/turrets");
-const tipsRoutes = require("./routes/tips");
-const webhookRoutes = require("./routes/webhooks");
 const swaggerUi = require("swagger-ui-express");
+
+const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
+const { apiDeprecationHeader } = require("./middleware/deprecation");
+const accountRoutes = require("./routes/accounts");
+const analyticsRoutes = require("./routes/analytics");
+const authRoutes = require("./routes/auth");
+const federationRoutes = require("./routes/federation");
+const healthRoutes = require("./routes/health");
+const paymentRoutes = require("./routes/payments");
+const tipsRoutes = require("./routes/tips");
+const turretsRoutes = require("./routes/turrets");
+const webhookRoutes = require("./routes/webhooks");
+const { resumeAllMonitors } = require("./services/paymentMonitor");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
-const { resumeAllMonitors } = require("./services/paymentMonitor");
 const logger = require("./utils/logger");
-const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -176,6 +178,10 @@ app.use(
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
 app.use(pinoHttp({ logger }));
 app.use(express.json({ limit: "10kb" }));
+// Parses the Cookie header into req.cookies so the SEP-0010 session cookie
+// (set in routes/auth.js) can be read back by middleware/auth.js's
+// extractToken and by the CSRF origin check (#780).
+app.use(cookieParser());
 
 // JSON parsing error handler
 app.use((err, req, res, next) => {
@@ -237,15 +243,26 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
+// ─── API Versioning & Deprecation Policy (#853) ────────────────────────────────
 
-app.use("/api/auth", authRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/api/webhooks", webhookRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/turrets", turretsRoutes);
-app.use("/api/tips", tipsRoutes);
+// Primary Versioned Routes (/api/v1/*)
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/accounts", accountRoutes);
+app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/v1/webhooks", webhookRoutes);
+app.use("/api/v1/analytics", analyticsRoutes);
+app.use("/api/v1/turrets", turretsRoutes);
+app.use("/api/v1/tips", tipsRoutes);
+app.use("/api/v1/health", healthRoutes);
+
+// Legacy Unversioned Routes (/api/*) — includes HTTP Deprecation & Sunset headers
+app.use("/api/auth", apiDeprecationHeader, authRoutes);
+app.use("/api/accounts", apiDeprecationHeader, accountRoutes);
+app.use("/api/payments", apiDeprecationHeader, paymentRoutes);
+app.use("/api/webhooks", apiDeprecationHeader, webhookRoutes);
+app.use("/api/analytics", apiDeprecationHeader, analyticsRoutes);
+app.use("/api/turrets", apiDeprecationHeader, turretsRoutes);
+app.use("/api/tips", apiDeprecationHeader, tipsRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────

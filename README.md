@@ -25,17 +25,20 @@ flowchart LR
 
 - **Frontend** builds payment, tip, receipt, trustline, trade, and account-management flows, then asks Freighter to sign Stellar transaction XDR.
 - **Freighter** owns user keys and returns signed XDR; private keys never pass through the app.
-- **Backend API** handles account, payment-history, federation, SEP-0010 auth, creator-tip, analytics, Turrets, and webhook endpoints.
+- **Backend API** handles account, payment-history, federation, SEP-0010 auth, creator-tip, analytics, Turrets, and webhook endpoints with `/api/v1/` versioning and HTTP deprecation policy headers.
 - **Horizon** serves account balances, payment history, fee stats, transaction submission, and network data.
 - **Soroban RPC and `MicroPayContract`** record on-chain tips and receipt metadata through contract invocations.
 
-## Features
+## Features & Documentation
 
+- **API Versioning & Deprecation Policy**: Standard `/api/v1/` base URL with deprecation & sunset headers ([`docs/api.md`](./docs/api.md))
 - **Stream Creation**: Open payment streams with custom rates and deposits
 - **Claim Payments**: Recipients can claim available funds at any time
 - **Top-up Streams**: Add more funds to existing streams
 - **Close Streams**: Payers can close streams and receive refunds for unstreamed portions
-- **Rate-based Streaming**: Payments are calculated based on ledger progression
+- **Username Payments & Federation**: Map `@username` to Stellar public keys ([`ROADMAP.md`](./ROADMAP.md))
+- **QR Code Payments & Creator Tipping**: Public tipping pages with preset amounts ([`ANALYTICS_GUIDE.md`](./ANALYTICS_GUIDE.md))
+- **Disaster Recovery & Backup Runbooks**: Tested RPO/RTO backup and restore drills ([`docs/RUNBOOK_DISASTER_RECOVERY.md`](./docs/RUNBOOK_DISASTER_RECOVERY.md))
 
 ## Contract Structure
 

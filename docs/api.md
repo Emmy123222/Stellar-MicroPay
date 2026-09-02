@@ -2,9 +2,105 @@
 
 **Base URL:** `http://localhost:4000` (default; override with `PORT`)
 
+**Versioned Base URL:** `http://localhost:4000/api/v1`
+
 **Interactive docs:** [Swagger UI](http://localhost:4000/api/docs) · [OpenAPI JSON](http://localhost:4000/api/docs.json)
 
 **Client examples:** [TypeScript & Python](./sdk-examples.md)
+
+---
+
+## API Versioning Strategy & Deprecation Policy (#853)
+
+All primary API routes are versioned under the `/api/v1/` prefix:
+- `http://localhost:4000/api/v1/auth`
+- `http://localhost:4000/api/v1/accounts`
+- `http://localhost:4000/api/v1/payments`
+- `http://localhost:4000/api/v1/webhooks`
+- `http://localhost:4000/api/v1/analytics`
+- `http://localhost:4000/api/v1/turrets`
+- `http://localhost:4000/api/v1/tips`
+- `http://localhost:4000/api/v1/health`
+
+### Deprecation & Sunset Headers
+Legacy unversioned endpoints (`/api/*`) are maintained for backward compatibility. Whenever a client calls a legacy unversioned endpoint, the API server includes standard HTTP Deprecation and Sunset headers (RFC 8594 / IETF RFC draft):
+
+```http
+HTTP/1.1 200 OK
+Deprecation: true
+Sunset: Sun, 31 Dec 2028 23:59:59 GMT
+Link: </api/v1/accounts/resolve/alice>; rel="successor-version"
+```
+
+- **`Deprecation: true`**: Signals that the requested URL path is deprecated.
+- **`Sunset: <HTTP-date>`**: Specifies the date after which the legacy endpoint will be permanently retired.
+- **`Link: <URI>; rel="successor-version"`**: Points directly to the versioned replacement endpoint.
+
+### Migration Example for Breaking Changes
+
+When upgrading client code to handle breaking contract changes:
+
+#### Legacy Call (Deprecated)
+```bash
+curl -X GET http://localhost:4000/api/accounts/resolve/alice
+```
+*Returns deprecation headers and will be retired at Sunset.*
+
+#### Updated Call (Versioned)
+```bash
+curl -X GET http://localhost:4000/api/v1/accounts/resolve/alice
+```
+*Guarantees stable v1 contract without deprecation warnings.*
+
+---
+
+## Soroban event schema versioning
+
+Contract events use event-data schema version `1`. The first item in every
+non-indexed event data tuple is `schema_version: u32`; event names and indexed
+topics remain stable across payload revisions. Indexers should select a decoder
+from this field and reject or quarantine versions they do not understand.
+
+| Event | Indexed topics | Version 1 event data |
+|-------|----------------|----------------------|
+| `init` | `(init)` | `(1, admin)` |
+| `tip` | `(tip, from, to)` | `(1, amount)` |
+| `receipt` | `(receipt, from)` | `(1, receipt_index)` |
+| `escrow_create` | `(escrow_create, escrow_id)` | `(1, from, to, amount, release_ledger)` |
+| `escrow_claim` | `(escrow_claim, escrow_id)` | `(1, to, amount)` |
+| `escrow_cancel` | `(escrow_cancel, escrow_id)` | `(1, from, amount)` |
+| `stream_open` | `(stream_open, stream_id)` | `(1, payer, recipients, weights, rate_per_ledger, deposit)` |
+| `stream_claim` | `(stream_claim, stream_id)` | `(1, recipient, amount)` |
+| `stream_topup` | `(stream_topup, stream_id)` | `(1, payer, amount, total_deposited)` |
+| `stream_pause` | `(stream_pause, stream_id)` | `(1, payer, paused_at_ledger)` |
+| `stream_resume` | `(stream_resume, stream_id)` | `(1, payer, pause_length)` |
+| `stream_close` | `(stream_close, stream_id)` | `(1, paid_to_recipients, payer_refund)` |
+| `migrate` | `(migrate)` | `(1, from_storage_version, to_storage_version)` |
+
+### JavaScript decoding example
+
+```ts
+import { scValToNative } from "@stellar/stellar-sdk";
+
+function decodeMicroPayEvent(event) {
+  const topics = event.topic.map(scValToNative);
+  const [schemaVersion, ...payload] = scValToNative(event.value);
+
+  if (schemaVersion !== 1) {
+    throw new Error(`Unsupported MicroPay event schema: ${schemaVersion}`);
+  }
+
+  return { name: topics[0], indexedTopics: topics.slice(1), payload };
+}
+```
+
+For example, `escrow_claim` decodes to indexed topics `[escrow_id]` and
+payload `[to, amount]`; `stream_close` decodes to indexed topics `[stream_id]`
+and payload `[paid_to_recipients, payer_refund]`.
+
+The layout is network-independent. Testnet and mainnet emit the same schema;
+indexers must configure the correct network passphrase, RPC endpoint, and
+deployed contract ID for each network and must not merge their cursors.
 
 ---
 
@@ -1095,18 +1191,24 @@ Register Horizon SSE listeners that POST to your URL when payments are received.
 **Outbound webhook payload** (POST to your `url`)
 ```json
 {
-  "event": "payment.received",
+  "eventId": "12345",
+  "attempt": 1,
+  "createdAt": "2026-08-27T10:00:00Z",
+  "network": "testnet",
+  "event": "payment_received",
   "publicKey": "GABC...",
-  "payment": {
-    "id": "...",
-    "from": "G...",
-    "to": "G...",
-    "amount": "10.0000000",
-    "asset": "XLM",
-    "createdAt": "2025-01-01T12:00:00Z"
-  }
+  "amount": "10.0000000",
+  "asset": "XLM",
+  "from": "G...",
+  "transactionHash": "...",
+  "ledger": 123456,
+  "timestamp": "2026-08-27T10:00:00Z"
 }
 ```
+
+**Consumer Idempotency**:
+Consumers should use the `eventId` to deduplicate webhook events and safely handle retries (should they occur). The `eventId` is globally unique for each stellar event and network, preventing duplicate processing if the webhook is delivered multiple times for the same occurrence.
+
 
 Header: `X-Webhook-Signature` — HMAC-SHA256 hex of the JSON body using `secret`.
 

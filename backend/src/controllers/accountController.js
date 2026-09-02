@@ -7,6 +7,7 @@
 
 const stellarService = require("../services/stellarService");
 const usernameService = require("../services/usernameService");
+const logger = require("../utils/logger");
 
 /**
  * @typedef {object} AccountBalanceEntry
@@ -82,12 +83,26 @@ async function registerUsername(req, res, next) {
     const { username, publicKey } = req.body;
 
     if (!username || !publicKey) {
+      logger.warn({ event: "username_registration_rejected", reason: "missing_fields" }, "Username registration rejected");
       return res.status(400).json({
+        success: false,
         error: "Username and public key are required",
       });
     }
 
+    if (!req.user?.publicKey || req.user.publicKey !== publicKey) {
+      logger.warn(
+        { event: "username_registration_rejected", subject: req.user?.publicKey, requestedKey: publicKey },
+        "Username registration rejected: wallet ownership mismatch",
+      );
+      return res.status(403).json({ error: "Forbidden: wallet ownership proof does not match public key" });
+    }
+
     const result = usernameService.registerUsername(username, publicKey);
+    logger.info(
+      { event: "username_registered", username: result.username, publicKey: req.user.publicKey },
+      "Username registered",
+    );
     res.status(201).json({
       success: true,
       data: result,
@@ -108,7 +123,7 @@ async function registerUsername(req, res, next) {
  * @param {object} res - Express response
  * @param {function} next - Express error-handling callback
  * @returns {Promise<void>} JSON: `{ success: true, data: { username: string, publicKey: string } }`,
- *   or 501 JSON: `{ error: string }` for the reserved "alice" username
+ *   or 501 JSON: `{ success: false, error: string }` for the reserved "alice" username
  */
 async function resolveUsername(req, res, next) {
   try {
@@ -116,6 +131,7 @@ async function resolveUsername(req, res, next) {
 
     if (username.toLowerCase() === 'alice') {
       return res.status(501).json({
+        success: false,
         error: "Not Implemented",
       });
     }

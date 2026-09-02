@@ -3,6 +3,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import BatchPaymentForm from "@/components/BatchPaymentForm";
+import {
+  TEST_PUBLIC_KEY_A,
+  TEST_PUBLIC_KEY_B,
+  TEST_PUBLIC_KEY_C,
+} from "./fixtures/stellar";
+
+const mockSubmitTransaction = jest.fn(() => Promise.resolve({ hash: "tx-abc123" }));
 
 jest.mock("@/lib/stellar", () => ({
   isValidStellarAddress: jest.fn(
@@ -11,7 +18,7 @@ jest.mock("@/lib/stellar", () => ({
   buildPaymentTransaction: jest.fn(() =>
     Promise.resolve({ toXDR: () => "mocked-xdr" })
   ),
-  submitTransaction: jest.fn(() => Promise.resolve({ hash: "tx-abc123" })),
+  submitTransaction: (...args: unknown[]) => mockSubmitTransaction(...args),
   STELLAR_MEMO_TEXT_MAX_BYTES: 28,
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM: 1,
   truncateMemoText: jest.fn((text: string) => text),
@@ -23,8 +30,9 @@ jest.mock("@/lib/wallet", () => ({
   ),
 }));
 
-const OWN_KEY    = "GOWN1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234";
-const VALID_ADDR = "GDEST234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234";
+const OWN_KEY = TEST_PUBLIC_KEY_A;
+const VALID_ADDR = TEST_PUBLIC_KEY_B;
+const SECOND_ADDR = TEST_PUBLIC_KEY_C;
 
 const defaultProps = {
   publicKey: OWN_KEY,
@@ -101,7 +109,7 @@ describe("BatchPaymentForm", () => {
     // Add a second valid row so the button is enabled
     await user.click(screen.getByRole("button", { name: /Add recipient/i }));
     const addressInputs = screen.getAllByPlaceholderText("G...");
-    const amountInputs  = screen.getAllByPlaceholderText("0.5");
+    const amountInputs = screen.getAllByPlaceholderText("0.5");
 
     await user.type(addressInputs[1], VALID_ADDR);
     await user.type(amountInputs[1], "1");
@@ -113,7 +121,7 @@ describe("BatchPaymentForm", () => {
     await user.click(screen.getByRole("button", { name: /Send batch/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Invalid Stellar address/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Invalid Stellar address/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -123,7 +131,7 @@ describe("BatchPaymentForm", () => {
 
     await user.click(screen.getByRole("button", { name: /Add recipient/i }));
     const addressInputs = screen.getAllByPlaceholderText("G...");
-    const amountInputs  = screen.getAllByPlaceholderText("0.5");
+    const amountInputs = screen.getAllByPlaceholderText("0.5");
 
     // Second row is valid; enables submit
     await user.type(addressInputs[1], VALID_ADDR);
@@ -135,15 +143,103 @@ describe("BatchPaymentForm", () => {
     await user.click(screen.getByRole("button", { name: /Send batch/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Amount must be greater than 0/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Amount must be greater than 0/i).length).toBeGreaterThan(0);
     });
   });
 
-  // ── CSV import (#616) ──────────────────────────────────────────────────────
+  // ── Row and Column Error Reporting (#744) ───────────────────────────────────
+
+  describe("per-row and column error reporting (#744)", () => {
+    it("associates errors with row number and source column", async () => {
+      const user = userEvent.setup();
+      render(<BatchPaymentForm {...defaultProps} />);
+
+      await user.click(screen.getByRole("button", { name: /Add recipient/i }));
+      const addressInputs = screen.getAllByPlaceholderText("G...");
+      const amountInputs = screen.getAllByPlaceholderText("0.5");
+
+      // Row 1: invalid address, valid amount
+      await user.type(addressInputs[0], "BAD_ADDR");
+      await user.type(amountInputs[0], "5");
+
+      // Row 2: valid address and amount to enable submission
+      await user.type(addressInputs[1], VALID_ADDR);
+      await user.type(amountInputs[1], "2");
+
+      await user.click(screen.getByRole("button", { name: /Send batch/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("row-1-address-error")).toHaveTextContent(
+          "Row 1 (Address): Invalid Stellar address."
+        );
+      });
+    });
+
+    it("supports filtering to invalid rows and back (#744)", async () => {
+      const user = userEvent.setup();
+      render(<BatchPaymentForm {...defaultProps} />);
+
+      await user.click(screen.getByRole("button", { name: /Add recipient/i }));
+      const addressInputs = screen.getAllByPlaceholderText("G...");
+      const amountInputs = screen.getAllByPlaceholderText("0.5");
+
+      // Row 1 is invalid
+      await user.type(addressInputs[0], "BAD_ADDR");
+      await user.type(amountInputs[0], "1");
+
+      // Row 2 is valid
+      await user.type(addressInputs[1], VALID_ADDR);
+      await user.type(amountInputs[1], "2");
+
+      await user.click(screen.getByRole("button", { name: /Send batch/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /Filter to invalid rows/i })).toBeInTheDocument();
+      });
+
+      // Filter to invalid rows only
+      await user.click(screen.getByRole("button", { name: /Filter to invalid rows/i }));
+
+      expect(screen.getByTestId("recipient-row-1")).toBeInTheDocument();
+      expect(screen.queryByTestId("recipient-row-2")).not.toBeInTheDocument();
+
+      // Switch back to all rows
+      await user.click(screen.getByRole("button", { name: /^All \(/i }));
+      expect(screen.getByTestId("recipient-row-1")).toBeInTheDocument();
+      expect(screen.getByTestId("recipient-row-2")).toBeInTheDocument();
+    });
+
+    it("keeps valid edits intact after revalidation (#744)", async () => {
+      const user = userEvent.setup();
+      render(<BatchPaymentForm {...defaultProps} />);
+
+      await user.click(screen.getByRole("button", { name: /Add recipient/i }));
+      const addressInputs = screen.getAllByPlaceholderText("G...");
+      const amountInputs = screen.getAllByPlaceholderText("0.5");
+
+      // Row 1: valid address and amount
+      await user.type(addressInputs[0], VALID_ADDR);
+      await user.type(amountInputs[0], "10");
+
+      // Row 2: invalid address
+      await user.type(addressInputs[1], "INVALID_ADDRESS");
+      await user.type(amountInputs[1], "5");
+
+      // Now edit Row 2 with a valid address
+      await user.clear(screen.getAllByPlaceholderText("G...")[1]);
+      await user.type(screen.getAllByPlaceholderText("G...")[1], SECOND_ADDR);
+
+      // Verify Row 1 data was preserved intact
+      expect(screen.getAllByPlaceholderText("G...")[0]).toHaveValue(VALID_ADDR);
+      expect(screen.getAllByPlaceholderText("0.5")[0]).toHaveValue(10);
+      expect(screen.getAllByPlaceholderText("G...")[1]).toHaveValue(SECOND_ADDR);
+      expect(screen.getAllByPlaceholderText("0.5")[1]).toHaveValue(5);
+    });
+  });
+
+  // ── CSV import (#616, #744) ────────────────────────────────────────────────
 
   describe("CSV import", () => {
-    const SECOND_ADDR = "GSECOND34567890ABCDEF1234567890ABCDEF1234567890ABCDEF123";
-
     function csvFile(contents: string, name = "recipients.csv") {
       return new File([contents], name, { type: "text/csv" });
     }
@@ -210,8 +306,8 @@ describe("BatchPaymentForm", () => {
         expect(screen.getAllByPlaceholderText("G...")).toHaveLength(3);
       });
 
-      expect(screen.getByText(/Invalid Stellar address/i)).toBeInTheDocument();
-      expect(screen.getByText(/Amount must be a number greater than 0/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Invalid Stellar address/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Amount must be a number greater than 0/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/2 rows need attention/i)).toBeInTheDocument();
 
       // The single valid row is still importable and enables submission
@@ -226,8 +322,8 @@ describe("BatchPaymentForm", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/Recipient address cannot be the same as your wallet/i)
-        ).toBeInTheDocument();
+          screen.getAllByText(/Recipient address cannot be the same as your wallet/i).length
+        ).toBeGreaterThan(0);
       });
     });
 

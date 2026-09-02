@@ -63,17 +63,15 @@ const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistan
 });
 
 import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
-
-
-import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
+  DraggableWidget,
+  BubbleNotification,
+  PaymentStatsWidget,
+  MonthlySpendingChart,
+  ThirtyDayVolumeChart,
+  TopRecipientsWidget,
+  BalanceSparkline,
+  PaymentStats,
+} from "@/components/dashboard";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 
 import {
@@ -101,23 +99,6 @@ interface DashboardProps {
   stellarURI?: URIParseResult | null;
 }
 
-interface PaymentStats {
-  publicKey: string;
-  totalSentXLM: string;
-  totalReceivedXLM: string;
-  sentCount: number;
-  receivedCount: number;
-  totalTransactions: number;
-  comparison?: {
-    thisWeekCount: number;
-    lastWeekCount: number;
-    countChangePercent: number;
-    thisWeekVolume: string;
-    lastWeekVolume: string;
-    volumeChangePercent: number;
-  };
-}
-
 interface CachedBalanceSnapshot {
   xlmBalance: string;
   usdcBalance: string | null;
@@ -127,15 +108,18 @@ interface CachedBalanceSnapshot {
 
 const BALANCE_CACHE_KEY_PREFIX = "stellar-micropay:offline-balance:";
 
-function getBalanceCacheKey(publicKey: string) {
-  return `${BALANCE_CACHE_KEY_PREFIX}${publicKey}`;
+function getBalanceCacheKey(publicKey: string, network: string = "testnet") {
+  return `${BALANCE_CACHE_KEY_PREFIX}${publicKey}:${network}`;
 }
 
-function loadBalanceSnapshot(publicKey: string): CachedBalanceSnapshot | null {
+function loadBalanceSnapshot(
+  publicKey: string,
+  network: string = "testnet"
+): CachedBalanceSnapshot | null {
   if (typeof window === "undefined") return null;
 
   try {
-    const raw = window.localStorage.getItem(getBalanceCacheKey(publicKey));
+    const raw = window.localStorage.getItem(getBalanceCacheKey(publicKey, network));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedBalanceSnapshot;
     if (!parsed?.xlmBalance || typeof parsed.savedAt !== "number") return null;
@@ -147,12 +131,13 @@ function loadBalanceSnapshot(publicKey: string): CachedBalanceSnapshot | null {
 
 function saveBalanceSnapshot(
   publicKey: string,
+  network: string = "testnet",
   snapshot: Omit<CachedBalanceSnapshot, "savedAt">
 ) {
   if (typeof window === "undefined") return;
 
   window.localStorage.setItem(
-    getBalanceCacheKey(publicKey),
+    getBalanceCacheKey(publicKey, network),
     JSON.stringify({ ...snapshot, savedAt: Date.now() })
   );
 }
@@ -164,6 +149,22 @@ function formatSnapshotTime(savedAt: number) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getRealtimePaymentKey(payment: PaymentRecord): string {
+  const candidate = payment as PaymentRecord & {
+    pagingToken?: string;
+    transactionId?: string;
+    transactionHash?: string;
+    id?: string;
+  };
+  return (
+    candidate.pagingToken ??
+    candidate.transactionId ??
+    candidate.transactionHash ??
+    candidate.id ??
+    `${payment.createdAt}:${payment.amount}:${payment.type}`
+  );
 }
 
 // ─── Dashboard widget drag-to-reorder (#622) ────────────────────────────────
@@ -196,7 +197,12 @@ function saveWidgetOrder(order: DashboardWidgetId[]) {
 
 export default function Dashboard({ stellarURI }: DashboardProps) {
   const { t } = useTranslation("dashboard");
-  const { publicKey } = useWallet();
+  const { publicKey, network } = useWallet();
+  const activeContextKeyRef = useRef<string>("");
+  const currentContextKey = `${publicKey ?? ""}:${network ?? "testnet"}`;
+  useEffect(() => {
+    activeContextKeyRef.current = currentContextKey;
+  }, [currentContextKey]);
   const AUTO_REFRESH_SECONDS = 30;
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
@@ -374,6 +380,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const realtimeSourceRef = useRef<EventSource | null>(null);
   const realtimePollRef = useRef<number | null>(null);
   const latestPaymentIdRef = useRef<string | null>(null);
+  const seenRealtimePaymentIdsRef = useRef<Set<string>>(new Set());
+  const notificationEnabledRef = useRef(notificationEnabled);
+  const bubbleTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    notificationEnabledRef.current = notificationEnabled;
+  }, [notificationEnabled]);
 
 
   // Fetch username for connected wallet
@@ -402,6 +415,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
 
     setBalanceLoading(true);
     setAccountNotFound(false);
@@ -411,6 +425,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         getBalances(publicKey),
         getAccountReserveInfo(publicKey),
       ]);
+      if (activeContextKeyRef.current !== requestKey) return;
+
       const xlm = allBalances.find((b) => b.assetCode === "XLM");
       const usdc = allBalances.find((b) => b.assetCode === "USDC");
       const others = allBalances
@@ -434,13 +450,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       setOtherBalances(others);
       setReserveInfo(reserve);
       setStaleBalanceAt(null);
-      saveBalanceSnapshot(publicKey, {
+      saveBalanceSnapshot(publicKey, network, {
         xlmBalance: bal,
         usdcBalance: usdcBal,
         reserveInfo: reserve,
       });
     } catch (err: unknown) {
-      const cached = loadBalanceSnapshot(publicKey);
+      if (activeContextKeyRef.current !== requestKey) return;
+      const cached = loadBalanceSnapshot(publicKey, network);
       const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
       if (cached && isOffline) {
         setXlmBalance(cached.xlmBalance);
@@ -464,9 +481,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       setReserveInfo(null);
       setStaleBalanceAt(null);
     } finally {
-      setBalanceLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setBalanceLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const refreshBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -481,6 +500,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchPaymentStats = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
@@ -498,6 +518,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         fetch(`${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`, { headers }),
         fetch(`${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/summary`, { headers })
       ]);
+      if (activeContextKeyRef.current !== requestKey) return;
 
       if (!resStats.ok) {
         throw new Error("Unable to load payment stats right now.");
@@ -532,19 +553,24 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         comparison: comparisonData,
       });
     } catch {
+      if (activeContextKeyRef.current !== requestKey) return;
       setPaymentStats(null);
       setPaymentStatsError("Could not load your payment stats.");
     } finally {
-      setPaymentStatsLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setPaymentStatsLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const fetchSpendingHistory = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
 
     setSpendingLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
+      if (activeContextKeyRef.current !== requestKey) return;
       
       // Group by calendar month (last 6 months)
       const now = new Date();
@@ -583,22 +609,28 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch spending history:", err);
     } finally {
-      setSpendingLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setSpendingLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const fetchSparklineData = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
     setSparklineLoading(true);
     try {
       const history = await getRecentPaymentsForSparkline(publicKey, 10);
+      if (activeContextKeyRef.current !== requestKey) return;
       setSparklineData(history.map(h => parseFloat(h.amount)));
     } catch (err) {
       console.error("Failed to fetch sparkline data:", err);
     } finally {
-      setSparklineLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setSparklineLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
 
   useEffect(() => {
@@ -607,9 +639,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchThirtyDayVolume = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
     setThirtyDayLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
+      if (activeContextKeyRef.current !== requestKey) return;
       const now = new Date();
       const days: any[] = [];
       for (let i = 29; i >= 0; i--) {
@@ -635,12 +669,15 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch 30-day volume:", err);
     } finally {
-      setThirtyDayLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setThirtyDayLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const fetchTopRecipients = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
     setTopRecipientsLoading(true);
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
@@ -651,6 +688,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         `${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
         { headers }
       );
+      if (activeContextKeyRef.current !== requestKey) return;
       if (res.ok) {
         const payload = await res.json();
         setTopRecipients(payload?.data?.topRecipients ?? []);
@@ -658,9 +696,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch top recipients:", err);
     } finally {
-      setTopRecipientsLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setTopRecipientsLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const handleExportCSV = async () => {
     if (!publicKey || csvExporting) return;
@@ -931,16 +971,109 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           badge: '/favicon.svg',
         });
       } catch (err) {
+  const handleTestNotification = async () => {
+    if (!notificationEnabled) return;
+
+    // In-app bubble for immediate visual feedback
+    setBubbleMessage('You received 10.00 XLM');
+    setShowBubble(true);
+    setTimeout(() => setShowBubble(false), 3000);
+
+    // Real notification via service worker — validates the actual push path
+    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification('Stellar Pay — Test', {
+          body: 'You received 10.00 XLM',
+          icon: '/favicon.svg',
+          badge: '/favicon.svg',
+        });
+      } catch (err) {
         console.error('Test notification failed:', err);
       }
     }
   };
 
-  // Real-time payment streaming for the connected wallet.
-  // On incoming payment: show OS notification when page is hidden,
-  // in-app bubble when page is visible.
-  useEffect(() => {
+  const primeRealtimeCursor = useCallback(async () => {
     if (!publicKey) return;
+
+    try {
+      const recent = await getRecentPaymentsForStats(publicKey, 1);
+      latestPaymentIdRef.current = recent[0]?.id ?? null;
+    } catch (err) {
+      console.warn("Failed to prime realtime payment cursor:", err);
+      latestPaymentIdRef.current = null;
+    }
+  }, [publicKey]);
+
+  const handleRealtimePayment = useCallback(
+    async (payment: PaymentRecord) => {
+      if (!payment?.id || payment.id === latestPaymentIdRef.current) {
+        return;
+      }
+
+      latestPaymentIdRef.current = payment.id;
+      setIncomingPayment(payment);
+      setRefreshKey((k) => k + 1);
+
+      if (payment.type !== "received") {
+        return;
+      }
+
+      const formattedAmount = formatAsset(payment.amount, payment.asset);
+      showToast(`Received ${formattedAmount}`);
+
+      if (notificationEnabled && Notification.permission === "granted") {
+        if (document.visibilityState === "hidden") {
+          try {
+            const registration = await navigator.serviceWorker.ready;
+            await registration.showNotification("Stellar Pay — Payment received", {
+              body: `You received ${formattedAmount}`,
+              icon: "/favicon.svg",
+              badge: "/favicon.svg",
+            });
+          } catch (err) {
+            console.error("showNotification failed:", err);
+          }
+        } else {
+          setBubbleMessage(`You received ${formattedAmount}`);
+          setShowBubble(true);
+          setTimeout(() => setShowBubble(false), 3000);
+        }
+
+        try {
+          const bal = await getBalances(publicKey);
+          const xlm = bal.find((b) => b.assetCode === "XLM");
+          if (xlm) setXlmBalance(xlm.balance);
+        } catch {
+          // Keep the previous balance if the refresh fails.
+        }
+      }
+    },
+    [notificationEnabled, publicKey, showToast]
+  );
+
+  const stopPollingFallback = useCallback(() => {
+    if (realtimePollRef.current !== null) {
+      window.clearInterval(realtimePollRef.current);
+      realtimePollRef.current = null;
+    }
+  }, []);
+
+  const startPollingFallback = useCallback(() => {
+    if (!publicKey || realtimePollRef.current !== null) return;
+
+    realtimePollRef.current = window.setInterval(async () => {
+      try {
+        const recent = await getRecentPaymentsForStats(publicKey, 1);
+        const latest = recent[0];
+        if (latest) {
+          void handleRealtimePayment(latest);
+        }
+      } catch (err) {
+        console.warn("Realtime polling fallback failed:", err);
+      }
+    }, 10000);
 
     let cancelled = false;
     let eventSource: EventSource | null = null;
@@ -990,6 +1123,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     return () => {
       cancelled = true;
       stopPollingFallback();
+      if (bubbleTimeoutRef.current !== null) {
+        window.clearTimeout(bubbleTimeoutRef.current);
+        bubbleTimeoutRef.current = null;
+      }
+      seenRealtimePaymentIdsRef.current.clear();
+      latestPaymentIdRef.current = null;
       realtimeSourceRef.current?.close();
       realtimeSourceRef.current = null;
       eventSource?.close();
@@ -1514,443 +1653,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   );
 }
 
-function DraggableWidget({
-  id,
-  dragHandleLabel,
-  isDragging,
-  isDragOver,
-  onDragStart,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onDragEnd,
-  children,
-}: {
-  id: string;
-  dragHandleLabel: string;
-  isDragging: boolean;
-  isDragOver: boolean;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDragLeave: () => void;
-  onDrop: (e: React.DragEvent) => void;
-  onDragEnd: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      data-widget-id={id}
-      className={`relative group rounded-2xl transition-opacity ${isDragging ? "opacity-40" : ""} ${
-        isDragOver ? "ring-2 ring-stellar-400/60 ring-offset-2 ring-offset-cosmos-950 rounded-2xl" : ""
-      }`}
-    >
-      <button
-        type="button"
-        draggable
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        title="Drag to reorder"
-        aria-label={`Drag to reorder ${dragHandleLabel}`}
-        className="absolute -top-2 right-2 z-10 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 border border-white/10 rounded-full p-1.5"
-      >
-        <GripIcon className="w-4 h-4 text-slate-300" />
-      </button>
-      {children}
-    </div>
-  );
-}
-
-function GripIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <circle cx="9" cy="6" r="1.5" />
-      <circle cx="15" cy="6" r="1.5" />
-      <circle cx="9" cy="12" r="1.5" />
-      <circle cx="15" cy="12" r="1.5" />
-      <circle cx="9" cy="18" r="1.5" />
-      <circle cx="15" cy="18" r="1.5" />
-    </svg>
-  );
-}
-
-function BubbleNotification({ message, visible }: { message: string; visible: boolean }) {
-  return (
-    <div
-      className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-500 ${
-        visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'
-      }`}
-    >
-      <div className="bg-stellar-500 text-white px-4 py-2 rounded-lg shadow-lg max-w-xs">
-        <p className="text-sm whitespace-nowrap overflow-hidden text-ellipsis">{message}</p>
-      </div>
-    </div>
-  );
-}
-
-function PaymentStatsWidget({
-  stats,
-  loading,
-  error,
-  onRetry,
-}: {
-  stats: PaymentStats | null;
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
-}) {
-  if (loading) {
-    return (
-      <section
-        className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6"
-        aria-label="Payment stats loading"
-      >
-        <span className="sr-only">Loading payment stats</span>
-        {[0, 1, 2].map((index) => (
-          <div
-            key={index}
-            className="card border-white/10 bg-white/[0.03] animate-pulse"
-          >
-            <div className="h-3 w-24 rounded bg-white/10 mb-3" />
-            <div className="h-8 w-32 rounded bg-white/10 mb-2" />
-            <div className="h-3 w-20 rounded bg-white/10" />
-          </div>
-        ))}
-      </section>
-    );
-  }
-
-  if (error) {
-    return (
-      <section className="card mb-6 border-red-500/20 bg-red-500/5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-white">Payment summary</p>
-            <p className="text-sm text-red-300">{error}</p>
-          </div>
-          <button onClick={onRetry} className="btn-secondary text-sm px-4 py-2">
-            Retry
-          </button>
-        </div>
-      </section>
-    );
-  }
-
-  if (!stats) return null;
-
-  const countDelta = stats.comparison?.countChangePercent;
-  const volumeDelta = stats.comparison?.volumeChangePercent;
-
-  return (
-    <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
-      <StatsCard
-        label="Total Sent"
-        value={formatStatsXLM(stats.totalSentXLM)}
-        helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
-        delta={volumeDelta}
-        deltaType={typeof volumeDelta === "number" ? (volumeDelta > 0 ? "positive" : volumeDelta < 0 ? "negative" : "neutral") : undefined}
-      />
-      <StatsCard
-        label="Total Received"
-        value={formatStatsXLM(stats.totalReceivedXLM, "received")}
-        helper={`${stats.receivedCount} incoming payment${stats.receivedCount === 1 ? "" : "s"}`}
-      />
-      <StatsCard
-        label="Transactions"
-        value={stats.totalTransactions.toLocaleString("en-US")}
-        helper="Across sent and received activity"
-        delta={countDelta}
-        deltaType={typeof countDelta === "number" ? (countDelta > 0 ? "positive" : countDelta < 0 ? "negative" : "neutral") : undefined}
-      />
-    </section>
-  );
-}
-
-function MonthlySpendingChart({
-  data,
-  loading,
-  onBarClick,
-}: {
-  data: any[];
-  loading: boolean;
-  onBarClick: (data: any) => void;
-}) {
-  if (loading && data.length === 0) {
-    return (
-      <div className="card mb-6 h-[350px] animate-pulse bg-white/[0.03] border-white/10" />
-    );
-  }
-
-  return (
-    <div className="card mb-6 overflow-hidden">
-      <h2 className="font-display text-lg font-semibold text-white mb-6">
-        Monthly Spending (XLM)
-      </h2>
-      <div className="h-[250px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={data}
-            onClick={(state: any) =>
-              state &&
-              state.activePayload &&
-              onBarClick(state.activePayload[0].payload)
-            }
-
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-            <XAxis
-              dataKey="month"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "#94a3b8", fontSize: 12 }}
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "#94a3b8", fontSize: 12 }}
-              tickFormatter={(value: any) => `${value}`}
-            />
-            <Tooltip
-              cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
-              contentStyle={{
-                backgroundColor: "#0f172a",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                borderRadius: "8px",
-              }}
-              itemStyle={{ color: "#38bdf8" }}
-            />
-            <Bar dataKey="sent" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function ThirtyDayVolumeChart({ data, loading }: { data: any[]; loading: boolean }) {
-  if (loading && data.length === 0) {
-    return <div className="card mb-6 h-[280px] animate-pulse bg-white/[0.03] border-white/10" />;
-  }
-  const visibleData = data.filter((_: any, i: number) => i % 5 === 0 || i === data.length - 1);
-  return (
-    <div className="card mb-6 overflow-hidden">
-      <h2 className="font-display text-lg font-semibold text-white mb-6">30-Day Volume (XLM)</h2>
-      <div className="h-[220px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-            <XAxis
-              dataKey="day"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "#94a3b8", fontSize: 11 }}
-              ticks={visibleData.map((d: any) => d.day)}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "#94a3b8", fontSize: 11 }}
-            />
-            <Tooltip
-              cursor={{ fill: "rgba(255,255,255,0.05)" }}
-              contentStyle={{ backgroundColor: "#0f172a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }}
-              itemStyle={{ color: "#38bdf8" }}
-            />
-            <Bar dataKey="sent" fill="#38bdf8" name="Sent" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="received" fill="#34d399" name="Received" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function TopRecipientsWidget({
-  recipients,
-  loading,
-}: {
-  recipients: Array<{ address: string; totalXLMSent: string }>;
-  loading: boolean;
-}) {
-  return (
-    <div className="card">
-      <h2 className="font-display text-lg font-semibold text-white mb-4">Top Recipients</h2>
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-10 bg-white/5 rounded-lg animate-pulse" />
-          ))}
-        </div>
-      ) : recipients.length === 0 ? (
-        <p className="text-sm text-slate-400">No sent payments yet.</p>
-      ) : (
-        <ol className="space-y-2">
-          {recipients.map((r, idx) => (
-            <li key={r.address} className="flex items-center justify-between gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/5">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-stellar-400 w-5 text-center">{idx + 1}</span>
-                <span className="font-mono text-sm text-slate-200">{shortenAddress(r.address)}</span>
-              </div>
-              <span className="text-sm font-semibold text-white">{parseFloat(r.totalXLMSent).toFixed(2)} XLM</span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  );
-}
-
 function DownloadIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
     </svg>
-  );
-}
-
-function StatsCard({
-  label,
-  value,
-  helper,
-  delta,
-  deltaType = "neutral",
-}: {
-  label: string;
-  value: string;
-  helper: string;
-  delta?: number;
-  deltaType?: "positive" | "negative" | "neutral";
-}) {
-  const isPos = deltaType === "positive";
-  const isNeg = deltaType === "negative";
-  const deltaColor = isPos ? "text-emerald-400 bg-emerald-500/10" : isNeg ? "text-rose-400 bg-rose-500/10" : "text-slate-400 bg-slate-500/10";
-  
-  return (
-    <div className="card border-white/10 bg-white/[0.03] relative overflow-hidden flex flex-col justify-between">
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <p className="label">{label}</p>
-          {typeof delta === "number" && (
-            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${deltaColor}`}>
-              {delta >= 0 ? "+" : ""}{delta}%
-            </span>
-          )}
-        </div>
-        <p className="font-display text-2xl font-bold text-white">{value}</p>
-      </div>
-      <p className="text-xs text-slate-400 mt-2">{helper}</p>
-    </div>
-  );
-}
-
-function formatStatsXLM(amount: string, suffix = "sent") {
-  const value = parseFloat(amount);
-
-  if (Number.isNaN(value)) return `0.00 XLM ${suffix}`;
-
-  return `${value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 7,
-  })} XLM ${suffix}`;
-}
-
-// ─── Sparkline chart ─────────────────────────────────────────────────────────
-
-/**
- * Inline SVG sparkline showing balance change over the last N transactions.
- * Green when the overall trend is upward, red when downward.
- * Hover tooltip shows the running balance delta at each data point.
- */
-function BalanceSparkline({ data }: { data: number[] }) {
-  const W = 160;
-  const H = 40;
-  const PAD = 4;
-
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1; // avoid division by zero for flat lines
-
-  const points = data.map((v, i) => {
-    const x = PAD + (i / Math.max(data.length - 1, 1)) * (W - PAD * 2);
-    const y = PAD + (1 - (v - min) / range) * (H - PAD * 2);
-    return { x, y, value: v };
-  });
-
-  const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
-
-  const trend = data[data.length - 1] >= data[0];
-  const color = trend ? "#22c55e" : "#ef4444"; // green-500 / red-500
-  const fillColor = trend ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)";
-
-  // Closed path for the fill area under the line
-  const fillPath =
-    `M ${points[0].x},${H - PAD} ` +
-    points.map((p) => `L ${p.x},${p.y}`).join(" ") +
-    ` L ${points[points.length - 1].x},${H - PAD} Z`;
-
-  return (
-    <div className="relative inline-block" aria-label="Balance sparkline chart">
-      <svg
-        width={W}
-        height={H}
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={`Balance trend: ${trend ? "upward" : "downward"}`}
-      >
-        {/* Fill area */}
-        <path d={fillPath} fill={fillColor} />
-        {/* Line */}
-        <polyline
-          points={polyline}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        {/* Interactive dots with tooltips */}
-        {points.map((p, i) => (
-          <g key={i} className="group">
-            <circle
-              cx={p.x}
-              cy={p.y}
-              r={5}
-              fill="transparent"
-              className="cursor-pointer"
-            />
-            <circle
-              cx={p.x}
-              cy={p.y}
-              r={2.5}
-              fill={color}
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
-            />
-            {/* SVG foreignObject tooltip */}
-            <foreignObject
-              x={Math.min(p.x - 36, W - 76)}
-              y={p.y < H / 2 ? p.y + 6 : p.y - 30}
-              width={72}
-              height={24}
-              className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity overflow-visible"
-            >
-              <div
-                className="bg-cosmos-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white whitespace-nowrap text-center"
-                style={{ fontSize: "10px" }}
-              >
-                {p.value >= 0 ? "+" : ""}
-                {p.value.toFixed(4)} XLM
-              </div>
-            </foreignObject>
-          </g>
-        ))}
-      </svg>
-      <p className="text-xs mt-0.5" style={{ color, fontSize: "10px" }}>
-        {trend ? "▲ Upward trend" : "▼ Downward trend"}
-      </p>
-    </div>
   );
 }
 

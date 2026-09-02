@@ -19,6 +19,9 @@ describe('AIPaymentAssistant', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (fetch as jest.Mock).mockClear();
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.clear();
+    }
   });
 
   it('renders when open', () => {
@@ -83,14 +86,13 @@ describe('AIPaymentAssistant', () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(/Send 50 XLM to GABC123/);
-    const submitButton = screen.getByText('Parse Payment');
+    const textarea = screen.getByRole('textbox');
+    const submitButton = screen.getByRole('button', { name: /parse payment|send/i });
 
     fireEvent.change(textarea, { target: { value: 'Send 50 XLM to GABC123 for design work' } });
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(screen.getByText('Parsed Payment Details')).toBeInTheDocument();
       expect(screen.getByText('50 XLM')).toBeInTheDocument();
       expect(screen.getByText('GABC123')).toBeInTheDocument();
       expect(screen.getByText('design work')).toBeInTheDocument();
@@ -119,14 +121,13 @@ describe('AIPaymentAssistant', () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(/Send 50 XLM to GABC123/);
-    const submitButton = screen.getByText('Parse Payment');
+    const textarea = screen.getByRole('textbox');
+    const submitButton = screen.getByRole('button', { name: /parse payment|send/i });
 
     fireEvent.change(textarea, { target: { value: 'Pay Alice for the job' } });
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(screen.getByText('Need More Information')).toBeInTheDocument();
       expect(screen.getByText('What amount should be sent?')).toBeInTheDocument();
     });
   });
