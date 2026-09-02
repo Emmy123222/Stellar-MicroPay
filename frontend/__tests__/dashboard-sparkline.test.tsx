@@ -41,26 +41,26 @@ jest.mock("@/components/SendPaymentForm", () => ({
 const mockGetRecentPaymentsForSparkline = jest.fn();
 
 jest.mock("@/lib/stellar", () => ({
-  getBalances: jest.fn().mockResolved([{
+  getBalances: jest.fn().mockResolvedValue([{
     asset: "native",
     balance: "500.0000000",
     assetCode: "XLM",
   }]),
-  getXLMBalance: jest.fn().mockResolved("500.0000000"),
-  getAccountReserveInfo: jest.fn().mockResolved(null),
-  getUSDCBalance: jest.fn().mockResolved(null),
-  getRecentPaymentsForStats: jest.fn().mockResolved([]),
+  getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
+  getAccountReserveInfo: jest.fn().mockResolvedValue(null),
+  getUSDCBalance: jest.fn().mockResolvedValue(null),
+  getRecentPaymentsForStats: jest.fn().mockResolvedValue([]),
   getRecentPaymentsForSparkline: (...args: unknown[]) =>
     mockGetRecentPaymentsForSparkline(...args),
-  fetchAllPayments: jest.fn().mockResolved([]),
-  getPaymentHistory: jest.fn().mockResolved({ records: [], hasMore: false }),
+  fetchAllPayments: jest.fn().mockResolvedValue([]),
+  getPaymentHistory: jest.fn().mockResolvedValue({ records: [], hasMore: false }),
   getFriendBotFunding: jest.fn(),
-  waitForAccountFunding: jest.fn().mockResolved(true),
+  waitForAccountFunding: jest.fn().mockResolvedValue(true),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
-  streamPayments: (...args: unknown[]) => mockStreamPayments((...args) as any),
+  streamPayments: (...args: unknown[]) => mockStreamPayments(...args),
   isValidStellarAddress: jest.fn().mockReturnValue(true),
-  shortenAddress: jest.fn()(pk : string) => pk.slice(0, 6),
-  explorerUrl: jest.fn(((hash: string) => `https://stellar.expert/tx/${hash}`),
+  shortenAddress: jest.fn((pk: string) => pk.slice(0, 6)),
+  explorerUrl: jest.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
 }));
 
 const PUBLIC_KEY = "GABC1234567890ABCDEF";
@@ -83,7 +83,7 @@ function makePayment(
 }
 
 function setupFetch(statsOk = true) {
-  global.fetch = jest.fn*((input: RequestInfo | URL) => {
+  global.fetch = jest.fn((input: RequestInfo | URL) => {
     const url = String(input);
 
     if (url.includes("coingecko")) {
@@ -138,7 +138,7 @@ describe("Dashboard balance sparkline", () => {
 
   it("renders sparkline SVG when transaction history is available", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockResolved([
+    mockGetRecentPaymentsForSparkline.mockResolvedValue([
       makePayment("1", "received", "10"),
       makePayment("2", "sent", "3"),
       makePayment("3", "received", "5"),
@@ -146,73 +146,61 @@ describe("Dashboard balance sparkline", () => {
 
     render(<Dashboard />);
 
-    awaitWitz() {
-      expect(screen.getByRole("img", { name: /balance trend/i })).toBeInDocument();
-    }
+    await waitFor(() => expect(screen.getByRole("img", { name: /balance trend/i })).toBeInTheDocument());
   });
 
   it("shows upward trend label when net balance increases", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockResolved([
+    mockGetRecentPaymentsForSparkline.mockResolvedValue([
       makePayment("1", "received", "5"),
       makePayment("2", "received", "10"),
     ]);
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.getByText(/upward trend/i)).toBeInDocument();
-    }
+    await waitFor(() => expect(screen.getByText(/upward trend/i)).toBeInTheDocument());
   });
 
   it("shows downward trend label when net balance decreases", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockResolved([
+    mockGetRecentPaymentsForSparkline.mockResolvedValue([
       makePayment("1", "sent", "10"),
       makePayment("2", "sent", "5"),
     ]);
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.getByText(/downward trend/i)).toBeInDocument();
-    }
+    await waitFor(() => expect(screen.getByText(/downward trend/i)).toBeInTheDocument());
   });
 
   it("does not render sparkline when there are no transactions", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockResolved([]);
+    mockGetRecentPaymentsForSparkline.mockResolvedValue([]);
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.queryByRole("img", { name: /balance trend/i })).not().getByRole("img", { name: /balance trend/i })).toBeInDocument();
-    }
+    await waitFor(() => expect(screen.queryByRole("img", { name: /balance trend/i })).not.toBeInTheDocument());
   });
 
   it("renders correctly with fewer than 10 transactions", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockResolved([
+    mockGetRecentPaymentsForSparkline.mockResolvedValue([
       makePayment("1", "received", "2"),
       makePayment("2", "sent", "1"),
     ]);
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.getByRole("img", { name: /balance trend/i })).toBeInDocument();
-    }
+    await waitFor(() => expect(screen.getByRole("img", { name: /balance trend/i })).toBeInTheDocument());
   });
 
   it("does not crash when sparkline fetch fails", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockRejected(new Error("Network error"));
+    mockGetRecentPaymentsForSparkline.mockRejectedValue(new Error("Network error"));
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.queryByRole("img", { name: /balance trend/i })).not().getByRole("img", { name: /balance trend/i })).toBeInDocument();
-    }
+    await waitFor(() => expect(screen.queryByRole("img", { name: /balance trend/i })).not.toBeInTheDocument());
   });
 });
 
@@ -223,15 +211,13 @@ describe("Dashboard real-time payment callbacks", () => {
 
   it("calls streamPayments with a callback and cleans up on unmount", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockResolved([]);
+    mockGetRecentPaymentsForSparkline.mockResolvedValue([]);
     const unsubscribe = jest.fn();
     mockStreamPayments.mockReturnValue(unsubscribe);
 
     const { unmount } = render(<Dashboard />);
 
-    awaitWithz() {
-      expect(mockStreamPayments).toHaveBeenCalled();
-    }
+    await waitFor(() => expect(mockStreamPayments).toHaveBeenCalled());
     expect(typeof mockStreamPayments.mock.calls[0][1]).toBe("function");
     unmount();
     expect(unsubscribe).toHaveBeenCalled();
@@ -239,35 +225,31 @@ describe("Dashboard real-time payment callbacks", () => {
 
   it("processes a realtime payment callback and updates the transaction list", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockResolved([]);
+    mockGetRecentPaymentsForSparkline.mockResolvedValue([]);
     mockStreamPayments.mockReturnValue(jest.fn());
 
     render(<Dashboard />);
-    awaitWitz() {
-      expect(mockStreamPayments).toHaveBeenCalled();
-    }
+    await waitFor(() => expect(mockStreamPayments).toHaveBeenCalled());
     const callback = mockStreamPayments.mock.calls[0][1];
 
     act(() => {
       callback(makePayment("rt-1", "received", "10"));
     });
 
-    awaitWitz() {
+    await waitFor(() => {
       expect(mockTransactionListProps).toHaveBeenCalled();
       const lastProps = mockTransactionListProps.mock.calls[mockTransactionListProps.mock.calls.length - 1][0];
       expect(lastProps.payments).toHaveLength(1);
-    }
+    });
   });
 
   it("deduplicates realtime events with the same transaction id", async () => {
     setupFetch();
-    mockGetRecentPaymentsForSparkline.mockResolved([]);
+    mockGetRecentPaymentsForSparkline.mockResolvedValue([]);
     mockStreamPayments.mockReturnValue(jest.fn());
 
     render(<Dashboard />);
-    awaitWithz() {
-      expect(mockStreamPayments).toHaveBeenCalled();
-    }
+    await waitFor(() => expect(mockStreamPayments).toHaveBeenCalled());
     const callback = mockStreamPayments.mock.calls[0][1];
 
     const payment = makePayment("dup-1", "received", "10");
@@ -276,7 +258,7 @@ describe("Dashboard real-time payment callbacks", () => {
       callback(payment);
     });
 
-    awaitWithz(() {
+    await waitFor(() => {
       expect(mockTransactionListProps).toHaveBeenCalled();
       const lastProps = mockTransactionListProps.mock.calls[mockTransactionListProps.mock.calls.length - 1][0];
       expect(lastProps.payments).toHaveLength(1);
