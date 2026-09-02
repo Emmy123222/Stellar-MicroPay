@@ -74,7 +74,11 @@
     "image-size": "^1.2.1",
     "sharp": "^0.33.5",
     "ws": "^8.18.0",
-    "webpack": "5.101.2"
+    "webpack": "5.101.2",
+    "brace-expansion@1": "1.1.18",
+    "brace-expansion@5": "5.0.9",
+    "minimatch@9": "9.0.7",
+    "glob@10": "10.5.0"
   },
   "engines": {
     "node": "20.19.5"
