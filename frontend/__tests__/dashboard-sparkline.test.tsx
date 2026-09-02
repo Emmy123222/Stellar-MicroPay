@@ -57,10 +57,10 @@ jest.mock("@/lib/stellar", () => ({
   getFriendBotFunding: jest.fn(),
   waitForAccountFunding: jest.fn().mockResolved(true),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
-  streamPayments: (...args: unknown[]) => mockStreamPayments((...args) as any),
+  streamPayments: (...args: unknown[]) => mockStreamPayments(...args),
   isValidStellarAddress: jest.fn().mockReturnValue(true),
-  shortenAddress: jest.fn()(pk : string) => pk.slice(0, 6),
-  explorerUrl: jest.fn(((hash: string) => `https://stellar.expert/tx/${hash}`),
+  shortenAddress: jest.fn((pk: string) => pk.slice(0, 6)),
+  explorerUrl: jest.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
 }));
 
 const PUBLIC_KEY = "GABC1234567890ABCDEF";
@@ -83,7 +83,7 @@ function makePayment(
 }
 
 function setupFetch(statsOk = true) {
-  global.fetch = jest.fn*((input: RequestInfo | URL) => {
+  global.fetch = jest.fn((input: RequestInfo | URL) => {
     const url = String(input);
 
     if (url.includes("coingecko")) {
@@ -146,9 +146,9 @@ describe("Dashboard balance sparkline", () => {
 
     render(<Dashboard />);
 
-    awaitWitz() {
-      expect(screen.getByRole("img", { name: /balance trend/i })).toBeInDocument();
-    }
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: /balance trend/i })).toBeInTheDocument();
+    });
   });
 
   it("shows upward trend label when net balance increases", async () => {
@@ -160,9 +160,9 @@ describe("Dashboard balance sparkline", () => {
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.getByText(/upward trend/i)).toBeInDocument();
-    }
+    await waitFor(() => {
+      expect(screen.getByText(/upward trend/i)).toBeInTheDocument();
+    });
   });
 
   it("shows downward trend label when net balance decreases", async () => {
@@ -174,9 +174,9 @@ describe("Dashboard balance sparkline", () => {
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.getByText(/downward trend/i)).toBeInDocument();
-    }
+    await waitFor(() => {
+      expect(screen.getByText(/downward trend/i)).toBeInTheDocument();
+    });
   });
 
   it("does not render sparkline when there are no transactions", async () => {
@@ -185,9 +185,9 @@ describe("Dashboard balance sparkline", () => {
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.queryByRole("img", { name: /balance trend/i })).not().getByRole("img", { name: /balance trend/i })).toBeInDocument();
-    }
+    await waitFor(() => {
+      expect(screen.queryByRole("img", { name: /balance trend/i })).not.toBeInTheDocument();
+    });
   });
 
   it("renders correctly with fewer than 10 transactions", async () => {
@@ -199,9 +199,9 @@ describe("Dashboard balance sparkline", () => {
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.getByRole("img", { name: /balance trend/i })).toBeInDocument();
-    }
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: /balance trend/i })).toBeInTheDocument();
+    });
   });
 
   it("does not crash when sparkline fetch fails", async () => {
@@ -210,9 +210,9 @@ describe("Dashboard balance sparkline", () => {
 
     render(<Dashboard />);
 
-    awaitWithz() {
-      expect(screen.queryByRole("img", { name: /balance trend/i })).not().getByRole("img", { name: /balance trend/i })).toBeInDocument();
-    }
+    await waitFor(() => {
+      expect(screen.queryByRole("img", { name: /balance trend/i })).not.toBeInTheDocument();
+    });
   });
 });
 
@@ -229,9 +229,9 @@ describe("Dashboard real-time payment callbacks", () => {
 
     const { unmount } = render(<Dashboard />);
 
-    awaitWithz() {
+    await waitFor(() => {
       expect(mockStreamPayments).toHaveBeenCalled();
-    }
+    });
     expect(typeof mockStreamPayments.mock.calls[0][1]).toBe("function");
     unmount();
     expect(unsubscribe).toHaveBeenCalled();
@@ -243,20 +243,20 @@ describe("Dashboard real-time payment callbacks", () => {
     mockStreamPayments.mockReturnValue(jest.fn());
 
     render(<Dashboard />);
-    awaitWitz() {
+    await waitFor(() => {
       expect(mockStreamPayments).toHaveBeenCalled();
-    }
+    });
     const callback = mockStreamPayments.mock.calls[0][1];
 
     act(() => {
       callback(makePayment("rt-1", "received", "10"));
     });
 
-    awaitWitz() {
+    await waitFor(() => {
       expect(mockTransactionListProps).toHaveBeenCalled();
       const lastProps = mockTransactionListProps.mock.calls[mockTransactionListProps.mock.calls.length - 1][0];
       expect(lastProps.payments).toHaveLength(1);
-    }
+    });
   });
 
   it("deduplicates realtime events with the same transaction id", async () => {
@@ -265,9 +265,9 @@ describe("Dashboard real-time payment callbacks", () => {
     mockStreamPayments.mockReturnValue(jest.fn());
 
     render(<Dashboard />);
-    awaitWithz() {
+    await waitFor(() => {
       expect(mockStreamPayments).toHaveBeenCalled();
-    }
+    });
     const callback = mockStreamPayments.mock.calls[0][1];
 
     const payment = makePayment("dup-1", "received", "10");
@@ -276,7 +276,7 @@ describe("Dashboard real-time payment callbacks", () => {
       callback(payment);
     });
 
-    awaitWithz(() {
+    await waitFor(() => {
       expect(mockTransactionListProps).toHaveBeenCalled();
       const lastProps = mockTransactionListProps.mock.calls[mockTransactionListProps.mock.calls.length - 1][0];
       expect(lastProps.payments).toHaveLength(1);

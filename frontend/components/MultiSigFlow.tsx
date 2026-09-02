@@ -420,7 +420,7 @@ export default function MultiSigFlow({
                   {...(isActive ? { "aria-current": "step" } : {})}
                 >
                   {idx + 1}
-                },
+                </div>
                 <span className={clsx("text-xs mt-1", isActive ? "text-white font-medium" : "text-slate-400")}>
                   {STEP_LABELS[s]}
                 </span>
