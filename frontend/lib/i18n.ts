@@ -181,3 +181,4 @@ export function isRTL(locale: Locale): boolean {
   const rtlLocales: Locale[] = [];
   return rtlLocales.includes(locale);
 }
+

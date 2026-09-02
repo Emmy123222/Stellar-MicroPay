@@ -25,9 +25,24 @@ interface I18nContextType {
 
 const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
+let providerMounted = false;
+
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
   const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    if (providerMounted) {
+      console.error(
+        '[I18n] Multiple I18nProvider instances detected. ' +
+        'Only one provider should be mounted at a time.'
+      );
+    }
+    providerMounted = true;
+    return () => {
+      providerMounted = false;
+    };
+  }, []);
 
   // Initialize locale from localStorage on mount
   useEffect(() => {

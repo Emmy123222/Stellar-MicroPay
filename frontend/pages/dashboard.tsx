@@ -18,7 +18,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import Head from "next/head";
 import FloatingAssistantButton from "../components/FloatingAssistantButton";
-import { useTranslation } from "@/lib/i18n";
+import { useTranslation } from "@/contexts/I18nContext";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
 const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), { ssr: false });
