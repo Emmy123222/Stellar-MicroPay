@@ -178,6 +178,8 @@ function SendPaymentForm({
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
+  const destinationValidationRequestRef = useRef(0);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
@@ -380,24 +382,24 @@ function SendPaymentForm({
     // Only trigger for SNS/federation names — raw addresses and usernames are
     // handled elsewhere.
     if (!isStellarName(trimmed)) {
-      setSnsResolvedAddress(null);
+      setSnsResolved(null);
       setSnsResolving(false);
       return;
     }
 
     setSnsResolving(true);
-    setSnsResolvedAddress(null);
+    setSnsResolved(null);
     setDestinationResolutionError(null);
 
     snsDebounceRef.current = setTimeout(async () => {
       try {
         const resolved = await resolveStellarName(trimmed);
-        setSnsResolvedAddress(resolved);
+        setSnsResolved(resolved);
         setDestinationResolutionError(null);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not resolve name";
         setDestinationResolutionError(message);
-        setSnsResolvedAddress(null);
+        setSnsResolved(null);
       } finally {
         setSnsResolving(false);
       }
@@ -409,48 +411,59 @@ function SendPaymentForm({
   }, [destination]);
 
   // Pre-validate destination account existence on the Stellar network (#294)
-  useEffect(() => {
-    if (!isValidStellarAddress(destination)) {
-      setDestAccountWarning(null);
-      setIsCheckingDest(false);
-      return;
-    }
+  const validateDestinationAccount = useCallback(
+    async (address: string) => {
+      const trimmed = address.trim();
+      if (!isValidStellarAddress(trimmed)) {
+        setDestAccountWarning(null);
+        setIsCheckingDest(false);
+        return;
+      }
 
-    setIsCheckingDest(true);
-    setDestAccountWarning(null);
-    server.loadAccount(trimmedAddress)
-      .then(() => {
-        if (destinationValidationRequestRef.current === requestId) setDestAccountWarning(null);
-      })
-      .catch(() => {
-        if (destinationValidationRequestRef.current === requestId) {
-          setDestAccountWarning(
-            selectedAsset === "XLM"
-              ? "This account doesn't exist yet. Sending ≥ 1 XLM will create it."
-              : "This account doesn't exist on the Stellar network."
-          );
-        }
-      })
-      .finally(() => {
-        if (destinationValidationRequestRef.current === requestId) setIsCheckingDest(false);
-      });
-  }, [selectedAsset]);
+      const requestId = destinationValidationRequestRef.current;
+      setIsCheckingDest(true);
+      setDestAccountWarning(null);
+      server
+        .loadAccount(trimmed)
+        .then(() => {
+          if (destinationValidationRequestRef.current === requestId) {
+            setDestAccountWarning(null);
+          }
+        })
+        .catch(() => {
+          if (destinationValidationRequestRef.current === requestId) {
+            setDestAccountWarning(
+              selectedAsset === "XLM"
+                ? "This account doesn't exist yet. Sending ≥ 1 XLM will create it."
+                : "This account doesn't exist on the Stellar network."
+            );
+          }
+        })
+        .finally(() => {
+          if (destinationValidationRequestRef.current === requestId) {
+            setIsCheckingDest(false);
+          }
+        });
+    },
+    [selectedAsset]
+  );
 
   // Pre-validate destination account existence on the Stellar network (#294)
   useEffect(() => {
+    destinationValidationRequestRef.current += 1;
+
     if (destinationValidationTimeoutRef.current) {
       clearTimeout(destinationValidationTimeoutRef.current);
     }
 
     if (!isValidStellarAddress(destination.trim())) {
-      destinationValidationRequestRef.current += 1;
       setDestAccountWarning(null);
       setIsCheckingDest(false);
       return;
     }
 
     destinationValidationTimeoutRef.current = setTimeout(() => {
-      validateDestinationAccount(destination);
+      void validateDestinationAccount(destination);
       destinationValidationTimeoutRef.current = null;
     }, DESTINATION_VALIDATION_DEBOUNCE_MS);
 
@@ -537,15 +550,10 @@ function SendPaymentForm({
       return trimmedDestination;
     }
 
-    // If we already resolved a SNS name in the debounced effect, use that
-    // result directly — never submit the raw name string.
-    if (isStellarName(trimmedDestination) && snsResolvedAddress) {
-      return snsResolvedAddress;
-    }
-
     setIsResolvingDestination(true);
     try {
       // If we already resolved the SNS name in the preview, reuse it
+      // rather than calling the network again.
       if (isStellarName(trimmedDestination) && snsResolved) {
         return snsResolved;
       }
@@ -556,10 +564,6 @@ function SendPaymentForm({
 
       if (isFederationDestination) {
         return await resolveFederationAddress(trimmedDestination);
-      }
-
-      if (isStellarName(trimmedDestination)) {
-        return await resolveStellarName(trimmedDestination);
       }
 
       if (isUsernameDestination) {
@@ -589,7 +593,7 @@ function SendPaymentForm({
     setDestination(address);
     setDestinationResolutionError(null);
     setResolvedPaymentDestination(null);
-    setSnsResolvedAddress(null);
+    setSnsResolved(null);
     setIsContactsDropdownOpen(false);
   };
 
@@ -756,7 +760,7 @@ function SendPaymentForm({
       clearTimeout(destinationValidationTimeoutRef.current);
       destinationValidationTimeoutRef.current = null;
     }
-    validateDestinationAccount(destination);
+void validateDestinationAccount(destination);
   };
 
   const openConfirmation = () => {
@@ -942,7 +946,7 @@ function SendPaymentForm({
                 setDestination(val);
                 setDestinationResolutionError(null);
                 setResolvedPaymentDestination(null);
-                setSnsResolvedAddress(null);
+                setSnsResolved(null);
                 setDestAccountWarning(null);
                 setIsContactsDropdownOpen(true);
 
@@ -1007,19 +1011,6 @@ function SendPaymentForm({
 
             {destinationResolutionError && (
               <p className="mt-2 text-xs text-red-400">{destinationResolutionError}</p>
-            )}
-
-            {/* SNS resolution feedback */}
-            {snsResolving && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-slate-400" aria-live="polite" aria-label="Resolving name">
-                <div className="h-3 w-3 animate-spin rounded-full border border-stellar-400 border-t-transparent" />
-                <span>Resolving name…</span>
-              </div>
-            )}
-            {!snsResolving && snsResolvedAddress && (
-              <p className="mt-2 text-xs text-emerald-400" aria-live="polite">
-                Resolves to: <span className="font-mono">{snsResolvedAddress}</span>
-              </p>
             )}
 
             {/* Destination account existence warning (#294) */}

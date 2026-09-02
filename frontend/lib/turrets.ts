@@ -79,6 +79,7 @@ export async function listTurretsFunctions(ownerPublicKey: string) {
   const res = await fetch(
     `${apiBase()}/api/turrets?ownerPublicKey=${encodeURIComponent(ownerPublicKey)}`
   );
+  return parseJson(res) as Promise<TurretsDeployment[]>;
 }
 
 /** Fetch the execution history for a Turrets deployment by id. */

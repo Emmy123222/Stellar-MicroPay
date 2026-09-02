@@ -18,6 +18,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import Head from "next/head";
 import FloatingAssistantButton from "../components/FloatingAssistantButton";
+import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import { useTranslation } from "@/lib/i18n";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
@@ -920,6 +921,108 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Real-time payment streaming for the connected wallet.
   // On incoming payment: show OS notification when page is hidden,
   // in-app bubble when page is visible.
+  const primeRealtimeCursor = useCallback(async () => {
+    if (!publicKey) return;
+
+    try {
+      const recent = await getRecentPaymentsForStats(publicKey, 1);
+      latestPaymentIdRef.current = recent[0]?.id ?? null;
+    } catch (err) {
+      console.warn("Failed to prime realtime payment cursor:", err);
+      latestPaymentIdRef.current = null;
+    }
+  }, [publicKey]);
+
+  const handleRealtimePayment = useCallback(
+    async (payment: PaymentRecord) => {
+      if (!payment?.id || payment.id === latestPaymentIdRef.current) {
+        return;
+      }
+
+      latestPaymentIdRef.current = payment.id;
+      setIncomingPayment(payment);
+      setRefreshKey((k) => k + 1);
+
+      if (payment.type !== "received") {
+        return;
+      }
+
+      const formattedAmount = formatAsset(payment.amount, payment.asset);
+      showToast(`Received ${formattedAmount}`);
+
+      if (notificationEnabled && Notification.permission === "granted") {
+        if (document.visibilityState === "hidden") {
+          try {
+            const registration = await navigator.serviceWorker.ready;
+            await registration.showNotification("Stellar Pay — Payment received", {
+              body: `You received ${formattedAmount}`,
+              icon: "/favicon.svg",
+              badge: "/favicon.svg",
+            });
+          } catch (err) {
+            console.error("showNotification failed:", err);
+          }
+        } else {
+          setBubbleMessage(`You received ${formattedAmount}`);
+          setShowBubble(true);
+          setTimeout(() => setShowBubble(false), 3000);
+        }
+
+        try {
+          if (!publicKey) return;
+          const bal = await getXLMBalance(publicKey);
+          setXlmBalance(bal);
+        } catch {
+          // Keep the previous balance if the refresh fails.
+        }
+      }
+    },
+    [notificationEnabled, publicKey, showToast]
+  );
+
+  const startPollingFallback = useCallback(() => {
+    if (realtimePollRef.current !== null || !publicKey) {
+      return;
+    }
+
+    realtimePollRef.current = window.setInterval(async () => {
+      try {
+        const recent = await getRecentPaymentsForStats(publicKey, 5);
+        if (recent.length === 0) {
+          return;
+        }
+
+        const newestId = recent[0]?.id ?? null;
+        if (!newestId || newestId === latestPaymentIdRef.current) {
+          latestPaymentIdRef.current = newestId;
+          return;
+        }
+
+        const unseen: PaymentRecord[] = [];
+        for (const payment of recent) {
+          if (payment.id === latestPaymentIdRef.current) {
+            break;
+          }
+          unseen.push(payment);
+        }
+
+        latestPaymentIdRef.current = newestId;
+        unseen.reverse().forEach((payment) => {
+          void handleRealtimePayment(payment);
+        });
+      } catch (err) {
+        console.error("Realtime polling fallback failed:", err);
+      }
+    }, 15000);
+  }, [handleRealtimePayment, publicKey]);
+
+  const stopPollingFallback = useCallback(() => {
+    if (realtimePollRef.current !== null) {
+      window.clearInterval(realtimePollRef.current);
+      realtimePollRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!publicKey) return;
 

@@ -257,28 +257,6 @@ export interface PaymentHistoryResponse {
   nextCursor?: string;
 }
 
-// DEX Types
-export interface OrderbookEntry {
-  price: string;
-  amount: string;
-}
-
-export interface Orderbook {
-  bids: OrderbookEntry[];
-  asks: OrderbookEntry[];
-}
-
-
-export interface NetworkStats {
-  latestLedgerSequence: number;
-  lastLedgerCloseTime: string;
-  avgTransactionCount: number;
-  currentBaseFee: number;
-  p50Fee: number;
-  p95Fee: number;
-  p99Fee: number;
-}
-
 export interface FetchAllPaymentsProgress {
   fetchedRecords: number;
   fetchedPages: number;
@@ -1554,8 +1532,8 @@ export interface TradeAggregation {
 export interface OpenOffer {
   id: string | number;
   seller: string;
-  selling: { asset_type: string; asset_code?: string; asset_issuer?: string };
-  buying: { asset_type: string; asset_code?: string; asset_issuer?: string };
+  selling: Asset;
+  buying: Asset;
   amount: string;
   price: string;
 }
@@ -1622,8 +1600,8 @@ export async function fetchOpenOffers(publicKey: string): Promise<OpenOffer[]> {
   return result.records.map((r) => ({
     id: r.id,
     seller: r.seller,
-    selling: r.selling,
-    buying: r.buying,
+    selling: toAsset(r.selling),
+    buying: toAsset(r.buying),
     amount: r.amount,
     price: r.price,
   }));
@@ -1893,6 +1871,14 @@ const SNS_CACHE_TTL_MS = 600_000;
 export const resolvedNameCache = new Map<string, { address: string; expiry: number }>();
 
 /**
+ * Clears the module-level name resolution cache.
+ * Useful for tests and forced re-resolution.
+ */
+export function clearNameCache(): void {
+  resolvedNameCache.clear();
+}
+
+/**
  * Resolves a human-readable Stellar name to a public key (G... address).
  *
  * - Accepts federation addresses: `alice*domain.com`
@@ -1975,6 +1961,22 @@ export interface EscrowRecord {
   amount: string; // stroops as string
   releaseLedger: number;
   status: "Pending" | "Released" | "Cancelled";
+}
+
+interface RawEscrowStruct {
+  id: number | string;
+  from: string;
+  to: string;
+  token: string;
+  amount: number | string;
+  release_ledger: number | string;
+  status?: { tag?: string } | string;
+}
+
+function resolveEscrowStatus(raw: RawEscrowStruct["status"]): EscrowRecord["status"] {
+  if (raw == null) return "Pending";
+  if (typeof raw === "string") return raw as EscrowRecord["status"];
+  return (raw.tag ?? "Pending") as EscrowRecord["status"];
 }
 
 /** Build and preflight a Soroban transaction that creates a new escrow locking funds for a recipient until a release ledger. */

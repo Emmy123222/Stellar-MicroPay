@@ -3,22 +3,22 @@
  * React context provider for internationalization.
  */
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
 import {
   Locale,
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,
   getStoredLocale,
   setStoredLocale,
-  getTranslations,
   isRTL,
-  type Translations,
+  createTranslator,
+  type I18nT,
 } from '@/lib/i18n';
 
 interface I18nContextType {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: Translations;
+  t: I18nT;
   isRTL: boolean;
   supportedLocales: Locale[];
 }
@@ -60,10 +60,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
   }, [locale, isClient]);
 
+  const t = useMemo<I18nT>(() => createTranslator(locale), [locale]);
+
   const value: I18nContextType = {
     locale,
     setLocale,
-    t: getTranslations(locale),
+    t,
     isRTL: isRTL(locale),
     supportedLocales: SUPPORTED_LOCALES,
   };
