@@ -120,6 +120,11 @@ export function truncateMemoText(memo: string): string {
   return truncated;
 }
 
+/** Return the encoded UTF-8 size of a Stellar MEMO_TEXT value. */
+export function memoTextByteLength(memo: string): number {
+  return new TextEncoder().encode(memo).length;
+}
+
 /**
  * USDC issuer (Circle) for the active network.
  *
@@ -1266,7 +1271,7 @@ export async function buildReceiptMintTransaction({
   const contract = new Contract(CONTRACT_ID);
 
   const stroops = BigInt(Math.round(parseFloat(amount) * 10_000_000));
-  const memoStr = (memo ?? "").slice(0, 28);
+  const memoStr = truncateMemoText(memo ?? "");
   const memoScVal = nativeToScVal(memoStr, { type: "symbol" });
 
   const tx = new TransactionBuilder(sourceAccount, {
@@ -1996,6 +2001,11 @@ const SNS_CACHE_TTL_MS = 600_000;
  */
 export const resolvedNameCache = new Map<string, { address: string; expiry: number }>();
 
+/** Clear all entries from the resolved name cache. */
+export function clearNameCache(): void {
+  resolvedNameCache.clear();
+}
+
 /**
  * Clears the module-level Stellar name resolution cache.
  * Exported for tests — use `clearNameCache()` to reset cached
@@ -2032,21 +2042,21 @@ export async function resolveStellarName(name: string): Promise<string> {
 
   // Determine canonical federation address
   let federationAddress: string;
-  if (trimmed.endsWith(".xlm")) {
-    // alice.xlm → alice*xlm.money (xlm.money is the public SNS resolver for .xlm handles)
-    const localPart = trimmed.slice(0, trimmed.length - 4); // strip ".xlm"
-    if (!localPart) throw new Error(`Invalid .xlm name: "${trimmed}"`);
-    federationAddress = `${localPart}*xlm.money`;
+  const lower = trimmed.toLowerCase();
+  if (lower.endsWith(".xlm")) {
+    const localPart = lower.slice(0, lower.length - 4); // strip ".xlm"
+    if (!localPart) throw new Error(`Could not resolve "${trimmed}": Invalid .xlm name`);
+    federationAddress = `${localPart}*stellarnames.org`;
   } else if (trimmed.includes("*")) {
     // Standard federation address: alice*domain.com
     const parts = trimmed.split("*");
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
-      throw new Error(`Invalid federation address format: "${trimmed}". Expected "user*domain.com".`);
+      throw new Error(`Could not resolve "${trimmed}": Invalid federation address format.`);
     }
     federationAddress = trimmed;
   } else {
     throw new Error(
-      `Invalid Stellar name: "${trimmed}". Use a federation address (alice*domain.com) or .xlm name (alice.xlm).`
+      `Could not resolve "${trimmed}": Use a federation address (alice*domain.com) or .xlm name (alice.xlm).`
     );
   }
 
@@ -2060,6 +2070,7 @@ export async function resolveStellarName(name: string): Promise<string> {
     return record.account_id;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    if (message.startsWith("Could not resolve")) throw err;
     throw new Error(`Could not resolve "${trimmed}": ${message}`);
   }
 }
@@ -2069,7 +2080,7 @@ export async function resolveStellarName(name: string): Promise<string> {
  * Matches federation addresses (contains `*`) and .xlm shorthand (ends with `.xlm`).
  */
 export function isStellarName(value: string): boolean {
-  const v = value.trim();
+  const v = value.trim().toLowerCase();
   return v.endsWith(".xlm") || v.includes("*");
 }
 

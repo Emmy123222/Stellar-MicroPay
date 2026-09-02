@@ -76,6 +76,22 @@ describe('sep0007 URI parsing', () => {
   });
 
   describe('Rejects malformed or unsupported URIs', () => {
+    it('rejects MEMO_TEXT values over 28 UTF-8 bytes', () => {
+      const memo = encodeURIComponent('😀'.repeat(8));
+      const result = parseStellarURI(`stellar:pay?destination=GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234&memo_type=MEMO_TEXT&memo=${memo}`);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('28-byte UTF-8 limit');
+    });
+
+    it('counts combining marks by encoded byte length', () => {
+      const memo = encodeURIComponent('e\u0301'.repeat(14));
+      const result = parseStellarURI(`stellar:pay?destination=GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234&memo_type=MEMO_TEXT&memo=${memo}`);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('28-byte UTF-8 limit');
+    });
+
     it('rejects URI without stellar: or web+stellar: scheme', () => {
       const uri = 'http://example.com?destination=GABC123456789012345678901234567890123456789012345678';
       const result = parseStellarURI(uri);

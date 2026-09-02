@@ -109,15 +109,18 @@ interface CachedBalanceSnapshot {
 
 const BALANCE_CACHE_KEY_PREFIX = "stellar-micropay:offline-balance:";
 
-function getBalanceCacheKey(publicKey: string) {
-  return `${BALANCE_CACHE_KEY_PREFIX}${publicKey}`;
+function getBalanceCacheKey(publicKey: string, network: string = "testnet") {
+  return `${BALANCE_CACHE_KEY_PREFIX}${publicKey}:${network}`;
 }
 
-function loadBalanceSnapshot(publicKey: string): CachedBalanceSnapshot | null {
+function loadBalanceSnapshot(
+  publicKey: string,
+  network: string = "testnet"
+): CachedBalanceSnapshot | null {
   if (typeof window === "undefined") return null;
 
   try {
-    const raw = window.localStorage.getItem(getBalanceCacheKey(publicKey));
+    const raw = window.localStorage.getItem(getBalanceCacheKey(publicKey, network));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedBalanceSnapshot;
     if (!parsed?.xlmBalance || typeof parsed.savedAt !== "number") return null;
@@ -129,12 +132,13 @@ function loadBalanceSnapshot(publicKey: string): CachedBalanceSnapshot | null {
 
 function saveBalanceSnapshot(
   publicKey: string,
+  network: string = "testnet",
   snapshot: Omit<CachedBalanceSnapshot, "savedAt">
 ) {
   if (typeof window === "undefined") return;
 
   window.localStorage.setItem(
-    getBalanceCacheKey(publicKey),
+    getBalanceCacheKey(publicKey, network),
     JSON.stringify({ ...snapshot, savedAt: Date.now() })
   );
 }
@@ -194,7 +198,12 @@ function saveWidgetOrder(order: DashboardWidgetId[]) {
 
 export default function Dashboard({ stellarURI }: DashboardProps) {
   const { t } = useTranslation("dashboard");
-  const { publicKey } = useWallet();
+  const { publicKey, network } = useWallet();
+  const activeContextKeyRef = useRef<string>("");
+  const currentContextKey = `${publicKey ?? ""}:${network ?? "testnet"}`;
+  useEffect(() => {
+    activeContextKeyRef.current = currentContextKey;
+  }, [currentContextKey]);
   const AUTO_REFRESH_SECONDS = 30;
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
@@ -407,6 +416,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
 
     setBalanceLoading(true);
     setAccountNotFound(false);
@@ -416,6 +426,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         getBalances(publicKey),
         getAccountReserveInfo(publicKey),
       ]);
+      if (activeContextKeyRef.current !== requestKey) return;
+
       const xlm = allBalances.find((b) => b.assetCode === "XLM");
       const usdc = allBalances.find((b) => b.assetCode === "USDC");
       const others = allBalances
@@ -439,13 +451,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       setOtherBalances(others);
       setReserveInfo(reserve);
       setStaleBalanceAt(null);
-      saveBalanceSnapshot(publicKey, {
+      saveBalanceSnapshot(publicKey, network, {
         xlmBalance: bal,
         usdcBalance: usdcBal,
         reserveInfo: reserve,
       });
     } catch (err: unknown) {
-      const cached = loadBalanceSnapshot(publicKey);
+      if (activeContextKeyRef.current !== requestKey) return;
+      const cached = loadBalanceSnapshot(publicKey, network);
       const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
       if (cached && isOffline) {
         setXlmBalance(cached.xlmBalance);
@@ -469,9 +482,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       setReserveInfo(null);
       setStaleBalanceAt(null);
     } finally {
-      setBalanceLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setBalanceLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const refreshBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -486,6 +501,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchPaymentStats = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
@@ -503,6 +519,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         fetch(`${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`, { headers }),
         fetch(`${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/summary`, { headers })
       ]);
+      if (activeContextKeyRef.current !== requestKey) return;
 
       if (!resStats.ok) {
         throw new Error("Unable to load payment stats right now.");
@@ -537,19 +554,24 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         comparison: comparisonData,
       });
     } catch {
+      if (activeContextKeyRef.current !== requestKey) return;
       setPaymentStats(null);
       setPaymentStatsError("Could not load your payment stats.");
     } finally {
-      setPaymentStatsLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setPaymentStatsLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const fetchSpendingHistory = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
 
     setSpendingLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
+      if (activeContextKeyRef.current !== requestKey) return;
       
       // Group by calendar month (last 6 months)
       const now = new Date();
@@ -588,22 +610,28 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch spending history:", err);
     } finally {
-      setSpendingLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setSpendingLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const fetchSparklineData = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
     setSparklineLoading(true);
     try {
       const history = await getRecentPaymentsForSparkline(publicKey, 10);
+      if (activeContextKeyRef.current !== requestKey) return;
       setSparklineData(history.map(h => parseFloat(h.amount)));
     } catch (err) {
       console.error("Failed to fetch sparkline data:", err);
     } finally {
-      setSparklineLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setSparklineLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
 
   useEffect(() => {
@@ -612,9 +640,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchThirtyDayVolume = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
     setThirtyDayLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
+      if (activeContextKeyRef.current !== requestKey) return;
       const now = new Date();
       const days: any[] = [];
       for (let i = 29; i >= 0; i--) {
@@ -640,12 +670,15 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch 30-day volume:", err);
     } finally {
-      setThirtyDayLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setThirtyDayLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const fetchTopRecipients = useCallback(async () => {
     if (!publicKey) return;
+    const requestKey = `${publicKey}:${network}`;
     setTopRecipientsLoading(true);
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
@@ -656,6 +689,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         `${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
         { headers }
       );
+      if (activeContextKeyRef.current !== requestKey) return;
       if (res.ok) {
         const payload = await res.json();
         setTopRecipients(payload?.data?.topRecipients ?? []);
@@ -663,9 +697,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch top recipients:", err);
     } finally {
-      setTopRecipientsLoading(false);
+      if (activeContextKeyRef.current === requestKey) {
+        setTopRecipientsLoading(false);
+      }
     }
-  }, [publicKey]);
+  }, [publicKey, network]);
 
   const handleExportCSV = async () => {
     if (!publicKey || csvExporting) return;
@@ -936,14 +972,29 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           badge: '/favicon.svg',
         });
       } catch (err) {
+  const handleTestNotification = async () => {
+    if (!notificationEnabled) return;
+
+    // In-app bubble for immediate visual feedback
+    setBubbleMessage('You received 10.00 XLM');
+    setShowBubble(true);
+    setTimeout(() => setShowBubble(false), 3000);
+
+    // Real notification via service worker — validates the actual push path
+    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification('Stellar Pay — Test', {
+          body: 'You received 10.00 XLM',
+          icon: '/favicon.svg',
+          badge: '/favicon.svg',
+        });
+      } catch (err) {
         console.error('Test notification failed:', err);
       }
     }
-};
+  };
 
-  // Real-time payment streaming for the connected wallet.
-  // On incoming payment: show OS notification when page is hidden,
-  // in-app bubble when page is visible.
   const primeRealtimeCursor = useCallback(async () => {
     if (!publicKey) return;
 
@@ -992,9 +1043,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         }
 
         try {
-          if (!publicKey) return;
-          const bal = await getXLMBalance(publicKey);
-          setXlmBalance(bal);
+          const bal = await getBalances(publicKey);
+          const xlm = bal.find((b) => b.assetCode === "XLM");
+          if (xlm) setXlmBalance(xlm.balance);
         } catch {
           // Keep the previous balance if the refresh fails.
         }
@@ -1003,42 +1054,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     [notificationEnabled, publicKey, showToast]
   );
 
-  const startPollingFallback = useCallback(() => {
-    if (realtimePollRef.current !== null || !publicKey) {
-      return;
-    }
-
-    realtimePollRef.current = window.setInterval(async () => {
-      try {
-        const recent = await getRecentPaymentsForStats(publicKey, 5);
-        if (recent.length === 0) {
-          return;
-        }
-
-        const newestId = recent[0]?.id ?? null;
-        if (!newestId || newestId === latestPaymentIdRef.current) {
-          latestPaymentIdRef.current = newestId;
-          return;
-        }
-
-        const unseen: PaymentRecord[] = [];
-        for (const payment of recent) {
-          if (payment.id === latestPaymentIdRef.current) {
-            break;
-          }
-          unseen.push(payment);
-        }
-
-        latestPaymentIdRef.current = newestId;
-        unseen.reverse().forEach((payment) => {
-          void handleRealtimePayment(payment);
-        });
-      } catch (err) {
-        console.error("Realtime polling fallback failed:", err);
-      }
-    }, 15000);
-  }, [handleRealtimePayment, publicKey]);
-
   const stopPollingFallback = useCallback(() => {
     if (realtimePollRef.current !== null) {
       window.clearInterval(realtimePollRef.current);
@@ -1046,8 +1061,20 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     }
   }, []);
 
-  useEffect(() => {
-    if (!publicKey) return;
+  const startPollingFallback = useCallback(() => {
+    if (!publicKey || realtimePollRef.current !== null) return;
+
+    realtimePollRef.current = window.setInterval(async () => {
+      try {
+        const recent = await getRecentPaymentsForStats(publicKey, 1);
+        const latest = recent[0];
+        if (latest) {
+          void handleRealtimePayment(latest);
+        }
+      } catch (err) {
+        console.warn("Realtime polling fallback failed:", err);
+      }
+    }, 10000);
 
     let cancelled = false;
     let eventSource: EventSource | null = null;
