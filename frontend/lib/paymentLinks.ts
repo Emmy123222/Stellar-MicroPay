@@ -13,12 +13,26 @@ const STORAGE_KEY = "micropay.paymentLinks.v1";
 
 export type PaymentLinkStatus = "pending" | "redeemed" | "expired";
 
+/**
+ * The supported Stellar networks a payment link can be bound to. A link must
+ * carry an explicit network so a request created on one network is never
+ * accidentally paid on another (#749).
+ */
+export type PaymentLinkNetwork = "testnet" | "mainnet";
+
+const SUPPORTED_NETWORKS: ReadonlySet<string> = new Set(["testnet", "mainnet"]);
+
 export interface PaymentLinkPayload {
   destination: string;
   amount: string;
   memo?: string;
   /** Unix ms; absent means no expiry. */
   validUntil?: number | null;
+  /**
+   * The Stellar network the link was created for. Generated links always set
+   * this so the pay page can verify it before a payment is submitted.
+   */
+  network?: PaymentLinkNetwork;
 }
 
 export interface PaymentLinkRecord {
@@ -107,6 +121,7 @@ function coercePayload(raw: unknown): ParsedPaymentLinkQuery {
       amount,
       memo: memo || undefined,
       validUntil,
+      network: network ? network : undefined,
     },
   };
 }
@@ -114,6 +129,10 @@ function coercePayload(raw: unknown): ParsedPaymentLinkQuery {
 /**
  * Build the public payment request URL required by roadmap v1.5:
  * `/pay?to=G...&amount=10&memo=coffee`, with optional `expires=<unix-ms>`.
+ *
+ * When a payload carries an explicit `network`, it is encoded as a `network`
+ * query param so the recipient's pay page can verify the active network
+ * matches the one the link was generated on (#749).
  */
 export function buildPaymentLinkUrl(origin: string, payload: PaymentLinkPayload): string {
   const url = new URL("/pay", origin);
@@ -123,6 +142,9 @@ export function buildPaymentLinkUrl(origin: string, payload: PaymentLinkPayload)
   if (memo) url.searchParams.set("memo", memo);
   if (payload.validUntil != null) {
     url.searchParams.set("expires", String(Math.trunc(payload.validUntil)));
+  }
+  if (payload.network) {
+    url.searchParams.set("network", payload.network);
   }
   return url.toString();
 }
@@ -145,8 +167,9 @@ export function parsePaymentLinkQuery(query: PaymentLinkQuery): ParsedPaymentLin
     getQueryString(query.expires) ??
     getQueryString(query.expiry) ??
     getQueryString(query.validUntil);
+  const network = getQueryString(query.network);
 
-  return coercePayload({ to, amount, memo, expires });
+  return coercePayload({ to, amount, memo, expires, network });
 }
 
 /**
@@ -160,6 +183,9 @@ export function paymentLinkId(payload: PaymentLinkPayload): string {
     amount: String(payload.amount).trim(),
     memo: payload.memo?.trim() || "",
     validUntil: payload.validUntil ?? null,
+    // Bind the id to the network so a testnet and a mainnet link to the same
+    // account are tracked as distinct payment requests (#749).
+    network: payload.network ?? "",
   });
   // Cheap stable hash — fnv-1a 32-bit. Not crypto, just a deterministic key.
   let hash = 0x811c9dc5;

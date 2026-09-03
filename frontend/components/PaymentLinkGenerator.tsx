@@ -102,6 +102,9 @@ export default function PaymentLinkGenerator() {
       amount: amount.toString(),
       memo: memo.trim() || undefined,
       validUntil, // Requirement: Expiry encoding
+      // Bind the link to the active Stellar network so it can never be paid
+      // on a different network (#749).
+      network: NETWORK,
     };
 
     const url = buildPaymentLinkUrl(window.location.origin, paymentData);

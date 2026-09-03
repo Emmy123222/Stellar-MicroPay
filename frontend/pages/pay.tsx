@@ -4,15 +4,17 @@
  * Validates expiration, handles errors, and pre-fills the payment form.
  */
 import { useRouter } from "next/router";
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
-import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
+import { getXLMBalance, getContractTipTotal, CONTRACT_ID, NETWORK } from "@/lib/stellar";
 import { formatStroopsToXLM } from "@/utils/format";
 import {
   canRedeemPaymentLink,
   markPaymentLinkRedeemed,
   parsePaymentLinkQuery,
+  type PaymentLinkNetwork,
 } from "@/lib/paymentLinks";
 import { useWallet } from "@/lib/useWallet";
 
@@ -44,11 +46,13 @@ export default function PayPage() {
       "expires",
       "expiry",
       "validUntil",
+      "network",
     ].some((key) => router.query[key] != null);
 
     if (!hasPaymentQuery) {
       setPrefill(null);
       setError(null);
+      setNetworkMismatch(null);
       return;
     }
 
@@ -62,8 +66,21 @@ export default function PayPage() {
             ? "The payment link data is incomplete or malformed."
             : "Invalid payment link. Please check the URL."
       );
+      setNetworkMismatch(null);
       return;
     }
+
+    // Network binding (#749): if the link was created on a different network
+    // than the one the app is currently connected to, refuse to prefill the
+    // form until the user switches networks. This stops a testnet-issued link
+    // from being paid on mainnet (or vice versa) with real funds.
+    if (parsed.payload.network && parsed.payload.network !== NETWORK) {
+      setPrefill(null);
+      setError(null);
+      setNetworkMismatch(parsed.payload.network);
+      return;
+    }
+    setNetworkMismatch(null);
 
     // Reuse guard (#157): block links that have already been redeemed
     // on this device. Expiry is also checked centrally immediately before

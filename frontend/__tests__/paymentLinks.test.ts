@@ -33,6 +33,12 @@ describe("paymentLinkId", () => {
     expect(paymentLinkId({ ...PAYLOAD, validUntil: 1 })).not.toBe(baseId);
   });
 
+  it("distinguishes testnet and mainnet links for the same payload (#749)", () => {
+    expect(paymentLinkId({ ...PAYLOAD, network: "testnet" })).not.toBe(
+      paymentLinkId({ ...PAYLOAD, network: "mainnet" }),
+    );
+  });
+
   it("normalizes whitespace and missing memo", () => {
     expect(
       paymentLinkId({
@@ -63,6 +69,29 @@ describe("shareable payment link urls", () => {
         memo: "   ",
       })
     ).toBe("https://example.com/pay?to=GABCDEF&amount=10");
+  });
+
+  // ── Network binding (#749) ────────────────────────────────────────────────
+
+  it("encodes an explicit network query param when the payload carries one", () => {
+    const url = buildPaymentLinkUrl("https://example.com", {
+      ...PAYLOAD,
+      network: "testnet",
+    });
+    expect(url).toBe(
+      "https://example.com/pay?to=GABCDEF&amount=10&memo=thanks&network=testnet",
+    );
+
+    const mainnet = buildPaymentLinkUrl("https://example.com", {
+      ...PAYLOAD,
+      network: "mainnet",
+    });
+    expect(mainnet).toContain("network=mainnet");
+  });
+
+  it("does not emit a network param when the payload omits network", () => {
+    const url = buildPaymentLinkUrl("https://example.com", PAYLOAD);
+    expect(url).not.toContain("network=");
   });
 
   it("parses query params into payment form prefill payload", () => {

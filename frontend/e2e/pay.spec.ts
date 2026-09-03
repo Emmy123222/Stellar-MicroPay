@@ -73,6 +73,33 @@ base.describe("pay page - disconnected", () => {
     await expect(page.getByRole("heading", { name: "Payment Unavailable" })).toBeVisible();
     await expect(page.getByText("This payment link has expired.")).toBeVisible();
   });
+
+  base.test('visiting /pay with a link bound to another network warns and blocks payment', async ({ page }) => {
+    // E2E webServer runs on testnet, so a mainnet-bound link must be rejected.
+    await page.goto(`/pay?to=${VALID_DESTINATION}&amount=${VALID_AMOUNT}&network=mainnet`);
+
+    await expect(page.getByRole('heading', { name: 'Different Stellar Network' })).toBeVisible();
+    await expect(page.getByText(/Switch networks before completing this payment/i)).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Switch to Mainnet' })).toBeVisible();
+    // The payment form must not be rendered.
+    await expect(page.getByPlaceholder('G...')).not.toBeVisible();
+  });
+
+  base.test('visiting /pay with an unsupported network value shows an invalid network error', async ({ page }) => {
+    await page.goto(`/pay?to=${VALID_DESTINATION}&amount=${VALID_AMOUNT}&network=banana`);
+
+    await expect(page.getByRole('heading', { name: 'Payment Unavailable' })).toBeVisible();
+    await expect(page.getByText('The payment link specifies an unsupported network.')).toBeVisible();
+  });
+
+  base.test('visiting /pay with a testnet-bound link passes on the testnet app', async ({ page }) => {
+    await page.goto(`/pay?to=${VALID_DESTINATION}&amount=${VALID_AMOUNT}&network=testnet`);
+
+    await expect(page.getByRole('heading', { name: 'Complete Payment' })).toBeVisible();
+    await expect(
+      page.getByText('You’ve received a payment request. Connect your wallet to proceed.')
+    ).toBeVisible();
+  });
 });
 
 authenticatedTest.describe("pay page - authenticated", () => {
