@@ -9,7 +9,7 @@ const scheduledTransactionService = require("../services/scheduledTransactionSer
  * Schedules a new transaction for future submission.
  * Body: { signedXDR: string, submitAt: string (ISO 8601) }
  */
-router.post("/", (req, res, next) => {
+router.post("/", async (req, res, next) => {
   try {
     const { signedXDR, submitAt } = req.body;
 
@@ -33,7 +33,7 @@ router.post("/", (req, res, next) => {
  * GET /api/scheduled-txns/:publicKey
  * Lists all pending scheduled transactions for a given public key.
  */
-router.get("/:publicKey", (req, res, next) => {
+router.get("/:publicKey", async (req, res, next) => {
   try {
     const { publicKey } = req.params;
     const transactions = scheduledTransactionService.getScheduledTransactions(publicKey);
@@ -47,10 +47,10 @@ router.get("/:publicKey", (req, res, next) => {
  * DELETE /api/scheduled-txns/:id
  * Cancels a scheduled transaction.
  */
-router.delete("/:id", (req, res, next) => {
+router.delete("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const cancelled = scheduledTransactionService.cancelScheduledTransaction(id);
+    const cancelled = await scheduledTransactionService.cancelTransaction(id);
     if (cancelled) {
       res.json({ message: `Transaction ${id} cancelled successfully.` });
     } else {

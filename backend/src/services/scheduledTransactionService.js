@@ -1,5 +1,10 @@
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
+
+const DATA_DIR = path.join(__dirname, "..", "data");
+const DATA_FILE = path.join(DATA_DIR, "scheduled-transactions.json");
 require("dotenv").config();
 
 const logger = require("../utils/logger");
@@ -190,18 +195,13 @@ function scheduleTransaction(signedXDR, submitAt, publicKey) {
     throw error;
   }
 
-  // Validate public key format
-  if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
-    const error = new Error("Invalid Stellar public key format");
-    error.status = 400;
-    throw error;
-  }
+  validatePublicKey(publicKey);
 
   const id = transactionIdCounter++;
   const scheduledTx = {
     id,
     signedXDR,
-    submitAt: submitAt.getTime(), // Store as timestamp for easier comparison
+    submitAt: submitAt.getTime(),
     publicKey,
     attempts: 0,
     // Retry/backoff state (#766)
@@ -214,21 +214,12 @@ function scheduleTransaction(signedXDR, submitAt, publicKey) {
   };
 
   scheduledTransactions.set(id, scheduledTx);
+  await persistToDisk();
   return scheduledTx;
 }
 
-/**
- * Get pending scheduled transactions for a public key
- * @param {string} publicKey - The account public key
- * @returns {Array} Array of scheduled transactions
- */
 function getPendingTransactions(publicKey) {
-  // Validate public key format
-  if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
-    const error = new Error("Invalid Stellar public key format");
-    error.status = 400;
-    throw error;
-  }
+  validatePublicKey(publicKey);
 
   const now = Date.now();
   const pending = [];
@@ -253,26 +244,19 @@ function getPendingTransactions(publicKey) {
     }
   }
 
-  // Sort by submitAt ascending (earliest first)
   return pending.sort((a, b) => a.submitAt - b.submitAt);
 }
 
-/**
- * Get a scheduled transaction by ID
- * @param {number} id - The transaction ID
- * @returns {Object|null} The transaction or null if not found
- */
 function getTransactionById(id) {
   return scheduledTransactions.get(id) || null;
 }
 
-/**
- * Cancel a scheduled transaction
- * @param {number} id - The transaction ID
- * @returns {boolean} True if cancelled, false if not found
- */
-function cancelTransaction(id) {
-  return scheduledTransactions.delete(id);
+async function cancelTransaction(id) {
+  const result = scheduledTransactions.delete(id);
+  if (result) {
+    await persistToDisk();
+  }
+  return result;
 }
 
 /**
@@ -301,7 +285,6 @@ function getDueTransactions() {
     }
   }
 
-  // Sort by submitAt ascending (oldest first)
   return due.sort((a, b) => a.submitAt - b.submitAt);
 }
 
@@ -352,13 +335,12 @@ function incrementAttempt(id, err = null) {
   };
 }
 
-/**
- * Remove a transaction from the queue (after successful submission or final failure)
- * @param {number} id - The transaction ID
- * @returns {boolean} True if removed, false if not found
- */
-function removeTransaction(id) {
-  return scheduledTransactions.delete(id);
+async function removeTransaction(id) {
+  const result = scheduledTransactions.delete(id);
+  if (result) {
+    await persistToDisk();
+  }
+  return result;
 }
 
 /**
@@ -366,12 +348,13 @@ function removeTransaction(id) {
  * @param {number} id - The transaction ID
  * @returns {boolean} True if paused, false if not found
  */
-function pauseTransaction(id) {
+async function pauseTransaction(id) {
   const tx = scheduledTransactions.get(id);
   if (tx) {
     tx.paused = true;
     tx.pausedAt = Date.now();
     logger.info(JSON.stringify({ type: "transaction_paused", id }));
+    await persistToDisk();
     return true;
   }
   return false;
@@ -382,12 +365,13 @@ function pauseTransaction(id) {
  * @param {number} id - The transaction ID
  * @returns {boolean} True if resumed, false if not found
  */
-function resumeTransaction(id) {
+async function resumeTransaction(id) {
   const tx = scheduledTransactions.get(id);
   if (tx) {
     tx.paused = false;
     tx.pausedAt = null;
     logger.info(JSON.stringify({ type: "transaction_resumed", id }));
+    await persistToDisk();
     return true;
   }
   return false;

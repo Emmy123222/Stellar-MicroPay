@@ -31,6 +31,8 @@ const webhookRoutes = require("./routes/webhooks");
 const { resumeAllMonitors } = require("./services/paymentMonitor");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
+const { resumeAllMonitors } = require("./services/paymentMonitor");
+const { recoverPendingJobs } = require("./services/scheduledTransactionService");
 const logger = require("./utils/logger");
 const { sanitizeLogToken, sanitizeReqLogRecord } = require("./utils/sanitizeLogToken");
 
@@ -345,8 +347,16 @@ if (require.main === module) {
 
   startTurretsServer();
 
-  // Resume SSE monitoring for all webhooks that existed before restart
   resumeAllMonitors();
+
+  recoverPendingJobs().then((recovered) => {
+    if (recovered.length > 0) {
+      logger.info(
+        { count: recovered.length },
+        "Recovered pending scheduled transactions"
+      );
+    }
+  });
 }
 
 module.exports = app;

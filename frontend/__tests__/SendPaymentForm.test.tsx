@@ -1,6 +1,78 @@
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { describe, it, expect, jest, beforeEach } from "@jest/globals";
+import SendPaymentForm from "@/components/SendPaymentForm";
+import { useWallet } from "@/lib/useWallet";
+
+jest.mock("@/lib/useWallet");
+
+jest.mock("@/lib/wallet", () => ({
+  __esModule: true,
+  signTransactionWithWallet: jest.fn(),
+  setJwtToken: jest.fn(),
+  getJwtToken: jest.fn(),
+  detectBrowser: jest.fn(),
+  EXTENSION_URLS: {},
+  isFreighterInstalled: jest.fn(() => Promise.resolve(true)),
+  hasSiteAccess: jest.fn(() => Promise.resolve(true)),
+  connectWallet: jest.fn(),
+  getConnectedPublicKey: jest.fn(),
+  performSEP0010Auth: jest.fn(),
+  disconnectWallet: jest.fn(),
+  isLedgerSupported: jest.fn(() => false),
+  signTransactionWithLedger: jest.fn(),
+  getLedgerPublicKey: jest.fn(),
+}));
+
+jest.mock("@/lib/i18n", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => {
+      if (key === "send_button") {
+        const amount = (opts?.amount as string) || "";
+        const asset = (opts?.asset as string) || "XLM";
+        if (amount) return `Send ${amount} ${asset}`;
+        return "Send";
+      }
+      if (key === "confirm_sign") return "Confirm & Sign";
+      if (key === "amount_placeholder") return "0.0000000";
+      if (key === "memo_placeholder") return "Optional memo";
+      if (key === "memo_optional") return "Memo (optional)";
+      if (key === "destination") return "Destination";
+      if (key === "amount") return "Amount";
+      if (key === "max") return "Max";
+      if (key === "contacts") return "contacts";
+      if (key === "save_contact") return "Save address as contact";
+      if (key === "processing") return "Processing";
+      if (key === "cancel") return "Cancel";
+      if (key === "send_another") return "Send Another";
+      if (key === "success_title") return "Payment Sent";
+      if (key === "success_message") return "Your transaction has been submitted.";
+      if (key === "transaction_hash") return "Transaction Hash";
+      if (key === "view_explorer") return "View on Explorer";
+      if (key === "mint_receipt") return "Mint Receipt";
+      if (key === "minting_receipt") return "Minting Receipt...";
+      if (key === "mint_success") return "Receipt minted!";
+      if (key === "high_value_warning") return "High-value payment. Consider using Multi-Signature.";
+      if (key === "checking_account") return "Checking account...";
+      if (key === "confirm_title") return "Confirm Payment";
+      if (key === "to") return "To";
+      if (key === "estimated_fee") return "Estimated fee";
+      return key;
+    },
+  }),
+}));
+
+const mockAddToast = jest.fn();
+
+jest.mock("@/lib/ToastContext", () => ({
+  useToastContext: () => ({
+    addToast: mockAddToast,
+    removeToast: jest.fn(),
+    toasts: [],
+  }),
+  ToastProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 // Define mocks before importing the component
 jest.mock("@/lib/i18n", () => ({
@@ -67,15 +139,6 @@ jest.mock("@/lib/stellar", () => ({
   },
 }));
 
-jest.mock("@/lib/wallet", () => ({
-  signTransactionWithWallet: jest.fn(),
-}));
-
-jest.mock("@/utils/format", () => ({
-  formatXLM: jest.fn((amount) => `${parseFloat(amount).toFixed(7)} XLM`),
-  shortenAddress: jest.fn((addr, len) => addr?.slice(0, len) + "..."),
-}));
-
 jest.mock("@/components/PaymentStatusModal", () => ({
   __esModule: true,
   default: ({ isOpen, error, txHash, onClose }: any) => {
@@ -90,9 +153,12 @@ jest.mock("@/components/PaymentStatusModal", () => ({
   },
 }));
 
-jest.mock("@/components/MultiSigFlow", () => ({
-  MULTISIG_THRESHOLD_XLM: 1000,
-}));
+const defaultProps = {
+  publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  xlmBalance: "100.0000000",
+  onSuccess: jest.fn(),
+  onError: jest.fn(),
+};
 
 jest.mock("@/components/ErrorBoundary", () => ({
   withErrorBoundary: (Component: React.FC) => Component,
@@ -151,7 +217,6 @@ describe("SendPaymentForm", () => {
   };
 
   const validDestination = TEST_PUBLIC_KEY_B;
-
   beforeEach(() => {
     jest.clearAllMocks();
     // Reset mocks to return expected values
@@ -182,14 +247,13 @@ describe("SendPaymentForm", () => {
     it("enables submit button when destination and amount are valid", async () => {
       mockIsValidStellarAddress.mockReturnValue(true);
       const user = userEvent.setup();
-
       render(<SendPaymentForm {...defaultProps} />);
 
       const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
       const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
-      await user.type(destinationInput, validDestination);
-      await user.type(amountInput, "50");
+      fireEvent.change(destinationInput, { target: { value: validDestination } });
+      fireEvent.change(amountInput, { target: { value: "50" } });
 
       await waitFor(() => {
         const sendButton = screen.getByRole("button", { name: /send_button/i });
@@ -257,41 +321,27 @@ describe("SendPaymentForm", () => {
         expect(sendButton).toBeEnabled();
       });
 
-      await user.click(sendButton);
+      await user.dblClick(sendButton);
 
       // Click confirm on the confirmation modal
       const confirmButton = await screen.findByRole("button", { name: /confirm_sign/i });
       await user.click(confirmButton);
 
-      // Wait for error to appear in modal
       await waitFor(() => {
-        const errorElement = screen.getByTestId("error-message");
-        expect(errorElement).toHaveTextContent("Network error");
+        expect(stellarMocks.buildPaymentTransaction).toHaveBeenCalledTimes(1);
       });
     });
-  });
 
-  describe("Success state", () => {
-    it("displays transaction hash in success state", async () => {
-      const txHash = "abcd1234efgh5678ijkl9012mnop3456qrst5678";
-      mockIsValidStellarAddress.mockReturnValue(true);
-      mockBuildPaymentTransaction.mockResolvedValue({
-        toXDR: () => "mock-xdr",
-      });
-      mockSignTransactionWithWallet.mockResolvedValue({
-        signedXDR: "mock-signed-xdr",
-      });
-      mockSubmitTransaction.mockResolvedValue({ hash: txHash });
-
+    it("ignores double-click on the confirm button", async () => {
+      const stellarMocks = jest.requireMock("@/lib/stellar");
       const user = userEvent.setup();
-
       render(<SendPaymentForm {...defaultProps} />);
 
       const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
       const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
-      await user.type(destinationInput, validDestination);
-      await user.type(amountInput, "50");
+      fireEvent.change(destinationInput, { target: { value: validDestination } });
+      fireEvent.change(amountInput, { target: { value: "50" } });
 
       const sendButton = screen.getByRole("button", { name: /send_button/i });
 
@@ -343,10 +393,28 @@ describe("SendPaymentForm", () => {
       const confirmButton = await screen.findByRole("button", { name: /confirm_sign/i });
       await user.click(confirmButton);
 
-      // Verify the tx hash appears in the modal
       await waitFor(() => {
-        expect(screen.getByTestId("tx-hash")).toBeInTheDocument();
+        expect(screen.getByTestId("error-message")).toHaveTextContent("Network timeout");
       });
+
+      await waitFor(() => {
+        expect(stellarMocks.buildPaymentTransaction).toHaveBeenCalledTimes(1);
+      });
+
+      const retryCallback = mockAddToast.mock.calls[0][2];
+      if (retryCallback) {
+        retryCallback();
+      }
+
+      await waitFor(() => {
+        expect(screen.getByText("Payment Sent")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/tx123456…123456/)).toBeInTheDocument();
+      });
+
+      expect(stellarMocks.buildPaymentTransaction).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -170,6 +170,7 @@ function SendPaymentForm({
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [destAccountWarning, setDestAccountWarning] = useState<string | null>(null);
   const [isCheckingDest, setIsCheckingDest] = useState(false);
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -494,6 +495,45 @@ function SendPaymentForm({
     };
   }, [destination, validateDestinationAccount]);
 
+  // Pre-validate destination account existence on the Stellar network (#294)
+  useEffect(() => {
+    if (destinationValidationTimeoutRef.current) {
+      clearTimeout(destinationValidationTimeoutRef.current);
+    }
+
+    if (!isValidStellarAddress(destination.trim())) {
+      destinationValidationRequestRef.current += 1;
+      setDestAccountWarning(null);
+      setIsCheckingDest(false);
+      return;
+    }
+
+    destinationValidationTimeoutRef.current = setTimeout(() => {
+      validateDestinationAccount(destination);
+      destinationValidationTimeoutRef.current = null;
+    }, DESTINATION_VALIDATION_DEBOUNCE_MS);
+
+    return () => {
+      if (destinationValidationTimeoutRef.current) {
+        clearTimeout(destinationValidationTimeoutRef.current);
+        destinationValidationTimeoutRef.current = null;
+      }
+    };
+  }, [destination, validateDestinationAccount]);
+
+  const runImmediateDestinationValidation = () => {
+    if (destinationValidationTimeoutRef.current) {
+      clearTimeout(destinationValidationTimeoutRef.current);
+      destinationValidationTimeoutRef.current = null;
+    }
+    validateDestinationAccount(destination);
+  };
+
+  useEffect(() => {
+    builtTxRef.current = null;
+    signedXdrRef.current = null;
+  }, [destination, amount, memo, selectedAsset, isTipOnChain]);
+
   const xlmBal = parseFloat(xlmBalance);
   const usdcBal = usdcBalance ? parseFloat(usdcBalance) : 0;
   const customBal = accountBalances.find((b) => b.code === selectedAsset)
@@ -702,10 +742,15 @@ function SendPaymentForm({
   };
 
   const executeSend = async () => {
+    if (isSubmittingRef.current) return;
     if (!canSubmit) return;
+    isSubmittingRef.current = true;
     startTracker();
     let activeStep: PaymentStepId = "building";
     try {
+      if (!paymentIdempotencyKey) {
+        setPaymentIdempotencyKey(crypto.randomUUID());
+      }
       markStepStarted("building");
       setStatus("building");
       const paymentDestination = await resolveDestinationForPayment();
@@ -742,8 +787,13 @@ function SendPaymentForm({
       activeStep = "signing";
       markStepStarted("signing");
       setStatus("signing");
-      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) throw new Error(signError || "Signing failed");
+      let signedXDR = signedXdrRef.current;
+      if (!signedXDR) {
+        const { signedXDR: newSignedXDR, error: signError } = await signTransactionWithWallet(unsignedXDR);
+        if (signError || !newSignedXDR) throw new Error(signError || "Signing failed");
+        signedXDR = newSignedXDR;
+        signedXdrRef.current = signedXDR;
+      }
       markStepCompleted("signing");
 
       activeStep = "submitting";
@@ -763,6 +813,9 @@ function SendPaymentForm({
       saveRecipient(trimmedDestination);
       addToast(`Payment sent! Tx: ${result.hash.slice(0, 8)}…`, "success");
       onSuccess?.(result.hash);
+      builtTxRef.current = null;
+      signedXdrRef.current = null;
+      setPaymentIdempotencyKey(null);
     } catch (err: any) {
       const message = err?.message || "An unexpected error occurred";
       setError(message);
@@ -1274,6 +1327,7 @@ interface SendConfirmationModalProps {
   isTipOnChain: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  disabled?: boolean;
 }
 
 function SendConfirmationModal({

@@ -51,11 +51,11 @@ describe("Scheduled Transaction Service", () => {
       expect(fetchedTx).toEqual(scheduledTx);
     });
 
-    it("throws an error for invalid public key", () => {
+    it("throws an error for invalid public key", async () => {
       const submitAt = new Date(Date.now() + 10000);
-      expect(() => {
-        scheduleTransaction(validXDR, submitAt, "invalid_key");
-      }).toThrow("Invalid Stellar public key format");
+      await expect(scheduleTransaction(validXDR, submitAt, "invalid_key")).rejects.toThrow(
+        "Invalid Stellar public key format"
+      );
     });
   });
 
@@ -84,10 +84,10 @@ describe("Scheduled Transaction Service", () => {
   describe("Failed executions (retries and dead-lettering)", () => {
     it("increments attempt and stores error", () => {
       const pastTime = new Date(Date.now() - 10000);
-      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      const tx = await scheduleTransaction(validXDR, pastTime, validPublicKey);
 
       const errorMessage = "Network timeout";
-      incrementAttempt(tx.id, errorMessage);
+      await incrementAttempt(tx.id, errorMessage);
 
       const updatedTx = getTransactionById(tx.id);
       expect(updatedTx.attempts).toBe(1);
@@ -97,7 +97,7 @@ describe("Scheduled Transaction Service", () => {
 
     it("schedules a backoff window after a transient failure", () => {
       const pastTime = new Date(Date.now() - 10000);
-      const tx = scheduleTransaction(validXDR, pastTime, validPublicKey);
+      const tx = await scheduleTransaction(validXDR, pastTime, validPublicKey);
 
       const result = incrementAttempt(tx.id, "Network timeout");
 
@@ -172,6 +172,65 @@ describe("Scheduled Transaction Service", () => {
 
       const due = getDueTransactions().find((t) => t.id === tx.id);
       expect(due).toBeUndefined();
+    });
+  });
+
+  describe("Persistence", () => {
+    it("persists scheduled transactions to disk", async () => {
+      const submitAt = new Date(Date.now() + 10000);
+      await scheduleTransaction(validXDR, submitAt, validPublicKey);
+
+      reset();
+      reloadFromDisk();
+
+      const pending = getPendingTransactions(validPublicKey);
+      expect(pending).toHaveLength(1);
+    });
+
+    it("recovers pending jobs on startup after reload", async () => {
+      const submitAt = new Date(Date.now() + 10000);
+      await scheduleTransaction(validXDR, submitAt, validPublicKey);
+
+      reset();
+      reloadFromDisk();
+
+      const recovered = await recoverPendingJobs();
+
+      const pending = getPendingTransactions(validPublicKey);
+      expect(pending).toHaveLength(1);
+      expect(recovered).toHaveLength(1);
+      expect(pending[0].id).toBeDefined();
+    });
+
+    it("filters out failed transactions during recovery", async () => {
+      const pastTime = new Date(Date.now() - 10000);
+      const tx = await scheduleTransaction(validXDR, pastTime, validPublicKey);
+      await incrementAttempt(tx.id, "Error 1");
+      await incrementAttempt(tx.id, "Error 2");
+      await incrementAttempt(tx.id, "Error 3");
+
+      reset();
+      reloadFromDisk();
+
+      const recovered = await recoverPendingJobs();
+
+      const pending = getPendingTransactions(validPublicKey);
+      expect(pending).toHaveLength(0);
+      expect(recovered).toHaveLength(0);
+    });
+
+    it("restores transaction counter after reload", async () => {
+      await scheduleTransaction(validXDR, new Date(Date.now() + 10000), validPublicKey);
+      await scheduleTransaction(validXDR, new Date(Date.now() + 20000), validPublicKey);
+
+      reset();
+      reloadFromDisk();
+
+      await recoverPendingJobs();
+
+      const submitAt = new Date(Date.now() + 30000);
+      const scheduledTx = await scheduleTransaction(validXDR, submitAt, validPublicKey);
+      expect(scheduledTx.id).toBe(3);
     });
   });
 
