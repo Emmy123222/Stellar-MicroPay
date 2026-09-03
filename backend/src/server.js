@@ -12,6 +12,7 @@ require("dotenv").config();
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
+const pino = require("pino");
 const pinoHttp = require("pino-http");
 const Sentry = require("@sentry/node");
 const swaggerUi = require("swagger-ui-express");
@@ -31,6 +32,7 @@ const { resumeAllMonitors } = require("./services/paymentMonitor");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const logger = require("./utils/logger");
+const { sanitizeLogToken, sanitizeReqLogRecord } = require("./utils/sanitizeLogToken");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -176,7 +178,17 @@ app.use(
 );
 // Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
 // shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
-app.use(pinoHttp({ logger }));
+// Untrusted request tokens are sanitized before logging (#811).
+app.use(
+  pinoHttp({
+    logger,
+    serializers: {
+      req(req) {
+        return sanitizeReqLogRecord(pino.stdSerializers.req(req));
+      },
+    },
+  })
+);
 app.use(express.json({ limit: "10kb" }));
 // Parses the Cookie header into req.cookies so the SEP-0010 session cookie
 // (set in routes/auth.js) can be read back by middleware/auth.js's
@@ -285,7 +297,7 @@ app.get("/api/docs.json", (req, res) => {
 // ─── 404 Handler ───────────────────────────────────────────────────────────────
 
 app.use((req, res) => {
-  const sanitizedPath = req.path.replace(/[\r\n]/g, "");
+  const sanitizedPath = sanitizeLogToken(req.path);
   logger.warn({ method: req.method, path: sanitizedPath }, "Route not found");
   res.status(404).json({ error: "Route not found" });
 });
