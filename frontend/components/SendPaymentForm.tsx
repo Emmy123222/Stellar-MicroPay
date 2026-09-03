@@ -123,6 +123,59 @@ const RECENT_RECIPIENTS_KEY = "stellar-micropay:recent-recipients";
 const MAX_RECENT = 3;
 const DESTINATION_VALIDATION_DEBOUNCE_MS = 400;
 
+// ─── Local translation for the send form (#822) ──────────────────────────────
+// The app's i18n layer (`lib/i18n.ts`) does not yet expose a `useTranslation`
+// hook or a `sendPayment` namespace, so the Send Payment form carries its own
+// minimal, self-contained dictionary. Keeps the component rendering correctly
+// without reaching into out-of-scope i18n files.
+
+const sendPaymentMessages: Record<string, (params?: Record<string, unknown>) => string> = {
+  success_title: () => "Payment Sent",
+  success_message: () => "Your payment has been sent successfully.",
+  transaction_hash: () => "Transaction Hash",
+  view_explorer: () => "View on explorer",
+  minting_receipt: () => "Minting receipt…",
+  mint_receipt: () => "Mint NFT receipt",
+  mint_success: () => "Receipt minted!",
+  send_another: () => "Send another payment",
+  destination: () => "Destination",
+  close: () => "Close",
+  contacts: () => "Contacts",
+  remove_contact: () => "Remove contact",
+  save_contact: () => "Save contact",
+  scan_qr: () => "Scan QR code",
+  checking_account: () => "Checking account…",
+  amount: (p) => `Amount (${p?.asset ?? "XLM"})`,
+  max: (p) => `Max ${p?.amount ?? ""}`,
+  amount_placeholder: () => "0.0000000",
+  memo_optional: () => "Memo (optional)",
+  memo_placeholder: () => "Enter memo (optional)",
+  memo_limit: () => "Memo is limited to 28 bytes",
+  default_title: () => "Send Payment",
+  send_button: (p) => `Send ${p?.amount ?? ""} ${p?.asset ?? ""}`.trim(),
+  processing: () => "Processing…",
+  high_value_warning: (p) =>
+    `This is a large payment. For amounts ≥ ${p?.threshold ?? ""} XLM, consider using Multi-Signature for additional security.`,
+  to: () => "To",
+  estimated_fee: () => "Estimated Fee",
+  cancel: () => "Cancel",
+  confirm_title: () => "Confirm Payment",
+  confirm_sign: () => "Confirm & Sign",
+};
+
+/**
+ * Returns a `t(key, params)` translator for the send form. Unknown keys fall
+ * back to the key itself so rendering never throws.
+ */
+function useSendPaymentTranslation() {
+  return {
+    t: (key: string, params?: Record<string, unknown>) => {
+      const fn = sendPaymentMessages[key];
+      return fn ? fn(params ?? {}) : key;
+    },
+  };
+}
+
 function createInitialStepTimings(): Record<PaymentStepId, PaymentStepTiming> {
   return {
     building: { startedAt: null, completedAt: null, error: null },
@@ -150,7 +203,7 @@ function SendPaymentForm({
   hideMemoField = false,
   accountBalances = [],
 }: SendPaymentFormProps) {
-  const { t } = useTranslation("sendPayment");
+  const { t } = useSendPaymentTranslation();
   const { addToast } = useToastContext();
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);

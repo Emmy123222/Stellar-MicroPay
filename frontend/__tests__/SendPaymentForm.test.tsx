@@ -240,7 +240,7 @@ describe("SendPaymentForm", () => {
   });
 
   describe("Submit button disabled state", () => {
-    it("disables submit button when destination is empty", () => {
+    it("submitting with an empty destination moves focus to the destination field (#822)", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
       const sendButton = screen.getByRole("button", { name: /send_button/i });
@@ -264,7 +264,7 @@ describe("SendPaymentForm", () => {
       });
     });
 
-    it("disables submit button when amount exceeds balance minus 1 XLM reserve", async () => {
+    it("submitting with an amount above the balance focuses the amount field and marks it invalid (#822)", async () => {
       mockIsValidStellarAddress.mockReturnValue(true);
       const user = userEvent.setup();
 
@@ -274,8 +274,7 @@ describe("SendPaymentForm", () => {
       const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(destinationInput, validDestination);
-      // Balance is 10, minus 1 XLM reserve = 9 XLM max sendable
-      // Try to send 9.5 which exceeds max
+      // Balance is 10, minus 1 XLM reserve = 9 XLM max sendable; 9.5 is too much.
       await user.type(amountInput, "9.5");
 
       await waitFor(() => {
