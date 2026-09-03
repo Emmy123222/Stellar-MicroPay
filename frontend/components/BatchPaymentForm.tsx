@@ -94,12 +94,19 @@ export default function BatchPaymentForm({
 
   const handleAddRecipient = () => {
     if (recipients.length >= MAX_RECIPIENTS) return;
+    const nextRowNumber = recipients.length + 1;
     setRecipients((current) => [...current, createRecipient()]);
+    setRowAnnouncement(`Recipient row ${nextRowNumber} inserted.`);
     setBatchMessage(null);
   };
 
   const handleRemoveRecipient = (id: string) => {
+    const rowIndex = recipients.findIndex((recipient) => recipient.id === id);
+    const rowNumber = rowIndex + 1;
     setRecipients((current) => current.filter((recipient) => recipient.id !== id));
+    if (rowIndex >= 0) {
+      setRowAnnouncement(`Recipient row ${rowNumber} removed.`);
+    }
     setBatchMessage(null);
   };
 
@@ -309,6 +316,15 @@ export default function BatchPaymentForm({
           {importMessage}
         </div>
       )}
+
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+        data-testid="batch-recipient-row-announcements"
+      >
+        {rowAnnouncement}
+      </div>
 
       <div className="space-y-4">
         {recipients.map((recipient, index) => (
