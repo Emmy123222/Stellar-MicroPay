@@ -13,6 +13,12 @@ const logger = require("../utils/logger");
 const cursorStore = require("./cursorStore");
 const { deliverWebhook } = require("./webhookDelivery");
 const { getWebhooksByPublicKey, getAllWebhooks } = require("./webhookStore");
+const {
+  STATES,
+  getBreaker,
+  HorizonCircuitOpenError,
+  inferNetworkFromHorizonUrl,
+} = require("./horizonCircuitBreaker");
 
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
@@ -33,14 +39,48 @@ const activeStreams = new Map();
 const seenTokens = new Map();
 
 /**
+ * @param {string} publicKey
+ * @returns {HorizonCircuitOpenError|null}
+ */
+function getStreamBlockedError(publicKey) {
+  const breaker = getBreaker(HORIZON_URL);
+  breaker.refreshState();
+  if (breaker.state === STATES.OPEN || breaker.state === STATES.HALF_OPEN) {
+    try {
+      breaker.assertCanExecute();
+    } catch (err) {
+      if (err instanceof HorizonCircuitOpenError) {
+        logger.warn(
+          { publicKey, origin: err.origin, state: err.state, retryAfterMs: err.retryAfterMs },
+          "[monitor] Horizon circuit blocked stream start"
+        );
+        return err;
+      }
+      throw err;
+    }
+  }
+  return null;
+}
+
+/**
  * Start monitoring a Stellar account for incoming payments.
  * If a stream is already active for this key, this is a no-op.
  *
  * @param {string} publicKey
+ * @returns {{ started: boolean, retryAfterMs?: number, state?: string }}
  */
 function startMonitoring(publicKey) {
   if (activeStreams.has(publicKey)) {
-    return; // idempotent — already monitored
+    return { started: true };
+  }
+
+  const blocked = getStreamBlockedError(publicKey);
+  if (blocked) {
+    return {
+      started: false,
+      state: blocked.state,
+      retryAfterMs: blocked.retryAfterMs,
+    };
   }
 
   logger.info({ publicKey }, "[monitor] starting SSE stream");
@@ -49,6 +89,7 @@ function startMonitoring(publicKey) {
   // downtime or a reconnect gap are not missed. Falls back to "now" only when
   // no cursor has been persisted yet.
   const resumeCursor = cursorStore.get(publicKey);
+  const breaker = getBreaker(HORIZON_URL);
 
   const closeStream = horizonServer
     .payments()
@@ -74,8 +115,8 @@ function startMonitoring(publicKey) {
         const asset =
           record.asset_type === "native" ? "native" : `${record.asset_code}:${record.asset_issuer}`;
 
-        const network = HORIZON_URL.includes("testnet") ? "testnet" : "mainnet";
-        
+        const network = inferNetworkFromHorizonUrl(HORIZON_URL);
+
         /** @type {import('./webhookDelivery').PaymentPayload} */
         const payload = {
           eventId: record.id,
@@ -101,11 +142,18 @@ function startMonitoring(publicKey) {
         // Advance the durable cursor even when no webhook is registered, so a
         // payment with no endpoint is not reprocessed on the next reconnect.
         cursorStore.set(publicKey, record.paging_token);
+        breaker.recordSuccess();
       },
 
       onerror: (err) => {
+        breaker.recordFailure();
         logger.error(
-          { publicKey, err },
+          {
+            publicKey,
+            err,
+            circuitState: breaker.snapshot().state,
+            retryAfterMs: breaker.getRetryAfterMs(),
+          },
           `[monitor] stream error for ${publicKey}: ${err.message ?? err}`
         );
         // Remove the dead stream so ensureMonitored can restart it next time
@@ -115,6 +163,7 @@ function startMonitoring(publicKey) {
     });
 
   activeStreams.set(publicKey, closeStream);
+  return { started: true };
 }
 
 /**
@@ -140,9 +189,10 @@ function stopMonitoring(publicKey) {
  * Idempotent — safe to call multiple times for the same key.
  *
  * @param {string} publicKey
+ * @returns {{ started: boolean, retryAfterMs?: number, state?: string }}
  */
 function ensureMonitored(publicKey) {
-  startMonitoring(publicKey);
+  return startMonitoring(publicKey);
 }
 
 /**
@@ -161,9 +211,25 @@ function resumeAllMonitors() {
   }
 }
 
+/**
+ * Observable stream + circuit breaker status for health probes (#840).
+ * @returns {object}
+ */
+function getMonitorStatus() {
+  const breaker = getBreaker(HORIZON_URL);
+  breaker.refreshState();
+  return {
+    horizonUrl: HORIZON_URL,
+    network: inferNetworkFromHorizonUrl(HORIZON_URL),
+    activeStreams: activeStreams.size,
+    circuit: breaker.snapshot(),
+  };
+}
+
 module.exports = {
   startMonitoring,
   stopMonitoring,
   ensureMonitored,
   resumeAllMonitors,
+  getMonitorStatus,
 };
