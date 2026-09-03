@@ -41,6 +41,30 @@ import {
 } from "./stellarConfig";
 
 import { apiFetch } from "./api";
+import {
+  STELLAR_BASE_FEE_STROOPS,
+  STELLAR_STROOPS_PER_XLM,
+  STELLAR_TRANSACTION_TIMEOUT_SECONDS,
+  calculateMinimumBalance,
+  truncateMemoText,
+} from "./stellar/protocol";
+import { USDC, USDC_ISSUER } from "./stellar/assets";
+import {
+  TransactionCategory,
+  type AccountReserveInfo,
+  type FetchAllPaymentsProgress,
+  type FundingPollOptions,
+  type PaymentHistoryResponse,
+  type PaymentRecord,
+  type PaymentStreamHandler,
+  type PaymentStreamUnsubscribe,
+  type Trustline,
+  type WalletBalance,
+} from "./stellar/types";
+
+export * from "./stellar/protocol";
+export * from "./stellar/assets";
+export * from "./stellar/types";
 
 export {
   server,
@@ -89,57 +113,6 @@ export const STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM =
 
 const STELLAR_BASE_FEE_STROOPS_STRING = String(STELLAR_BASE_FEE_STROOPS);
 const ELEVATED_FEE_MAX_STROOPS = STELLAR_BASE_FEE_STROOPS * 10;
-
-/** Truncate a memo string so its UTF-8 encoding fits within the Stellar MEMO_TEXT byte limit. */
-export function truncateMemoText(memo: string): string {
-  const encoder = new TextEncoder();
-  if (encoder.encode(memo).length <= STELLAR_MEMO_TEXT_MAX_BYTES) {
-    return memo;
-  }
-
-  let truncated = "";
-  for (const char of memo) {
-    const next = truncated + char;
-    if (encoder.encode(next).length > STELLAR_MEMO_TEXT_MAX_BYTES) {
-      break;
-    }
-    truncated = next;
-  }
-
-  return truncated;
-}
-
-/**
- * USDC issuer (Circle) for the active network.
- *
- * If you intend to use USDC features on testnet, set `NEXT_PUBLIC_USDC_ISSUER`.
- */
-export const USDC_ISSUER =
-  process.env.NEXT_PUBLIC_USDC_ISSUER ||
-  // Default to mainnet Circle issuer. (App can still run without USDC usage.)
-  "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
-
-/** USDC asset helper. */
-export const USDC = new Asset("USDC", USDC_ISSUER);
-
-/** Known assets for trustline management. */
-export const KNOWN_ASSETS = {
-  testnet: [
-    { code: "USDC", issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" },
-    { code: "AQUA", issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA7" }, // Example issuer
-    { code: "yXLM", issuer: "GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55" }, // Example issuer
-  ],
-  mainnet: [
-    { code: "USDC", issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" },
-    { code: "AQUA", issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA7" }, // Example issuer
-    { code: "yXLM", issuer: "GARDNV3Q7YGT4AKSDF25LT32YSCCW4EV22Y2TV3I2PU2MMXJTEDL5T55" }, // Example issuer
-  ],
-};
-
-/** Get known assets for the current network. */
-export function getKnownAssets() {
-  return KNOWN_ASSETS[NETWORK];
-}
 
 /** Soroban RPC server URL. Defaults to testnet. */
 export function getSorobanRpcUrl(): string {
@@ -277,22 +250,6 @@ export interface NetworkStats {
   p99Fee: number;
 }
 
-export interface FetchAllPaymentsProgress {
-  fetchedRecords: number;
-  fetchedPages: number;
-  done: boolean;
-}
-
-/**
- * Handle function invoked for each streamed payment operation.
- */
-export type PaymentStreamHandler = (payment: PaymentRecord) => void;
-
-/**
- * Function returned by {@link streamPayments} to stop the underlying EventSource.
- */
-export type PaymentStreamUnsubscribe = () => void;
-
 // ─── Account helpers ────────────────────────────────────────────────────────
 
 /** Sentinel error message used to detect unfunded accounts in the UI. */
@@ -301,12 +258,6 @@ export const ACCOUNT_NOT_FOUND_ERROR = "ACCOUNT_NOT_FOUND";
 /** Friendbot endpoint for Stellar testnet funding. */
 export const FRIENDBOT_URL =
   process.env.NEXT_PUBLIC_FRIENDBOT_URL || "https://friendbot.stellar.org";
-
-/** Polling options for waiting until an account exists on Horizon. */
-export interface FundingPollOptions {
-  intervalMs?: number;
-  timeoutMs?: number;
-}
 
 /**
  * Fetch all trustlines (non-native asset balances) for a Stellar account.
