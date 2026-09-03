@@ -11,42 +11,44 @@
 
 import {
   isConnected,
-  getAddress,
+  getPublicKey,
   signTransaction,
   requestAccess,
   isAllowed,
 } from "@stellar/freighter-api";
 
-import { apiFetch } from "./api";
-import { getNetworkPassphrase } from "./stellar";
+import { getNetworkPassphrase, getNetworkConfig } from "./stellar";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
 let jwtToken: string | null = null;
-/** Store the SEP-0010 JWT token in memory for the current session. */
-export function setJwtToken(token: string | null) {
-  jwtToken = token;
-}
-/** Returns the SEP-0010 JWT token currently held in memory, or null if not authenticated. */
-export function getJwtToken() {
-  return jwtToken;
-}
+export function setJwtToken(token: string | null) { jwtToken = token; }
+export function getJwtToken() { return jwtToken; }
 
 async function fetchAuthChallenge(publicKey: string): Promise<string> {
-  const data = await apiFetch<{ transaction: string }>(
-    `/api/auth?account=${encodeURIComponent(publicKey)}`,
-    { credentials: "include", raw: true }
-  );
-  return data.transaction;
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+  const res  = await fetch(`${base}/api/auth?account=${encodeURIComponent(publicKey)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to fetch SEP-0010 challenge");
+  const { transaction } = await res.json();
+  return transaction;
 }
 
 async function verifyAuthChallenge(signedXDR: string): Promise<string> {
-  const data = await apiFetch<{ token: string }>("/api/auth", {
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+  const res  = await fetch(`${base}/api/auth`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify({ transaction: signedXDR }),
   });
-  return data.token;
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: "Auth failed" }));
+    throw new Error(error || "SEP-0010 verification failed");
+  }
+  const { token } = await res.json();
+  return token;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -74,8 +76,10 @@ export function detectBrowser(): SupportedBrowser {
 }
 
 export const EXTENSION_URLS: Record<SupportedBrowser, string> = {
-  chrome: "https://chrome.google.com/webstore/detail/freighter/bcacfldlkkdogcmkkibnjlakofdplcbk",
-  firefox: "https://addons.mozilla.org/en-US/firefox/addon/freighter/",
+  chrome:
+    "https://chrome.google.com/webstore/detail/freighter/bcacfldlkkdogcmkkibnjlakofdplcbk",
+  firefox:
+    "https://addons.mozilla.org/en-US/firefox/addon/freighter/",
   other: "https://freighter.app",
 };
 
@@ -83,13 +87,15 @@ export const EXTENSION_URLS: Record<SupportedBrowser, string> = {
 
 /**
  * Check whether the Freighter extension is installed in the browser.
- * Returns false during SSR where `window` is undefined (#198).
  */
 export async function isFreighterInstalled(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
   try {
     const result = await isConnected();
-    return Boolean(result.isConnected);
+    // isConnected returns { isConnected: boolean } or boolean depending on version
+    if (typeof result === "object" && result !== null && "isConnected" in result) {
+      return (result as { isConnected: boolean }).isConnected;
+    }
+    return Boolean(result);
   } catch {
     return false;
   }
@@ -97,13 +103,14 @@ export async function isFreighterInstalled(): Promise<boolean> {
 
 /**
  * Check if this site has already been granted access by the user.
- * Returns false during SSR where `window` is undefined (#198).
  */
 export async function hasSiteAccess(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
   try {
     const result = await isAllowed();
-    return Boolean(result.isAllowed);
+    if (typeof result === "object" && result !== null && "isAllowed" in result) {
+      return (result as { isAllowed: boolean }).isAllowed;
+    }
+    return Boolean(result);
   } catch {
     return false;
   }
@@ -124,26 +131,21 @@ export async function connectWallet(): Promise<{
   if (!installed) {
     return {
       publicKey: null,
-      error: "Freighter wallet is not installed. Visit https://freighter.app to install it.",
+      error:
+        "Freighter wallet is not installed. Visit https://freighter.app to install it.",
     };
   }
 
   try {
     // 2. Request access from the user
-    const access = await requestAccess();
-
-    // #199: check error field — denial does not throw, it returns {error}
-    if (access.error) {
-      return {
-        publicKey: null,
-        error:
-          access.error.message ||
-          "Connection rejected. Please approve the connection in Freighter.",
-      };
-    }
+    await requestAccess();
 
     // 3. Get the public key
-    const publicKey = access.address || (await getAddress()).address;
+    const result = await getPublicKey();
+    const publicKey =
+      typeof result === "object" && result !== null && "publicKey" in result
+        ? (result as { publicKey: string }).publicKey
+        : (result as string);
 
     if (!publicKey) {
       return { publicKey: null, error: "No public key returned from Freighter." };
@@ -173,8 +175,12 @@ export async function getConnectedPublicKey(): Promise<string | null> {
     const allowed = await hasSiteAccess();
     if (!allowed) return null;
 
-    const { address } = await getAddress();
-    return address || null;
+    const result = await getPublicKey();
+    const pk =
+      typeof result === "object" && result !== null && "publicKey" in result
+        ? (result as { publicKey: string }).publicKey
+        : (result as string);
+    return pk || null;
   } catch {
     return null;
   }
@@ -215,22 +221,21 @@ export async function performSEP0010Auth(
 export async function signTransactionWithWallet(
   transactionXDR: string
 ): Promise<{ signedXDR: string | null; error: string | null }> {
-  if (typeof window === "undefined") {
-    return {
-      signedXDR: null,
-      error: "Wallet signing is not available during server-side rendering.",
-    };
-  }
   try {
-    const signed = await signTransaction(transactionXDR, {
+    const config = getNetworkConfig();
+    const network = config.network === "mainnet" ? "MAINNET" : "TESTNET";
+
+    const result = await signTransaction(transactionXDR, {
       networkPassphrase: getNetworkPassphrase(),
+      network,
     });
 
-    if (signed.error) {
-      throw new Error(signed.error.message || "Freighter signing failed");
-    }
+    const signedXDR =
+      typeof result === "object" && result !== null && "signedTransaction" in result
+        ? (result as { signedTransaction: string }).signedTransaction
+        : (result as string);
 
-    return { signedXDR: signed.signedTxXdr, error: null };
+    return { signedXDR, error: null };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
 
@@ -264,18 +269,13 @@ export const isLedgerSupported = async () => false;
 /**
  * Placeholder for Ledger signing.
  */
-export async function signTransactionWithLedger(
-  xdr: string
-): Promise<{ signedXDR: string | null; error: string | null }> {
+export async function signTransactionWithLedger(xdr: string): Promise<{ signedXDR: string | null; error: string | null }> {
   return { signedXDR: null, error: "Ledger support not implemented." };
 }
 
 /**
  * Placeholder for fetching Ledger public key.
  */
-export async function getLedgerPublicKey(): Promise<{
-  publicKey: string | null;
-  error: string | null;
-}> {
+export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; error: string | null }> {
   return { publicKey: null, error: "Ledger support not implemented." };
 }

@@ -6,12 +6,10 @@
 "use strict";
 
 const express = require("express");
-
-const paymentController = require("../controllers/paymentController");
-const { paymentLimiter } = require("../middleware/rateLimit");
-const { sanitizePublicKey } = require("../middleware/sanitization");
-
 const router = express.Router();
+const { strictLimiter } = require("../middleware/rateLimit");
+const { sanitizePublicKey } = require("../middleware/sanitization");
+const paymentController = require("../controllers/paymentController");
 
 /**
  * GET /api/payments/:publicKey
@@ -21,12 +19,12 @@ const router = express.Router();
  *   limit  — number of results (default: 20, max: 100)
  *   cursor — pagination cursor
  */
-router.get("/:publicKey", paymentLimiter, sanitizePublicKey, paymentController.getPayments);
+router.get("/:publicKey", strictLimiter, sanitizePublicKey, paymentController.getPayments);
 
 /**
  * GET /api/payments/:publicKey/stats
  * Return aggregate stats for an account (total sent, received, count).
  */
-router.get("/:publicKey/stats", paymentLimiter, paymentController.getStats);
+router.get("/:publicKey/stats", paymentController.getStats);
 
 module.exports = router;

@@ -1,12 +1,51 @@
+# ─── Node ────────────────────────────────────────────────────────────────────
 node_modules/
-.next/
-out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── Next.js ─────────────────────────────────────────────────────────────────
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# ─── Backend ─────────────────────────────────────────────────────────────────
+backend/.env
+backend/logs/
+
+# ─── Rust / Cargo ─────────────────────────────────────────────────────────────
+target/
+Cargo.lock
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ─── Editor ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+*.user
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+*.log
 .env
-target/
-secrets/*.txt
-!secrets/.gitkeep
-target/
+dist/
+build/
+# Playwright
+playwright-report/
+test-results/
+test_snapshots
 
 # ─── Local scripts (never push) ───────────────────────────────────────────────
 scripts/create_issues.py
-backend/data/usernames.json

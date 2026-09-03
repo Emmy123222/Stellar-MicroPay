@@ -39,7 +39,7 @@ The deployment consists of three main containers:
 
 ### Nginx (`nginx/nginx.conf`)
 - **Gzip Compression**: Enabled for text, css, and javascript.
-- **Security Headers**: Includes X-Frame-Options, X-XSS-Protection, and a CSP that matches the frontend export (self scripts, inline styles, Google Fonts, same-origin/static assets, and API/SSE connections).
+- **Security Headers**: Includes X-Frame-Options, X-XSS-Protection, and Content-Security-Policy.
 - **Reverse Proxy**: Proxies `/api/` to the backend service.
 
 ### Dockerfiles

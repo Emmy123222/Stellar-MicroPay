@@ -29,7 +29,7 @@ echo "✅ Node.js $NODE_VER"
 echo ""
 echo "📦 Installing frontend dependencies..."
 cd "$ROOT/frontend"
-npm install || { echo "❌ npm install failed in frontend/"; exit 1; }
+npm install
 
 if [[ ! -f ".env.local" ]]; then
   cp .env.example .env.local
@@ -42,7 +42,7 @@ fi
 echo ""
 echo "📦 Installing backend dependencies..."
 cd "$ROOT/backend"
-npm install || { echo "❌ npm install failed in backend/"; exit 1; }
+npm install
 
 if [[ ! -f ".env" ]]; then
   cp .env.example .env
@@ -57,12 +57,12 @@ if command -v cargo &> /dev/null; then
   RUST_VER=$(rustc --version)
   echo "✅ $RUST_VER"
 
-  if rustup target list --installed | grep -q "wasm32v1-none"; then
-    echo "✅ wasm32v1-none target installed"
+  if rustup target list --installed | grep -q "wasm32-unknown-unknown"; then
+    echo "✅ wasm32-unknown-unknown target installed"
   else
-    echo "⚠️  Adding wasm32v1-none target..."
-    rustup target add wasm32v1-none
-    echo "✅ wasm32v1-none installed"
+    echo "⚠️  Adding wasm32-unknown-unknown target..."
+    rustup target add wasm32-unknown-unknown
+    echo "✅ wasm32-unknown-unknown installed"
   fi
 else
   echo "⚠️  Rust not found — smart contract development unavailable."

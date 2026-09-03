@@ -10,36 +10,6 @@
 // In-memory storage for username → publicKey mapping
 const usernameMap = new Map();
 
-/** Load previously persisted registrations from disk (skipped in tests). */
-function load() {
-  if (process.env.NODE_ENV === "test") return;
-  try {
-    const records = JSON.parse(fs.readFileSync(storePath, "utf8"));
-    for (const record of records) {
-      usernameMap.set(record.username, record.publicKey);
-    }
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-}
-
-/** Persist the current registrations to disk (skipped in tests). */
-function persist() {
-  if (process.env.NODE_ENV === "test") return;
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  const temp = `${storePath}.${process.pid}.tmp`;
-  fs.writeFileSync(
-    temp,
-    `${JSON.stringify(
-      Array.from(usernameMap, ([username, publicKey]) => ({ username, publicKey })),
-      null,
-      2
-    )}\n`,
-    { mode: 0o600 }
-  );
-  fs.renameSync(temp, storePath);
-}
-
 /**
  * Register a new username with a public key.
  * @param {string} username - The username to register
@@ -56,11 +26,10 @@ function registerUsername(username, publicKey) {
     throw error;
   }
 
-  // Check if public key is already registered to another username
+ // Check if public key is already registered to another username
   /* eslint-disable no-unused-vars */
-  // eslint-disable-next-line no-unused-vars
-  for (const [unused, existingPublicKey] of usernameMap.entries()) {
-    if (existingPublicKey === publicKey) {
+ // eslint-disable-next-line no-unused-vars
+  for (const [unused, existingPublicKey] of usernameMap.entries()) {    if (existingPublicKey === publicKey) {
       const error = new Error("Public key already registered to another username");
       error.status = 409;
       throw error;
@@ -118,31 +87,6 @@ function removeUsername(username) {
   return { username };
 }
 
-function renameUsername(currentUsername, nextUsername, publicKey) {
-  validateUsername(currentUsername);
-  validateUsername(nextUsername);
-  validatePublicKey(publicKey);
-  const current = usernameMap.get(currentUsername);
-  if (!current) {
-    const error = new Error("Username not found");
-    error.status = 404;
-    throw error;
-  }
-  if (current !== publicKey) {
-    const error = new Error("Forbidden: username is owned by another account");
-    error.status = 403;
-    throw error;
-  }
-  if (usernameMap.has(nextUsername)) {
-    const error = new Error("Username already registered");
-    error.status = 409;
-    throw error;
-  }
-  usernameMap.delete(currentUsername);
-  usernameMap.set(nextUsername, publicKey);
-  return { username: nextUsername, publicKey };
-}
-
 /**
  * Validate username format.
  * @param {string} username - The username to validate
@@ -188,8 +132,6 @@ module.exports = {
   resolveUsername,
   getAllUsernames,
   removeUsername,
-  renameUsername,
   validateUsername,
   validatePublicKey,
-  usernameMap,
 };

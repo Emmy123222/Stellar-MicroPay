@@ -4,12 +4,15 @@ const config: Config = {
   // Issue #19 — Add dark/light mode toggle | Emmy123222/Stellar-MicroPay
   // Enable class-based dark mode so toggling 'dark' on <html> activates dark styles
   darkMode: "class",
-  content: ["./pages/**/*.{js,ts,jsx,tsx,mdx}", "./components/**/*.{js,ts,jsx,tsx,mdx}"],
+  content: [
+    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
   theme: {
     extend: {
       colors: {
         stellar: {
-          50: "#f0f9ff",
+          50:  "#f0f9ff",
           100: "#e0f2fe",
           200: "#bae6fd",
           300: "#7dd3fc",
@@ -53,30 +56,3 @@ const config: Config = {
 };
 
 export default config;
-
-/**
- * RTL/LTR Support Audit for Issue #642
- *
- * The current Tailwind config uses standard left/right utilities.
- * For RTL support (e.g., Arabic), the following should be updated:
- *
- * 1. Replace left/right with logical properties:
- *    - `ml-` → `ms-` (margin-start)
- *    - `mr-` → `me-` (margin-end)
- *    - `pl-` → `ps-` (padding-start)
- *    - `pr-` → `pe-` (padding-end)
- *    - `text-left` → `text-start`
- *    - `text-right` → `text-end`
- *    - `rounded-l-` → `rounded-s-`
- *    - `rounded-r-` → `rounded-e-`
- *    - `border-l-` → `border-s-`
- *    - `border-r-` → `border-e-`
- *
- * 2. Key files to update:
- *    - components/Navbar.tsx (uses ml-, mr-, pl-, pr-)
- *    - pages/dashboard.tsx (uses various left/right utilities)
- *
- * 3. Current status: All supported locales (en, es) are LTR, so this is
- *    preparation for future RTL locales. The logical properties work
- *    correctly for both LTR and RTL languages.
- */

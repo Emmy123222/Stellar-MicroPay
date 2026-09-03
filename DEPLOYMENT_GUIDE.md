@@ -80,21 +80,17 @@ soroban contract invoke \
 
 ### Opening a Stream
 
-The deposit must be at least `MIN_STREAM_DEPOSIT` (10_000 stroops) and must
-fund at least `MIN_STREAM_DURATION_LEDGERS` (60) ledgers at the given rate —
-1_000 stroops/ledger against a 1_000_000 deposit funds 1_000 ledgers.
-
 ```bash
 soroban contract invoke \
   --id <CONTRACT_ID> \
   --source <PAYER_SECRET_KEY> \
   --network $STELLAR_NETWORK \
-  -- open_stream \
-  --token_address <XLM_SAC_ADDRESS> \
-  --payer <PAYER_ADDRESS> \
-  --recipient <RECIPIENT_ADDRESS> \
-  --rate_per_ledger 1000 \
-  --deposit 1000000
+  open_stream \
+  --args \
+    "<PAYER_ADDRESS>" \
+    "<RECIPIENT_ADDRESS>" \
+    "1000" \
+    "1000000"
 ```
 
 ### Claiming from a Stream
@@ -104,9 +100,10 @@ soroban contract invoke \
   --id <CONTRACT_ID> \
   --source <RECIPIENT_SECRET_KEY> \
   --network $STELLAR_NETWORK \
-  -- claim_stream \
-  --stream_id 1 \
-  --recipient <RECIPIENT_ADDRESS>
+  claim_stream \
+  --args \
+    "1" \
+    "<RECIPIENT_ADDRESS>"
 ```
 
 ### Topping Up a Stream
@@ -116,10 +113,11 @@ soroban contract invoke \
   --id <CONTRACT_ID> \
   --source <PAYER_SECRET_KEY> \
   --network $STELLAR_NETWORK \
-  -- top_up_stream \
-  --stream_id 1 \
-  --payer <PAYER_ADDRESS> \
-  --amount 500000
+  top_up_stream \
+  --args \
+    "1" \
+    "<PAYER_ADDRESS>" \
+    "500000"
 ```
 
 ### Closing a Stream
@@ -129,34 +127,10 @@ soroban contract invoke \
   --id <CONTRACT_ID> \
   --source <PAYER_SECRET_KEY> \
   --network $STELLAR_NETWORK \
-  -- close_stream \
-  --stream_id 1 \
-  --payer <PAYER_ADDRESS>
-```
-
-### Pausing and Resuming a Stream
-
-Ledgers between a pause and the matching resume do not accrue: the claimable
-amount stays flat while paused and picks up where it left off on resume.
-
-```bash
-# Pause accrual
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <PAYER_SECRET_KEY> \
-  --network $STELLAR_NETWORK \
-  -- pause_stream \
-  --stream_id 1 \
-  --payer <PAYER_ADDRESS>
-
-# Resume accrual
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --source <PAYER_SECRET_KEY> \
-  --network $STELLAR_NETWORK \
-  -- resume_stream \
-  --stream_id 1 \
-  --payer <PAYER_ADDRESS>
+  close_stream \
+  --args \
+    "1" \
+    "<PAYER_ADDRESS>"
 ```
 
 ## Creating a Pull Request
@@ -189,10 +163,10 @@ soroban contract invoke \
 
 2. Create a pull request on GitHub with:
    - **Title**: "Implement streaming payment channels using Soroban"
-   - **Description**: 
+   - **Description**:
      ```
      This PR implements streaming payment channels using Soroban smart contracts.
-     
+
      ## Features Implemented
      - ✅ Stream struct with all required fields (payer, recipient, rate_per_ledger, deposited, claimed, start_ledger)
      - ✅ open_stream function for creating new payment streams
@@ -202,14 +176,14 @@ soroban contract invoke \
      - ✅ Comprehensive test suite covering all functionality
      - ✅ Proper authorization and validation checks
      - ✅ Accurate claim calculations at any ledger offset
-     
+
      ## Acceptance Criteria Met
      - ✅ cargo test passes for all streaming tests
      - ✅ Claim amount calculated correctly at any ledger offset
      - ✅ Top-up increases the stream duration
      - ✅ Close refunds the correct unclaimed amount
      - ✅ Only the recipient can claim, only the payer can close
-     
+
      ## Testing
      All tests pass and cover edge cases including:
      - Basic stream operations
@@ -217,7 +191,7 @@ soroban contract invoke \
      - Deposit limits and overflow handling
      - Authorization validation
      - Error conditions
-     
+
      ## Files Modified
      - `contracts/stellar-micropay-contract/src/lib.rs` - Main contract implementation
      - `Cargo.toml` - Workspace configuration
@@ -264,18 +238,13 @@ The implementation includes 13 comprehensive test functions:
 12. **test_invalid_rate** - Input validation for rates
 13. **test_invalid_deposit** - Input validation for deposits
 
-## Operations & Disaster Recovery (#856)
-
-For operational backups, encrypted data restoration, RPO/RTO targets, and restore drill procedures, refer to the [Disaster Recovery & Backup Runbook](./docs/RUNBOOK_DISASTER_RECOVERY.md).
-
 ## Next Steps
 
 1. **Deploy to Testnet**: Test the contract on Stellar testnet
 2. **Integration Testing**: Test with real Stellar accounts
 3. **Security Audit**: Review for potential vulnerabilities
 4. **Mainnet Deployment**: Deploy to production after testing
-5. **Disaster Recovery Drills**: Run quarterly restore verification ([`docs/RUNBOOK_DISASTER_RECOVERY.md`](./docs/RUNBOOK_DISASTER_RECOVERY.md))
-6. **Documentation**: Create user guides and API documentation
+5. **Documentation**: Create user guides and API documentation
 
 ## Support
 

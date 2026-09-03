@@ -12,105 +12,69 @@
  *  4. The service worker's push event handler calls showNotification().
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
-
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/router";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import Head from "next/head";
-import FloatingAssistantButton from "../components/FloatingAssistantButton";
-import { useTranslation } from "@/contexts/I18nContext";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
-const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), {
-  ssr: false,
-});
+const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), { ssr: false });
 const WalletConnect = dynamic(() => import("../components/WalletConnect"), { ssr: false });
 const SendPaymentForm = dynamic(() => import("../components/SendPaymentForm"), { ssr: false });
 const TransactionList = dynamic(() => import("../components/TransactionList"), { ssr: false });
-const MultiSigFlow = dynamic(() => import("../components/MultiSigFlow"), {
-  ssr: false,
-  loading: () => (
-    <div className="card mb-6 bg-cosmos-950/80 border-white/10">
-      <div className="flex items-center gap-3 py-8 justify-center">
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-stellar-400 border-t-transparent" />
-        <span className="text-sm text-slate-400">Loading multi-sig…</span>
-      </div>
-    </div>
-  ),
-});
+const MultiSigFlow = dynamic(() => import("../components/MultiSigFlow"), { ssr: false });
 const OnboardingTour = dynamic(() => import("../components/OnboardingTour"), { ssr: false });
 const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"), { ssr: false });
 const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
-const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), {
-  ssr: false,
-});
-const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
-const ExternalPaymentBanner = dynamic(() => import("../components/ExternalPaymentBanner"), { ssr: false });
-
-// The assistant panel (and its dependencies) should not ship in the initial
-// bundle — it's only ever needed after the user opens the floating button,
-// so it's loaded on demand with a visible loading state (#610).
-const AIPaymentAssistantLoading = () => {
-  const { t } = useTranslation("dashboard");
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
-      <div className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-6 py-5 shadow-2xl">
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-stellar-400 border-t-transparent" />
-        <span className="text-sm text-slate-300">{t("loading_ai")}</span>
-      </div>
-    </div>
-  );
-};
-
-const ExternalPaymentBanner = dynamic(() => import("../components/ExternalPaymentBanner"), { ssr: false });
-const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), {
-  ssr: false,
-  loading: AIPaymentAssistantLoading,
-});
+const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
+const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), { ssr: false });
 
 import {
-  DraggableWidget,
-  BubbleNotification,
-  PaymentStatsWidget,
-  MonthlySpendingChart,
-  ThirtyDayVolumeChart,
-  TopRecipientsWidget,
-  BalanceSparkline,
-  PaymentStats,
-} from "@/components/dashboard";
-import { useOnboarding } from "@/hooks/useOnboarding";
-import { getJwtToken } from "@/lib/auth";
-import { useTranslation } from "@/lib/i18n";
-import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
+
+
+import Toast from "@/components/Toast";
+import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
+import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
+
 import {
   getXLMBalance,
   getAccountReserveInfo,
   type AccountReserveInfo,
-  getBalances,
-  type WalletBalance,
+  getUSDCBalance,
   getFriendBotFunding,
   waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
+  streamPayments,
   getRecentPaymentsForStats,
   getRecentPaymentsForSparkline,
-  fetchAllPayments,
   PaymentRecord,
 } from "@/lib/stellar";
-import {
-  formatAsset,
-  formatUSD,
-  copyToClipboard,
-  exportToCSV,
-  shortenAddress,
-} from "@/utils/format";
-import { useToastContext } from "@/lib/ToastContext";
+import { formatAsset, formatUSD, copyToClipboard } from "@/utils/format";
+import { useToast } from "@/lib/useToast";
+import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
+import { getJwtToken } from "@/lib/auth"; // Assuming auth helper exists or similar logic
 import { useWallet } from "@/lib/useWallet";
-import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
-import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
-
-import FloatingAssistantButton from "../components/FloatingAssistantButton";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;
+}
+
+interface PaymentStats {
+  publicKey: string;
+  totalSentXLM: string;
+  totalReceivedXLM: string;
+  sentCount: number;
+  receivedCount: number;
+  totalTransactions: number;
 }
 
 interface CachedBalanceSnapshot {
@@ -140,7 +104,10 @@ function loadBalanceSnapshot(publicKey: string): CachedBalanceSnapshot | null {
   }
 }
 
-function saveBalanceSnapshot(publicKey: string, snapshot: Omit<CachedBalanceSnapshot, "savedAt">) {
+function saveBalanceSnapshot(
+  publicKey: string,
+  snapshot: Omit<CachedBalanceSnapshot, "savedAt">
+) {
   if (typeof window === "undefined") return;
 
   window.localStorage.setItem(
@@ -158,126 +125,22 @@ function formatSnapshotTime(savedAt: number) {
   });
 }
 
-// ─── Dashboard widget drag-to-reorder (#622) ────────────────────────────────
-
-const DASHBOARD_WIDGET_IDS = ["stats", "monthlySpending", "thirtyDayVolume", "analytics"] as const;
-type DashboardWidgetId = (typeof DASHBOARD_WIDGET_IDS)[number];
-const WIDGET_ORDER_STORAGE_KEY = "stellar-micropay:dashboard-widget-order";
-
-function loadWidgetOrder(): DashboardWidgetId[] {
-  if (typeof window === "undefined") return [...DASHBOARD_WIDGET_IDS];
-
-  try {
-    const raw = window.localStorage.getItem(WIDGET_ORDER_STORAGE_KEY);
-    if (!raw) return [...DASHBOARD_WIDGET_IDS];
-    const parsed = JSON.parse(raw);
-    const isValidOrder =
-      Array.isArray(parsed) &&
-      parsed.length === DASHBOARD_WIDGET_IDS.length &&
-      DASHBOARD_WIDGET_IDS.every((id) => parsed.includes(id));
-    return isValidOrder ? (parsed as DashboardWidgetId[]) : [...DASHBOARD_WIDGET_IDS];
-  } catch {
-    return [...DASHBOARD_WIDGET_IDS];
-  }
-}
-
-function saveWidgetOrder(order: DashboardWidgetId[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(WIDGET_ORDER_STORAGE_KEY, JSON.stringify(order));
-}
-
 export default function Dashboard({ stellarURI }: DashboardProps) {
-  const { t } = useTranslation("dashboard");
   const { publicKey } = useWallet();
   const AUTO_REFRESH_SECONDS = 30;
-  // Move focus to the dashboard heading once a wallet is connected, so keyboard
-  // and screen-reader focus follows the content instead of staying on the
-  // now-hidden Connect control (#252).
-  const dashboardHeadingRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (publicKey) {
-      dashboardHeadingRef.current?.focus();
-    }
-  }, [publicKey]);
-  const [xlmBalance, setXlmBalance] = useState<string | null>(null);
+  const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
   const [reserveInfo, setReserveInfo] = useState<AccountReserveInfo | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
-  const [otherBalances, setOtherBalances] = useState<
-    Array<{ code: string; issuer: string; balance: string }>
-  >([]);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [staleBalanceAt, setStaleBalanceAt] = useState<number | null>(null);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
-  const [addressExpanded, setAddressExpanded] = useState(false);
-  const [balanceFlash, setBalanceFlash] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshCountdown, setRefreshCountdown] = useState(AUTO_REFRESH_SECONDS);
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
-  const { addToast } = useToastContext();
-  const showToast = (msg: string) => addToast(msg, "info");
+  const { visible: toastVisible, message: toastMessage, showToast } = useToast();
   const [showQRModal, setShowQRModal] = useState(false);
-  const {
-    showTour: showOnboardingTour,
-    completeTour: handleTourComplete,
-    skipTour: handleTourSkip,
-  } = useOnboarding(!!publicKey);
-
-  // Dashboard widget order — draggable and persisted across sessions (#622)
-  const [widgetOrder, setWidgetOrder] = useState<DashboardWidgetId[]>([...DASHBOARD_WIDGET_IDS]);
-  const [draggedWidgetId, setDraggedWidgetId] = useState<DashboardWidgetId | null>(null);
-  const [dragOverWidgetId, setDragOverWidgetId] = useState<DashboardWidgetId | null>(null);
-
-  useEffect(() => {
-    setWidgetOrder(loadWidgetOrder());
-  }, []);
-
-  const handleWidgetDragStart = useCallback(
-    (id: DashboardWidgetId) => (e: React.DragEvent) => {
-      setDraggedWidgetId(id);
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", id);
-    },
-    []
-  );
-
-  const handleWidgetDragOver = useCallback(
-    (id: DashboardWidgetId) => (e: React.DragEvent) => {
-      e.preventDefault();
-      if (draggedWidgetId && draggedWidgetId !== id) {
-        setDragOverWidgetId(id);
-      }
-    },
-    [draggedWidgetId]
-  );
-
-  const handleWidgetDragLeave = useCallback((id: DashboardWidgetId) => {
-    setDragOverWidgetId((current) => (current === id ? null : current));
-  }, []);
-
-  const handleWidgetDrop = useCallback(
-    (id: DashboardWidgetId) => (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragOverWidgetId(null);
-      const sourceId = draggedWidgetId;
-      setDraggedWidgetId(null);
-      if (!sourceId || sourceId === id) return;
-
-      setWidgetOrder((current) => {
-        const next = current.filter((widgetId) => widgetId !== sourceId);
-        const targetIndex = next.indexOf(id);
-        next.splice(targetIndex, 0, sourceId);
-        saveWidgetOrder(next);
-        return next;
-      });
-    },
-    [draggedWidgetId]
-  );
-
-  const handleWidgetDragEnd = useCallback(() => {
-    setDraggedWidgetId(null);
-    setDragOverWidgetId(null);
-  }, []);
+  const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   const isTestnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet";
   const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -290,9 +153,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Supports legacy ?prefillDestination= (contacts page) and
   // new ?to=&amount= (Send Again from transaction history).
   const { prefillDestination, to, amount: queryAmount } = router.query;
-  const prefill = prefillDestination
-    ? { destination: prefillDestination as string, amount: "", memo: "" }
-    : to
+  const prefill =
+    prefillDestination
+      ? { destination: prefillDestination as string, amount: "", memo: "" }
+      : to
       ? {
           destination: to as string,
           amount: typeof queryAmount === "string" ? queryAmount : "",
@@ -310,44 +174,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   // AI Payment Assistant state
   const [showAIAssistant, setShowAIAssistant] = useState(false);
-  // Tracks whether the assistant panel has ever been opened — gates mounting
-  // the dynamically-imported panel so its chunk isn't fetched until then (#610).
-  const [assistantLoaded, setAssistantLoaded] = useState(false);
   const [aiPrefillData, setAiPrefillData] = useState<{
     destination: string;
     amount: string;
     memo?: string;
   } | null>(null);
-
-  const handleOpenAIAssistant = () => {
-    setAssistantLoaded(true);
-    setShowAIAssistant(true);
-  };
-
-  const handleAIAssistantConfirm = (intent: {
-    amount: string;
-    recipient: string;
-    memo: string;
-  }) => {
-    setAiPrefillData({
-      destination: intent.recipient,
-      amount: intent.amount,
-      memo: intent.memo,
-    });
-    setActivePaymentTab("single");
-  };
-
-  // Recurring payments prefill — set when user clicks "Pay Now" on a due schedule
-  const [recurringPrefill, setRecurringPrefill] = useState<{
-    destination: string;
-    amount: string;
-    memo: string;
-  } | null>(null);
-
-  const handleRecurringPayNow = (data: { destination: string; amount: string; memo: string }) => {
-    setRecurringPrefill(data);
-    setActivePaymentTab("single");
-  };
 
   // Creator username for tips dashboard
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
@@ -359,24 +190,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [sparklineData, setSparklineData] = useState<any[]>([]);
   const [sparklineLoading, setSparklineLoading] = useState(false);
 
-  // Analytics state
-  const [thirtyDayData, setThirtyDayData] = useState<any[]>([]);
-  const [thirtyDayLoading, setThirtyDayLoading] = useState(false);
-  const [topRecipients, setTopRecipients] = useState<
-    Array<{ address: string; totalXLMSent: string }>
-  >([]);
-  const [topRecipientsLoading, setTopRecipientsLoading] = useState(false);
-  const [csvExporting, setCsvExporting] = useState(false);
-
   // Notification state
   const [notificationEnabled, setNotificationEnabled] = useState(false);
-  const [notificationPermission, setNotificationPermission] =
-    useState<NotificationPermission>("default");
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [showBubble, setShowBubble] = useState(false);
   const [bubbleMessage, setBubbleMessage] = useState("");
-  const realtimeSourceRef = useRef<EventSource | null>(null);
-  const realtimePollRef = useRef<number | null>(null);
-  const latestPaymentIdRef = useRef<string | null>(null);
+
 
   // Fetch username for connected wallet
   const fetchUsername = useCallback(async () => {
@@ -409,36 +228,18 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     setAccountNotFound(false);
 
     try {
-      const [allBalances, reserve] = await Promise.all([
-        getBalances(publicKey),
+      const [bal, usdc, reserve] = await Promise.all([
+        getXLMBalance(publicKey),
+        getUSDCBalance(publicKey),
         getAccountReserveInfo(publicKey),
       ]);
-      const xlm = allBalances.find((b) => b.assetCode === "XLM");
-      const usdc = allBalances.find((b) => b.assetCode === "USDC");
-      const others = allBalances
-        .filter((b) => b.assetCode !== "XLM" && b.assetCode !== "USDC")
-        .map((b) => {
-          const [, issuer] = b.asset.split(":");
-          return { code: b.assetCode, issuer: issuer ?? "", balance: b.balance };
-        });
-
-      const bal = xlm?.balance ?? "0";
-      const usdcBal = usdc?.balance ?? null;
-
-      setXlmBalance((prev) => {
-        if (prev !== null && prev !== bal) {
-          setBalanceFlash(true);
-          setTimeout(() => setBalanceFlash(false), 800);
-        }
-        return bal;
-      });
-      setUsdcBalance(usdcBal);
-      setOtherBalances(others);
+      setXlmBalance(bal);
+      setUsdcBalance(usdc);
       setReserveInfo(reserve);
       setStaleBalanceAt(null);
       saveBalanceSnapshot(publicKey, {
         xlmBalance: bal,
-        usdcBalance: usdcBal,
+        usdcBalance: usdc,
         reserveInfo: reserve,
       });
     } catch (err: unknown) {
@@ -462,7 +263,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       }
       setXlmBalance(null);
       setUsdcBalance(null);
-      setOtherBalances([]);
       setReserveInfo(null);
       setStaleBalanceAt(null);
     } finally {
@@ -496,42 +296,35 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const [resStats, resSummary] = await Promise.all([
-        fetch(`${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`, { headers }),
-        fetch(`${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/summary`, { headers }),
-      ]);
+      const response = await fetch(
+        `${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`,
+        { headers }
+      );
 
-      if (!resStats.ok) {
+      if (!response.ok) {
         throw new Error("Unable to load payment stats right now.");
       }
 
-      const payloadStats = await resStats.json();
-      const dataStats = payloadStats?.data;
-
-      let comparisonData;
-      if (resSummary.ok) {
-        const payloadSummary = await resSummary.json();
-        comparisonData = payloadSummary?.data?.comparison;
-      }
+      const payload = await response.json();
+      const data = payload?.data;
 
       if (
-        !payloadStats?.success ||
-        !dataStats ||
-        typeof dataStats.totalSentXLM !== "string" ||
-        typeof dataStats.totalReceivedXLM !== "string" ||
-        typeof dataStats.totalTransactions !== "number"
+        !payload?.success ||
+        !data ||
+        typeof data.totalSentXLM !== "string" ||
+        typeof data.totalReceivedXLM !== "string" ||
+        typeof data.totalTransactions !== "number"
       ) {
         throw new Error("Payment stats response was invalid.");
       }
 
       setPaymentStats({
-        publicKey: dataStats.publicKey,
-        totalSentXLM: dataStats.totalSentXLM,
-        totalReceivedXLM: dataStats.totalReceivedXLM,
-        sentCount: Number(dataStats.sentCount ?? 0),
-        receivedCount: Number(dataStats.receivedCount ?? 0),
-        totalTransactions: dataStats.totalTransactions,
-        comparison: comparisonData,
+        publicKey: data.publicKey,
+        totalSentXLM: data.totalSentXLM,
+        totalReceivedXLM: data.totalReceivedXLM,
+        sentCount: Number(data.sentCount ?? 0),
+        receivedCount: Number(data.receivedCount ?? 0),
+        totalTransactions: data.totalTransactions,
       });
     } catch {
       setPaymentStats(null);
@@ -552,6 +345,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       const now = new Date();
       const months: any[] = [];
       for (let i = 5; i >= 0; i--) {
+
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         months.push({
           month: d.toLocaleString("default", { month: "short" }),
@@ -566,7 +360,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       payments.forEach((p: any) => {
         const pDate = new Date(p.createdAt);
         const m = months.find(
-          (m: any) => m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
+          (m: any) =>
+            m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
         );
 
         if (m) {
@@ -592,7 +387,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     setSparklineLoading(true);
     try {
       const history = await getRecentPaymentsForSparkline(publicKey, 10);
-      setSparklineData(history.map((h) => parseFloat(h.amount)));
+      setSparklineData(history.map(h => parseFloat(h.amount)));
     } catch (err) {
       console.error("Failed to fetch sparkline data:", err);
     } finally {
@@ -600,87 +395,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     }
   }, [publicKey]);
 
+
   useEffect(() => {
     fetchSpendingHistory();
   }, [fetchSpendingHistory, refreshKey]);
-
-  const fetchThirtyDayVolume = useCallback(async () => {
-    if (!publicKey) return;
-    setThirtyDayLoading(true);
-    try {
-      const payments = await getRecentPaymentsForStats(publicKey, 200);
-      const now = new Date();
-      const days: any[] = [];
-      for (let i = 29; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-        days.push({
-          day: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-          dateKey: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`,
-          sent: 0,
-          received: 0,
-        });
-      }
-      payments.forEach((p: PaymentRecord) => {
-        const pd = new Date(p.createdAt);
-        const key = `${pd.getFullYear()}-${pd.getMonth()}-${pd.getDate()}`;
-        const entry = days.find((d: any) => d.dateKey === key);
-        if (entry) {
-          const amt = parseFloat(p.amount);
-          if (p.type === "sent") entry.sent += amt;
-          else entry.received += amt;
-        }
-      });
-      setThirtyDayData(days);
-    } catch (err) {
-      console.error("Failed to fetch 30-day volume:", err);
-    } finally {
-      setThirtyDayLoading(false);
-    }
-  }, [publicKey]);
-
-  const fetchTopRecipients = useCallback(async () => {
-    if (!publicKey) return;
-    setTopRecipientsLoading(true);
-    try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const headers: HeadersInit = {};
-      const token = getJwtToken();
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(
-        `${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
-        { headers }
-      );
-      if (res.ok) {
-        const payload = await res.json();
-        setTopRecipients(payload?.data?.topRecipients ?? []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch top recipients:", err);
-    } finally {
-      setTopRecipientsLoading(false);
-    }
-  }, [publicKey]);
-
-  const handleExportCSV = async () => {
-    if (!publicKey || csvExporting) return;
-    setCsvExporting(true);
-    try {
-      const records = await fetchAllPayments(publicKey);
-      exportToCSV(records);
-    } catch {
-      showToast("Failed to export CSV. Please try again.");
-    } finally {
-      setCsvExporting(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchThirtyDayVolume();
-  }, [fetchThirtyDayVolume, refreshKey]);
-
-  useEffect(() => {
-    fetchTopRecipients();
-  }, [fetchTopRecipients, refreshKey]);
 
   const handleFriendbot = async () => {
     if (!publicKey) return;
@@ -758,31 +476,31 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Sync notification permission state on mount and whenever the user
   // returns to the tab — they may have changed browser-level settings.
   useEffect(() => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
 
     const syncPermission = () => {
       const perm = Notification.permission;
       setNotificationPermission(perm);
       // If permission was revoked externally, disable notifications automatically.
-      if (perm !== "granted") {
+      if (perm !== 'granted') {
         setNotificationEnabled(false);
-        localStorage.setItem("notificationOptIn", "false");
+        localStorage.setItem('notificationOptIn', 'false');
       }
     };
 
     syncPermission();
-    const optIn = localStorage.getItem("notificationOptIn") === "true";
-    setNotificationEnabled(optIn && Notification.permission === "granted");
+    const optIn = localStorage.getItem('notificationOptIn') === 'true';
+    setNotificationEnabled(optIn && Notification.permission === 'granted');
 
-    window.addEventListener("focus", syncPermission);
-    return () => window.removeEventListener("focus", syncPermission);
+    window.addEventListener('focus', syncPermission);
+    return () => window.removeEventListener('focus', syncPermission);
   }, []);
 
   const handleCopyAddress = async () => {
     if (!publicKey) return;
 
     const ok = await copyToClipboard(publicKey);
-    if (ok) showToast(t("address_copied"));
+    if (ok) showToast("Address copied!");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -790,6 +508,27 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const handleManualRefresh = () => {
     setRefreshCountdown(30);
     fetchBalance();
+  };
+
+
+  // Onboarding tour logic
+  useEffect(() => {
+    if (publicKey) {
+      const hasSeenTour = localStorage.getItem("stellar-micropay:onboarding-completed");
+      if (!hasSeenTour) {
+        setShowOnboardingTour(true);
+      }
+    }
+  }, [publicKey]);
+
+  const handleTourComplete = () => {
+    setShowOnboardingTour(false);
+    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
+  };
+
+  const handleTourSkip = () => {
+    setShowOnboardingTour(false);
+    localStorage.setItem("stellar-micropay:onboarding-completed", "true");
   };
 
   const handlePaymentSuccess = () => {
@@ -808,17 +547,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
    * Reference: https://developer.mozilla.org/en-US/docs/Web/API/Push_API
    */
   const subscribeToPush = async (): Promise<boolean> => {
-    if (!publicKey) {
-      return false;
-    }
-
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-      showToast("Push notifications are not supported in this browser.");
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      showToast('Push notifications are not supported in this browser.');
       return false;
     }
 
     // Step 1 — Register the service worker (idempotent: returns existing if already registered).
-    const registration = await navigator.serviceWorker.register("/sw.js");
+    const registration = await navigator.serviceWorker.register('/sw.js');
 
     // Step 2 — Request notification permission. Must be called directly inside
     // a user-gesture handler; async chains that break the gesture context will
@@ -826,8 +561,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     const permission = await Notification.requestPermission();
     setNotificationPermission(permission);
 
-    if (permission !== "granted") {
-      showToast("Notification permission was not granted.");
+    if (permission !== 'granted') {
+      showToast('Notification permission was not granted.');
       return false;
     }
 
@@ -838,7 +573,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     if (!vapidPublicKey) {
       // No VAPID key configured — fall back to permission-only mode (no
       // server-pushed messages, but in-app bubble notifications still work).
-      console.warn("NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set. Server push disabled.");
+      console.warn('NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set. Server push disabled.');
       return true;
     }
 
@@ -851,14 +586,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       }));
 
     // Step 4 — Send the subscription to your server so it can push messages later.
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
     await fetch(`${apiBase}/api/push/subscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription, publicKey }),
     }).catch((err) => {
       // Non-fatal: subscription still works for same-session in-app notifications.
-      console.warn("Could not register push subscription with server:", err);
+      console.warn('Could not register push subscription with server:', err);
     });
 
     return true;
@@ -867,20 +602,20 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const handleToggleNotifications = async () => {
     // --- Disable ---
     if (notificationEnabled) {
-      localStorage.setItem("notificationOptIn", "false");
+      localStorage.setItem('notificationOptIn', 'false');
       setNotificationEnabled(false);
-      showToast(t("notifications_disabled"));
+      showToast('Payment notifications disabled');
       return;
     }
 
     // --- Enable ---
-    if (!("Notification" in window)) {
-      showToast("This browser does not support notifications.");
+    if (!('Notification' in window)) {
+      showToast('This browser does not support notifications.');
       return;
     }
 
-    if (Notification.permission === "denied") {
-      showToast(t("notifications_blocked"));
+    if (Notification.permission === 'denied') {
+      showToast('Notifications are blocked. Please enable them in your browser settings.');
       return;
     }
 
@@ -888,22 +623,22 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       const subscribed = await subscribeToPush();
       if (!subscribed) return;
 
-      localStorage.setItem("notificationOptIn", "true");
+      localStorage.setItem('notificationOptIn', 'true');
       setNotificationEnabled(true);
-      showToast(t("notifications_enabled"));
+      showToast('Payment notifications enabled');
 
       // Confirm with an immediate notification so the user sees it working.
       // Use showNotification() via the service worker registration —
       // this is the Push API-correct method, not new Notification().
       const registration = await navigator.serviceWorker.ready;
-      await registration.showNotification("Stellar Pay", {
-        body: "You will now receive notifications for incoming payments.",
-        icon: "/favicon.svg",
-        badge: "/favicon.svg",
+      await registration.showNotification('Stellar Pay', {
+        body: 'You will now receive notifications for incoming payments.',
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
       });
     } catch (err) {
-      console.error("Failed to enable push notifications:", err);
-      showToast("Could not enable notifications. Please try again.");
+      console.error('Failed to enable push notifications:', err);
+      showToast('Could not enable notifications. Please try again.');
     }
   };
 
@@ -915,21 +650,21 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     if (!notificationEnabled) return;
 
     // In-app bubble for immediate visual feedback
-    setBubbleMessage("You received 10.00 XLM");
+    setBubbleMessage('You received 10.00 XLM');
     setShowBubble(true);
     setTimeout(() => setShowBubble(false), 3000);
 
     // Real notification via service worker — validates the actual push path
-    if ("serviceWorker" in navigator && Notification.permission === "granted") {
+    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
       try {
         const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification("Stellar Pay — Test", {
-          body: "You received 10.00 XLM",
-          icon: "/favicon.svg",
-          badge: "/favicon.svg",
+        await registration.showNotification('Stellar Pay — Test', {
+          body: 'You received 10.00 XLM',
+          icon: '/favicon.svg',
+          badge: '/favicon.svg',
         });
       } catch (err) {
-        console.error("Test notification failed:", err);
+        console.error('Test notification failed:', err);
       }
     }
   };
@@ -940,72 +675,62 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   useEffect(() => {
     if (!publicKey) return;
 
-    let cancelled = false;
-    let eventSource: EventSource | null = null;
+    const unsubscribe = streamPayments(
+      publicKey,
+      async (payment) => {
+        if (payment.type === 'received') {
+          const formattedAmount = formatAsset(payment.amount, payment.asset);
+          showToast(`Received ${formattedAmount}`);
 
-    const connect = async () => {
-      await primeRealtimeCursor();
-      if (cancelled) return;
+          if (notificationEnabled && Notification.permission === 'granted') {
+            if (document.visibilityState === 'hidden') {
+              // Page is not visible — use the service worker showNotification()
+              // so the OS notification tray receives it.
+              try {
+                const registration = await navigator.serviceWorker.ready;
+                await registration.showNotification('Stellar Pay — Payment received', {
+                  body: `You received ${formattedAmount}`,
+                  icon: '/favicon.svg',
+                  badge: '/favicon.svg',
+                });
+              } catch (err) {
+                console.error('showNotification failed:', err);
+              }
+            } else {
+              // Page is visible — in-app bubble is less intrusive.
+              setBubbleMessage(`You received ${formattedAmount}`);
+              setShowBubble(true);
+              setTimeout(() => setShowBubble(false), 3000);
+            }
+          }
 
-      stopPollingFallback();
-
-      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const streamUrl = `${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/stream`;
-
-      if (typeof window === "undefined" || !("EventSource" in window)) {
-        startPollingFallback();
-        return;
-      }
-
-      eventSource = new EventSource(streamUrl);
-      realtimeSourceRef.current = eventSource;
-
-      eventSource.onmessage = (event) => {
-        try {
-          const payment = JSON.parse(event.data) as PaymentRecord;
-          void handleRealtimePayment(payment);
-        } catch (error) {
-          console.error("Failed to parse realtime payment event:", error);
+          // Refresh XLM balance after an incoming payment
+          try {
+            const bal = await getXLMBalance(publicKey);
+            setXlmBalance(bal);
+          } catch {
+            // keep previous balance on failure
+          }
         }
-      };
 
-      eventSource.onerror = () => {
-        if (cancelled) return;
-
-        console.warn("Realtime payment stream disconnected; falling back to polling.");
-        eventSource?.close();
-        realtimeSourceRef.current = null;
-        startPollingFallback();
-      };
-
-      eventSource.onopen = () => {
-        stopPollingFallback();
-      };
-    };
-
-    void connect();
+        setIncomingPayment(payment);
+      },
+      (error) => {
+        console.error('Dashboard payment stream error:', error);
+      }
+    );
 
     return () => {
-      cancelled = true;
-      stopPollingFallback();
-      realtimeSourceRef.current?.close();
-      realtimeSourceRef.current = null;
-      eventSource?.close();
+      unsubscribe();
     };
-  }, [
-    handleRealtimePayment,
-    primeRealtimeCursor,
-    publicKey,
-    startPollingFallback,
-    stopPollingFallback,
-  ]);
+  }, [publicKey, showToast, notificationEnabled]);
 
   if (!publicKey) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 cursor-default select-none">
         <div className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-white mb-3">{t("title")}</h1>
-          <p className="text-slate-400">{t("connect_wallet_msg")}</p>
+          <h1 className="font-display text-3xl font-bold text-white mb-3">Dashboard</h1>
+          <p className="text-slate-400">Connect your wallet to get started</p>
         </div>
         <WalletConnect />
       </div>
@@ -1016,220 +741,116 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
       <Head>
         <title>Dashboard | Stellar-MicroPay</title>
-        <meta
-          name="description"
-          content="Manage your Stellar account, view balances, and send micropayments instantly. Real-time transaction history and wallet summary."
-        />
+        <meta name="description" content="Manage your Stellar account, view balances, and send micropayments instantly. Real-time transaction history and wallet summary." />
         <link rel="canonical" href="https://stellar-micropay.vercel.app/dashboard" />
       </Head>
       <div className="mb-8">
-        {/* Focus target after wallet connect / navigation so focus lands on the
-            dashboard content instead of a now-hidden control (#252). */}
-        <h1
-          ref={dashboardHeadingRef}
-          tabIndex={-1}
-          className="font-display text-3xl font-bold text-white mb-1 outline-none"
-        >
-          {t("title")}
-        </h1>
-        <p className="text-slate-400 text-sm">{t("subtitle")}</p>
+        <h1 className="font-display text-3xl font-bold text-white mb-1">Dashboard</h1>
+        <p className="text-slate-400 text-sm">Send and receive XLM globally</p>
         <div className="mt-4">
           <button
             onClick={handleToggleNotifications}
-            disabled={notificationPermission === "denied"}
-            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-stellar-400 hover:text-stellar-300 disabled:bg-white/5 disabled:text-slate-400 disabled:border-white/5 disabled:cursor-not-allowed transition-colors flex items-center justify-between cursor-pointer"
+            disabled={notificationPermission === 'denied'}
+            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-stellar-400 hover:text-stellar-300 disabled:bg-white/5 disabled:text-slate-500 disabled:border-white/5 disabled:cursor-not-allowed transition-colors flex items-center justify-between cursor-pointer"
           >
             <span>
               {notificationEnabled
-                ? t("disable_notifications")
-                : notificationPermission === "denied"
-                  ? t("notifications_blocked")
-                  : t("enable_notifications")}
+                ? 'Disable payment notifications'
+                : notificationPermission === 'denied'
+                ? 'Notifications blocked'
+                : 'Enable payment notifications'}
             </span>
-            {notificationEnabled ? (
-              <BellOffIcon className="w-4 h-4" />
-            ) : (
-              <BellIcon className="w-4 h-4" />
-            )}
+            {notificationEnabled
+              ? <BellOffIcon className="w-4 h-4" />
+              : <BellIcon className="w-4 h-4" />}
           </button>
 
           {/* Test button: dev-only, shown only when notifications are enabled */}
-          {process.env.NODE_ENV === "development" && notificationEnabled && (
+          {process.env.NODE_ENV === 'development' && notificationEnabled && (
             <button
               onClick={handleTestNotification}
               className="mt-2 text-xs text-slate-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <TestIcon className="w-3.5 h-3.5" /> {t("test_notification")}
+              <TestIcon className="w-3.5 h-3.5" /> Test notification
             </button>
           )}
         </div>
       </div>
 
-      {(() => {
-        const widgetContent: Record<DashboardWidgetId, { label: string; node: React.ReactNode }> = {
-          stats: {
-            label: "Payment stats",
-            node: (
-              <PaymentStatsWidget
-                stats={paymentStats}
-                loading={paymentStatsLoading}
-                error={paymentStatsError}
-                onRetry={fetchPaymentStats}
-              />
-            ),
-          },
-          monthlySpending: {
-            label: "Monthly spending chart",
-            node: (
-              <>
-                <MonthlySpendingChart
-                  data={spendingData}
-                  loading={spendingLoading}
-                  onBarClick={setSelectedMonth}
-                />
+      <PaymentStatsWidget
+        stats={paymentStats}
+        loading={paymentStatsLoading}
+        error={paymentStatsError}
+        onRetry={fetchPaymentStats}
+      />
 
-                {selectedMonth && (
-                  <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
-                    <div>
-                      <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">
-                        Selected Period: {selectedMonth.label}
-                      </p>
-                      <div className="flex items-center gap-6">
-                        <div>
-                          <span className="text-xs text-slate-400">Total Sent</span>
-                          <p className="text-lg font-bold text-white">
-                            {selectedMonth.sent.toFixed(2)} XLM
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-xs text-slate-400">Total Received</span>
-                          <p className="text-lg font-bold text-stellar-400">
-                            {selectedMonth.received.toFixed(2)} XLM
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setSelectedMonth(null)}
-                      aria-label="Close month details"
-                      className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/5"
-                    >
-                      <CloseIcon className="w-5 h-5" />
-                    </button>
-                  </div>
-                )}
-              </>
-            ),
-          },
-          thirtyDayVolume: {
-            label: "30-day volume chart",
-            node: <ThirtyDayVolumeChart data={thirtyDayData} loading={thirtyDayLoading} />,
-          },
-          analytics: {
-            label: "Top recipients and export",
-            node: (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                <TopRecipientsWidget recipients={topRecipients} loading={topRecipientsLoading} />
-                <div className="card flex flex-col justify-between">
-                  <div>
-                    <h2 className="font-display text-lg font-semibold text-white mb-2">
-                      Export Payment History
-                    </h2>
-                    <p className="text-sm text-slate-400">
-                      Download your full transaction history as a CSV file.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleExportCSV}
-                    disabled={csvExporting}
-                    className="mt-4 btn-secondary flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {csvExporting ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                        Exporting…
-                      </>
-                    ) : (
-                      <>
-                        <DownloadIcon className="w-4 h-4" />
-                        Export CSV
-                      </>
-                    )}
-                  </button>
-                </div>
+      <MonthlySpendingChart
+        data={spendingData}
+        loading={spendingLoading}
+        onBarClick={setSelectedMonth}
+      />
+
+      {selectedMonth && (
+        <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
+          <div>
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">
+              Selected Period: {selectedMonth.label}
+            </p>
+            <div className="flex items-center gap-6">
+              <div>
+                <span className="text-xs text-slate-400">Total Sent</span>
+                <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
               </div>
-            ),
-          },
-        };
-
-        return widgetOrder.map((id) => (
-          <DraggableWidget
-            key={id}
-            id={id}
-            dragHandleLabel={widgetContent[id].label}
-            isDragging={draggedWidgetId === id}
-            isDragOver={dragOverWidgetId === id}
-            onDragStart={handleWidgetDragStart(id)}
-            onDragOver={handleWidgetDragOver(id)}
-            onDragLeave={() => handleWidgetDragLeave(id)}
-            onDrop={handleWidgetDrop(id)}
-            onDragEnd={handleWidgetDragEnd}
+              <div>
+                <span className="text-xs text-slate-400">Total Received</span>
+                <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setSelectedMonth(null)}
+            className="p-2 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5"
           >
-            {widgetContent[id].node}
-          </DraggableWidget>
-        ));
-      })()}
+            <CloseIcon className="w-5 h-5" />
+          </button>
+        </div>
+      )}
 
       <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <p className="label mb-1">{t("wallet_address")}</p>
+            <p className="label mb-1">Wallet Address</p>
+            <span className="font-mono text-sm text-slate-300 break-all select-text cursor-text">
+              {publicKey}
+            </span>
             <button
-              onClick={() => setAddressExpanded((x) => !x)}
-              className="font-mono text-sm text-slate-300 select-text cursor-pointer hover:text-white transition-colors text-start break-all"
-              title={addressExpanded ? "Click to collapse" : "Click to show full address"}
+              onClick={handleCopyAddress}
+              className="mt-2 text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              {addressExpanded ? publicKey : `${publicKey.slice(0, 6)}…${publicKey.slice(-6)}`}
+              {copied ? (
+                <>
+                  <CheckIcon className="w-3.5 h-3.5" /> Copied!
+                </>
+              ) : (
+                <>
+                  <CopyIcon className="w-3.5 h-3.5" /> Copy address
+                </>
+              )}
             </button>
-            <div className="mt-2 flex items-center gap-3">
-              <button
-                onClick={handleCopyAddress}
-                className="text-xs text-stellar-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
-                {copied ? (
-                  <>
-                    <CheckIcon className="w-3.5 h-3.5" /> {t("copied_address")}
-                  </>
-                ) : (
-                  <>
-                    <CopyIcon className="w-3.5 h-3.5" /> {t("copy_address")}
-                  </>
-                )}
-              </button>
-              <span className="text-slate-600 text-xs">·</span>
-              <button
-                onClick={() => setAddressExpanded((x) => !x)}
-                className="text-xs text-slate-400 hover:text-slate-300 transition-colors cursor-pointer"
-              >
-                {addressExpanded ? t("collapse") : t("show_full")}
-              </button>
-            </div>
           </div>
 
-          <div className="sm:text-end flex-shrink-0">
+          <div className="sm:text-right flex-shrink-0">
             <p className="label mb-1">XLM Balance</p>
             {balanceLoading ? (
               <div className="h-8 w-36 bg-white/10 rounded-lg animate-pulse" />
             ) : xlmBalance !== null ? (
               <div>
-                <div
-                  className={`font-display text-3xl font-bold text-white ${balanceFlash ? "balance-flash" : ""}`}
-                >
+                <div className="font-display text-3xl font-bold text-white">
                   {parseFloat(xlmBalance).toLocaleString("en-US", {
                     maximumFractionDigits: 4,
                   })}
-                  <span className="text-stellar-400 text-xl ms-2">XLM</span>
+                  <span className="text-stellar-400 text-xl ml-2">XLM</span>
                 </div>
                 {xlmPrice !== null && (
                   <p className="text-sm text-slate-400 mt-0.5">
@@ -1238,7 +859,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 )}
                 {staleBalanceAt && (
                   <p className="mt-1 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-200">
-                    {t("offline_snapshot", { time: formatSnapshotTime(staleBalanceAt) })}
+                    Offline snapshot from {formatSnapshotTime(staleBalanceAt)}
                   </p>
                 )}
                 {!sparklineLoading && sparklineData.length > 0 && (
@@ -1248,18 +869,18 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 )}
                 <button
                   onClick={() => void refreshBalance()}
-                  className="mt-1 text-xs text-slate-400 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
+                  className="mt-1 text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1 sm:justify-end cursor-pointer"
                   disabled={balanceLoading}
                 >
                   <RefreshIcon className={`w-3 h-3 ${isRefreshingBalance ? "animate-spin" : ""}`} />
                   {isRefreshingBalance ? "Refreshing..." : "Refresh"}
                 </button>
-                <p className="mt-1 text-[11px] text-slate-400 sm:text-end">
+                <p className="mt-1 text-[11px] text-slate-500 sm:text-right">
                   Refreshing in {refreshCountdown}s
                 </p>
               </div>
             ) : accountNotFound && isTestnet ? (
-              <div className="sm:text-end">
+              <div className="sm:text-right">
                 <p className="text-amber-400 text-sm mb-2">Account not funded yet</p>
                 <p className="text-xs text-slate-400">
                   Use the funding card below to credit your wallet on testnet.
@@ -1267,7 +888,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               </div>
             ) : (
               <div>
-                <p className="text-slate-400 text-sm">Failed to load</p>
+                <p className="text-slate-500 text-sm">Failed to load</p>
                 <button
                   onClick={fetchBalance}
                   className="text-xs text-stellar-400 hover:underline cursor-pointer"
@@ -1302,46 +923,46 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       {/* Reserve warning (#164). Amber when balance is within 2 XLM of the
           minimum reserve, red when at or below it. Suppressed when the
           account isn't funded — the Friendbot card below covers that path. */}
-      {!accountNotFound &&
-        reserveInfo &&
-        (() => {
-          const { xlmBalance: bal, minimumBalance: min, subentryCount } = reserveInfo;
-          const atOrBelow = bal <= min;
-          const nearMin = bal > min && bal <= min + 2;
-          if (!atOrBelow && !nearMin) return null;
-          const tone = atOrBelow
-            ? "border-red-500/40 bg-red-500/5 text-red-200"
-            : "border-amber-500/40 bg-amber-500/5 text-amber-200";
-          const headline = atOrBelow
-            ? "XLM balance is at or below the minimum reserve"
-            : "XLM balance is close to the minimum reserve";
-          return (
-            <div
-              className={`card mb-6 ${tone}`}
-              role="alert"
-              aria-live="polite"
-              data-testid="reserve-warning"
-            >
-              <p className="font-semibold mb-1">{headline}</p>
-              <p className="text-sm opacity-90">
-                You hold <strong>{bal.toFixed(4)} XLM</strong>. Your account must keep at least{" "}
-                <strong>{min.toFixed(4)} XLM</strong> reserved ({subentryCount} subentries × 0.5 XLM
-                + 2 XLM base). Top up before submitting transactions to avoid{" "}
-                <code className="text-xs opacity-80">tx_insufficient_balance</code>.
-              </p>
-              <p className="text-sm mt-2">
-                <a
-                  href="https://developers.stellar.org/docs/learn/fundamentals/stellar-data-structures/accounts#base-reserves"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:opacity-100 opacity-80"
-                >
-                  Stellar base reserves docs →
-                </a>
-              </p>
-            </div>
-          );
-        })()}
+      {!accountNotFound && reserveInfo && (() => {
+        const { xlmBalance: bal, minimumBalance: min, subentryCount } = reserveInfo;
+        const atOrBelow = bal <= min;
+        const nearMin = bal > min && bal <= min + 2;
+        if (!atOrBelow && !nearMin) return null;
+        const tone = atOrBelow
+          ? "border-red-500/40 bg-red-500/5 text-red-200"
+          : "border-amber-500/40 bg-amber-500/5 text-amber-200";
+        const headline = atOrBelow
+          ? "XLM balance is at or below the minimum reserve"
+          : "XLM balance is close to the minimum reserve";
+        return (
+          <div
+            className={`card mb-6 ${tone}`}
+            role="alert"
+            aria-live="polite"
+            data-testid="reserve-warning"
+          >
+            <p className="font-semibold mb-1">{headline}</p>
+            <p className="text-sm opacity-90">
+              You hold <strong>{bal.toFixed(4)} XLM</strong>. Your account
+              must keep at least{" "}
+              <strong>{min.toFixed(4)} XLM</strong> reserved
+              ({subentryCount} subentries × 0.5 XLM + 2 XLM base). Top up
+              before submitting transactions to avoid{" "}
+              <code className="text-xs opacity-80">tx_insufficient_balance</code>.
+            </p>
+            <p className="text-sm mt-2">
+              <a
+                href="https://developers.stellar.org/docs/learn/fundamentals/stellar-data-structures/accounts#base-reserves"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:opacity-100 opacity-80"
+              >
+                Stellar base reserves docs →
+              </a>
+            </p>
+          </div>
+        );
+      })()}
 
       {accountNotFound && isTestnet && (
         <div className="card mb-6 border-amber-500/30 bg-amber-500/5">
@@ -1390,24 +1011,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       )}
 
-      {otherBalances.map((b) => (
-        <div
-          key={b.code}
-          className="card mb-4 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-violet-500/20 relative overflow-hidden"
-        >
-          <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <p className="label mb-1">{b.code} Balance</p>
-              <div className="font-display text-3xl font-bold text-white">
-                {formatAsset(b.balance, b.code)}
-              </div>
-            </div>
-          </div>
-        </div>
-      ))}
-
       {/* Creator Tips Dashboard */}
-      <CreatorTipsDashboard publicKey={publicKey} username={creatorUsername} xlmPrice={xlmPrice} />
+      <CreatorTipsDashboard
+        publicKey={publicKey}
+        username={creatorUsername}
+        xlmPrice={xlmPrice}
+      />
 
       {/* External payment banner */}
       {stellarURI && stellarURI.success && stellarURI.isExternal && showExternalBanner && (
@@ -1418,8 +1027,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         />
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 order-1 lg:order-none">
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1">
           <div className="card mb-6 bg-cosmos-950/80 border-white/10">
             <div className="flex gap-2 p-2 rounded-3xl bg-white/5">
               <button
@@ -1453,17 +1062,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               publicKey={publicKey}
               xlmBalance={xlmBalance || "0"}
               usdcBalance={usdcBalance}
-              accountBalances={otherBalances}
               onSuccess={handlePaymentSuccess}
-              prefill={
-                aiPrefillData
-                  ? aiPrefillData
-                  : recurringPrefill
-                    ? recurringPrefill
-                    : stellarURI && stellarURI.success
-                      ? uriToPrefillData(stellarURI.data!)
-                      : null
-              }
+              prefill={stellarURI && stellarURI.success ? uriToPrefillData(stellarURI.data!) : null}
             />
           ) : (
             <BatchPaymentForm
@@ -1475,7 +1075,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
 
         <div className="lg:col-span-1">
-          <RecurringPayments onPayNow={handleRecurringPayNow} />
           <PaymentRequestGenerator />
           <div className="mt-6">
             <MultiSigFlow
@@ -1486,7 +1085,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           </div>
         </div>
 
-        <div className="lg:col-span-1 order-2 lg:order-none">
+        <div className="lg:col-span-1">
           <div className="card h-full">
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
@@ -1506,6 +1105,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       </div>
 
       <BubbleNotification message={bubbleMessage} visible={showBubble} />
+      {toastVisible && (
+        <Toast
+          message={toastMessage}
+          type="info"
+          onClose={() => {}}
+        />
+      )}
 
       <QRCodeModal
         isOpen={showQRModal}
@@ -1517,29 +1123,279 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         onComplete={handleTourComplete}
         onSkip={handleTourSkip}
       />
-
-      <FloatingAssistantButton onClick={handleOpenAIAssistant} />
-      {assistantLoaded && (
-        <AIPaymentAssistant
-          isOpen={showAIAssistant}
-          onClose={() => setShowAIAssistant(false)}
-          onConfirm={handleAIAssistantConfirm}
-        />
-      )}
     </div>
   );
 }
 
-function DownloadIcon({ className }: { className?: string }) {
+function BubbleNotification({ message, visible }: { message: string; visible: boolean }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+    <div
+      className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-500 ${
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full'
+      }`}
+    >
+      <div className="bg-stellar-500 text-white px-4 py-2 rounded-lg shadow-lg max-w-xs">
+        <p className="text-sm whitespace-nowrap overflow-hidden text-ellipsis">{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function PaymentStatsWidget({
+  stats,
+  loading,
+  error,
+  onRetry,
+}: {
+  stats: PaymentStats | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) {
+    return (
+      <section
+        className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6"
+        aria-label="Payment stats loading"
+      >
+        <span className="sr-only">Loading payment stats</span>
+        {[0, 1, 2].map((index) => (
+          <div
+            key={index}
+            className="card border-white/10 bg-white/[0.03] animate-pulse"
+          >
+            <div className="h-3 w-24 rounded bg-white/10 mb-3" />
+            <div className="h-8 w-32 rounded bg-white/10 mb-2" />
+            <div className="h-3 w-20 rounded bg-white/10" />
+          </div>
+        ))}
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="card mb-6 border-red-500/20 bg-red-500/5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white">Payment summary</p>
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+          <button onClick={onRetry} className="btn-secondary text-sm px-4 py-2">
+            Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (!stats) return null;
+
+  return (
+    <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
+      <StatsCard
+        label="Total Sent"
+        value={formatStatsXLM(stats.totalSentXLM)}
+        helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
       />
-    </svg>
+      <StatsCard
+        label="Total Received"
+        value={formatStatsXLM(stats.totalReceivedXLM, "received")}
+        helper={`${stats.receivedCount} incoming payment${stats.receivedCount === 1 ? "" : "s"}`}
+      />
+      <StatsCard
+        label="Transactions"
+        value={stats.totalTransactions.toLocaleString("en-US")}
+        helper="Across sent and received activity"
+      />
+    </section>
+  );
+}
+
+function MonthlySpendingChart({
+  data,
+  loading,
+  onBarClick,
+}: {
+  data: any[];
+  loading: boolean;
+  onBarClick: (data: any) => void;
+}) {
+  if (loading && data.length === 0) {
+    return (
+      <div className="card mb-6 h-[350px] animate-pulse bg-white/[0.03] border-white/10" />
+    );
+  }
+
+  return (
+    <div className="card mb-6 overflow-hidden">
+      <h2 className="font-display text-lg font-semibold text-white mb-6">
+        Monthly Spending (XLM)
+      </h2>
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={data}
+            onClick={(state: any) =>
+              state &&
+              state.activePayload &&
+              onBarClick(state.activePayload[0].payload)
+            }
+
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <XAxis
+              dataKey="month"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tickFormatter={(value: any) => `${value}`}
+            />
+            <Tooltip
+              cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
+              contentStyle={{
+                backgroundColor: "#0f172a",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+              }}
+              itemStyle={{ color: "#38bdf8" }}
+            />
+            <Bar dataKey="sent" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function StatsCard({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="card border-white/10 bg-white/[0.03]">
+      <p className="label mb-2">{label}</p>
+      <p className="font-display text-2xl font-bold text-white">{value}</p>
+      <p className="text-xs text-slate-400 mt-2">{helper}</p>
+    </div>
+  );
+}
+
+function formatStatsXLM(amount: string, suffix = "sent") {
+  const value = parseFloat(amount);
+
+  if (Number.isNaN(value)) return `0.00 XLM ${suffix}`;
+
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 7,
+  })} XLM ${suffix}`;
+}
+
+// ─── Sparkline chart ─────────────────────────────────────────────────────────
+
+/**
+ * Inline SVG sparkline showing balance change over the last N transactions.
+ * Green when the overall trend is upward, red when downward.
+ * Hover tooltip shows the running balance delta at each data point.
+ */
+function BalanceSparkline({ data }: { data: number[] }) {
+  const W = 160;
+  const H = 40;
+  const PAD = 4;
+
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1; // avoid division by zero for flat lines
+
+  const points = data.map((v, i) => {
+    const x = PAD + (i / Math.max(data.length - 1, 1)) * (W - PAD * 2);
+    const y = PAD + (1 - (v - min) / range) * (H - PAD * 2);
+    return { x, y, value: v };
+  });
+
+  const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
+
+  const trend = data[data.length - 1] >= data[0];
+  const color = trend ? "#22c55e" : "#ef4444"; // green-500 / red-500
+  const fillColor = trend ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)";
+
+  // Closed path for the fill area under the line
+  const fillPath =
+    `M ${points[0].x},${H - PAD} ` +
+    points.map((p) => `L ${p.x},${p.y}`).join(" ") +
+    ` L ${points[points.length - 1].x},${H - PAD} Z`;
+
+  return (
+    <div className="relative inline-block" aria-label="Balance sparkline chart">
+      <svg
+        width={W}
+        height={H}
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={`Balance trend: ${trend ? "upward" : "downward"}`}
+      >
+        {/* Fill area */}
+        <path d={fillPath} fill={fillColor} />
+        {/* Line */}
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {/* Interactive dots with tooltips */}
+        {points.map((p, i) => (
+          <g key={i} className="group">
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={5}
+              fill="transparent"
+              className="cursor-pointer"
+            />
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={2.5}
+              fill={color}
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+            />
+            {/* SVG foreignObject tooltip */}
+            <foreignObject
+              x={Math.min(p.x - 36, W - 76)}
+              y={p.y < H / 2 ? p.y + 6 : p.y - 30}
+              width={72}
+              height={24}
+              className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity overflow-visible"
+            >
+              <div
+                className="bg-cosmos-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white whitespace-nowrap text-center"
+                style={{ fontSize: "10px" }}
+              >
+                {p.value >= 0 ? "+" : ""}
+                {p.value.toFixed(4)} XLM
+              </div>
+            </foreignObject>
+          </g>
+        ))}
+      </svg>
+      <p className="text-xs mt-0.5" style={{ color, fontSize: "10px" }}>
+        {trend ? "▲ Upward trend" : "▼ Downward trend"}
+      </p>
+    </div>
   );
 }
 

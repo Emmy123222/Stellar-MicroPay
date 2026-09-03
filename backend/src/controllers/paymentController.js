@@ -8,48 +8,12 @@
 const stellarService = require("../services/stellarService");
 
 /**
- * @typedef {object} PaymentRecord
- * @property {string} id
- * @property {"sent"|"received"} type
- * @property {string} amount
- * @property {string} asset
- * @property {string} from
- * @property {string} to
- * @property {string} createdAt
- * @property {string} transactionHash
- * @property {string} pagingToken
- * @property {string} [memo]
- */
-
-/**
  * GET /api/payments/:publicKey
- *
- * @param {object} req - Express request
- * @param {object} req.params
- * @param {string} req.params.publicKey - Stellar public key (G...)
- * @param {object} req.query
- * @param {string} [req.query.limit] - Max records to return (1-100, default 20)
- * @param {string} [req.query.cursor] - Horizon paging token to continue from
- * @param {object} res - Express response
- * @param {function} next - Express error-handling callback
- * @returns {Promise<void>} JSON: `{ success: true, data: PaymentRecord[] }`,
- *   or 400 JSON: `{ error: string }` when limit is not a positive integer
  */
 async function getPayments(req, res, next) {
   try {
     const { publicKey } = req.params;
-
-    // #197: explicit validation — || 20 silently swallows limit=0; NaN propagates to Horizon
-    const rawLimit = req.query.limit;
-    let limit = 20;
-    if (rawLimit !== undefined) {
-      const parsed = parseInt(rawLimit, 10);
-      if (isNaN(parsed) || !Number.isSafeInteger(parsed) || parsed < 1) {
-        return res.status(400).json({ error: "limit must be a positive integer" });
-      }
-      limit = Math.min(parsed, 100);
-    }
-
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
     const cursor = req.query.cursor || undefined;
 
     const payments = await stellarService.getPayments(publicKey, { limit, cursor });
@@ -62,14 +26,6 @@ async function getPayments(req, res, next) {
 /**
  * GET /api/payments/:publicKey/stats
  * Computes aggregate payment statistics for a wallet.
- *
- * @param {object} req - Express request
- * @param {object} req.params
- * @param {string} req.params.publicKey - Stellar public key (G...)
- * @param {object} res - Express response
- * @param {function} next - Express error-handling callback
- * @returns {Promise<void>} JSON: `{ success: true, data: { publicKey: string, totalSentXLM: string,
- *   totalReceivedXLM: string, sentCount: number, receivedCount: number, totalTransactions: number } }`
  */
 async function getStats(req, res, next) {
   try {

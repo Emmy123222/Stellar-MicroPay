@@ -10,13 +10,7 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 - Contract initialization with admin
 - On-chain tip recording with event emission
 - Tip total and count queries per recipient
-- Receipt metadata minting for payments
-- Batch tip/payment recording
-- Time-locked escrow payments
-- Streaming payments with pause/resume, dust-stream limits, and multi-recipient weighted payouts
-- Storage schema versioning with a documented migration path
-- Emergency contract-wide pause that halts value-moving operations (tips, escrows, batches, streams) while keeping reads and withdrawals open (#802)
-- Two-step admin transfer: propose, then explicit accept (or cancel) with a time-bound expiry window (#801)
+- Placeholder stubs for escrow and batch payments
 
 ## Prerequisites
 
@@ -24,8 +18,8 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Add WASM target (pinned in rust-toolchain.toml)
-rustup target add wasm32v1-none
+# Add WASM target
+rustup target add wasm32-unknown-unknown
 
 # Install Stellar CLI
 cargo install --locked stellar-cli
@@ -34,52 +28,16 @@ cargo install --locked stellar-cli
 ## Build
 
 ```bash
-# Direct cargo build
-cargo build --target wasm32v1-none --release
-
-# Or via Makefile from project root
-make contracts-build
+cargo build --target wasm32-unknown-unknown --release
 ```
 
-Output: `target/wasm32v1-none/release/stellar_micropay_contract.wasm`
-
-## Reproducible Build & Size Ceiling Attestation (#806)
-
-To prevent code bloat, unoptimized binary regressions, and non-deterministic compiler output, the contract enforces deterministic builds and a strict WASM size budget in CI and local workflows.
-
-```bash
-# Run double-build verification and size ceiling check
-./scripts/build-and-verify.sh
-
-# Or from project root
-make contracts-verify
-```
-
-### Verification Pipeline:
-1. **Pinned Toolchain**: Uses `rust-toolchain.toml` with `wasm32v1-none` target.
-2. **Double-Build Determinism**: Compiles the contract into two isolated, independent target directories and compares their SHA-256 hashes ($H_1 == H_2$).
-3. **Size Ceiling Enforcement**: Asserts that the compiled `.wasm` binary does not exceed **64 KB (65,536 bytes)**.
-   - **Documented Ceiling**: `65,536 bytes` (64 KB)
-   - **Current Baseline**: `~26,833 bytes` (~26.8 KB)
-   - **Headroom**: `~38,703 bytes` (~37.7 KB headroom for future features)
-4. **Attestation Artifacts**:
-   - `target/wasm32v1-none/release/stellar_micropay_contract.wasm`
-   - `target/wasm32v1-none/release/stellar_micropay_contract.wasm.sha256`
-   - `target/wasm_build_report.json`
+Output: `target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm`
 
 ## Test
 
 ```bash
 cargo test
 ```
-
-### Fuzz testing (#563, #788)
-
-`src/fuzz_streams.rs` contains property-based test suites using `proptest`:
-- `fuzz_stream_ops_preserve_invariants`: Generates random sequences of `claim_stream` / `top_up_stream` / `close_stream` calls against a stream opened by `open_stream` — interleaved with random ledger advances and top-up amounts drawn from a wide range — and verifies the `claimed <= deposited` invariant (#557) and contract solvency after every call.
-- `fuzz_weighted_stream_exact_conservation`: Generates arbitrary recipient counts (1..=8), arbitrary positive weights (1..=100_000), arbitrary accrual rates, and arbitrary elapsed ledger sequences, asserting that the sum of all recipient entitlements (`claimable + claimed`) strictly and exactly equals `total_streamed_amount` at all ledgers (zero stroop rounding loss) and that closure refunds the exact difference `deposited - total_streamed` to the payer (#788).
-
-These run as part of the normal `cargo test` job wired into CI (`.github/workflows/ci.yml`). Failing cases are automatically shrunk by `proptest` to a minimal reproduction.
 
 ## Deploy to Testnet
 
@@ -92,7 +50,7 @@ stellar keys fund alice --network testnet
 
 # Deploy
 stellar contract deploy \
-  --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
+  --wasm target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm \
   --source alice \
   --network testnet
 ```
@@ -127,527 +85,29 @@ stellar contract invoke \
   --recipient <RECIPIENT_ADDRESS>
 ```
 
-## Function Reference
-
-All amounts are `i128` stroop-denominated values unless a caller explicitly passes a different token contract address. Address parameters use Soroban `Address` values.
-
-### `initialize(env: Env, admin: Address) -> ()`
-
-- **Parameters**:
-  - `admin: Address` - account stored as the contract administrator.
-- **Return value**: none.
-- **Authorization requirements**: none in the current implementation; the first successful caller sets the admin.
-- **Events emitted**: `(init)` with `(1, admin)` as event data.
-- **Error conditions**:
-  - Panics with `Contract already initialized` if an admin is already stored.
-
-### `transfer_admin(env: Env, current_admin: Address, new_admin: Address) -> ()`
-
-Two-step admin transfer — **step one (propose)** (#801).
-
-- **Parameters**:
-  - `current_admin: Address` - expected current administrator.
-  - `new_admin: Address` - proposed replacement administrator (must differ from the current admin).
-- **Return value**: none.
-- **Authorization requirements**: `current_admin.require_auth()`, and the caller must match the stored admin.
-- **Events emitted**: `(admin_transfer_pending, current_admin)` with `(new_admin, expiry_ledger)`.
-- **Error conditions**:
-  - Panics with `Contract not initialized` if `initialize` has not run.
-  - Panics with `Unauthorized` if `current_admin` does not match the stored admin.
-  - Panics with `new admin must differ from current admin` if the proposal targets the current admin.
-
-The caller is **not** changed by this call; the admin only changes once the
-proposed address calls `accept_admin` before the expiry ledger. Re-proposing
-overwrites the pending proposal and resets its expiry.
-
-### `accept_admin(env: Env, new_admin: Address) -> ()`
-
-Two-step admin transfer — **step two (accept)** (#801).
-
-- **Parameters**:
-  - `new_admin: Address` - the address that was proposed in `transfer_admin`.
-- **Return value**: none.
-- **Authorization requirements**: `new_admin.require_auth()`, and it must match the pending proposal.
-- **Events emitted**: `(admin_transfer_accepted)` with the newly promoted admin address.
-- **Error conditions**:
-  - Panics with `no pending admin transfer` if no proposal exists.
-  - Panics with `Unauthorized` if the caller is not the proposed address.
-  - Panics with `admin transfer expired` if the current ledger is past the proposal's expiry.
-
-On success the proposed address becomes the stored admin and the pending
-proposal is cleared (a second accept fails).
-
-### `cancel_transfer_admin(env: Env, current_admin: Address) -> ()`
-
-Cancel a pending admin transfer (#801).
-
-- **Parameters**:
-  - `current_admin: Address` - the current administrator.
-- **Return value**: none.
-- **Authorization requirements**: `current_admin.require_auth()`, and the caller must match the stored admin.
-- **Events emitted**: `(admin_transfer_cancelled)` with the address that was proposed.
-- **Error conditions**:
-  - Panics with `no pending admin transfer` if no proposal exists.
-  - Panics with `Contract not initialized` if `initialize` has not run.
-  - Panics with `Unauthorized` if the caller is not the stored admin.
-
-### `is_paused(env: Env) -> bool`
-
-- **Return value**: `true` when the emergency pause is active, `false` otherwise (#802).
-
-### `pause(env: Env, admin: Address) -> ()`
-
-Emergency-pause the contract (#802).
-
-- **Parameters**:
-  - `admin: Address` - the stored contract administrator.
-- **Return value**: none.
-- **Authorization requirements**: `admin.require_auth()`, and the caller must match the stored admin.
-- **Events emitted**: `(pause)`.
-- **Error conditions**:
-  - Panics with `Contract not initialized` if `initialize` has not run.
-  - Panics with `Unauthorized` if the caller is not the stored admin.
-
-While paused, value-moving operations — `send_tip`, `create_escrow`,
-`batch_send`, `open_stream`, `top_up_stream` — are rejected with
-`Contract is paused`. Reads (`get_*`) and withdrawals (`claim_escrow`,
-`cancel_escrow`, `claim_stream`, `close_stream`) stay open so no funds are
-trapped.
-
-### `unpause(env: Env, admin: Address) -> ()`
-
-Clear the emergency pause (#802).
-
-- **Parameters**:
-  - `admin: Address` - the stored contract administrator.
-- **Return value**: none.
-- **Authorization requirements**: `admin.require_auth()`, and the caller must match the stored admin.
-- **Events emitted**: `(unpause)`.
-- **Error conditions**:
-  - Panics with `Contract not initialized` if `initialize` has not run.
-  - Panics with `Unauthorized` if the caller is not the stored admin.
-
-### `send_tip(env: Env, token_address: Address, from: Address, to: Address, amount: i128) -> ()`
-
-- **Parameters**:
-  - `token_address: Address` - Soroban token contract used for the transfer.
-  - `from: Address` - payer/tipper address.
-  - `to: Address` - recipient/creator address.
-  - `amount: i128` - amount to transfer and record.
-- **Return value**: none.
-- **Authorization requirements**: `from.require_auth()`.
-- **Events emitted**: `(tip, from, to)` with `(1, amount)` as event data.
-- **Error conditions**:
-  - Panics with `Contract is paused` when the emergency pause is active (#802).
-  - Panics with `Tip amount must be positive` when `amount <= 0`.
-  - Propagates token contract transfer failures, including insufficient balance, missing trustline, or token authorization failures.
-
-### `get_tip_total(env: Env, recipient: Address) -> i128`
-
-- **Parameters**:
-  - `recipient: Address` - address whose cumulative received tips should be read.
-- **Return value**: total recorded tip amount for `recipient`, or `0` when no tips have been recorded.
-- **Authorization requirements**: none.
-- **Events emitted**: none.
-- **Error conditions**: none in normal operation.
-
-### `get_tip_count(env: Env, recipient: Address) -> u32`
-
-- **Parameters**:
-  - `recipient: Address` - address whose recorded tip count should be read.
-- **Return value**: number of recorded tips for `recipient`, or `0` when no tips have been recorded.
-- **Authorization requirements**: none.
-- **Events emitted**: none.
-- **Error conditions**: none in normal operation.
-
-### `get_admin(env: Env) -> Address`
-
-- **Parameters**: none.
-- **Return value**: stored admin address.
-- **Authorization requirements**: none.
-- **Events emitted**: none.
-- **Error conditions**:
-  - Panics with `Contract not initialized` if `initialize` has not run.
-
-### `get_tip_record(env: Env, recipient: Address, index: u32) -> TipRecord`
-
-- **Parameters**:
-  - `recipient: Address` - recipient whose tip record should be read.
-  - `index: u32` - zero-based record index for that recipient.
-- **Return value**: `TipRecord { from, to, amount, ledger }`.
-- **Authorization requirements**: none.
-- **Events emitted**: none.
-- **Error conditions**:
-  - Panics with `Tip record not found` if no record exists for `(recipient, index)`.
-
-### `mint_receipt(env: Env, from: Address, to: Address, amount: i128, memo: String) -> Result<u32, ContractError>`
-
-- **Parameters**:
-  - `from: Address` - payer address that owns the receipt record.
-  - `to: Address` - payment recipient address.
-  - `amount: i128` - amount represented by the receipt.
-  - `memo: String` - UTF-8 receipt memo, capped at 256 bytes.
-- **Return value**: zero-based receipt index for `from`.
-- **Authorization requirements**: `from.require_auth()`.
-- **Events emitted**: `(receipt, from)` with `(1, receipt_index)` as event data.
-- **Error conditions**:
-  - Panics with `Receipt amount must be positive` when `amount <= 0`.
-  - Returns `ReceiptMemoTooLong` when the UTF-8 encoding exceeds 256 bytes.
-
-### `get_receipt_count(env: Env, payer: Address) -> u32`
-
-- **Parameters**:
-  - `payer: Address` - receipt owner whose count should be read.
-- **Return value**: number of receipt records for `payer`, or `0` when none exist.
-- **Authorization requirements**: none.
-- **Events emitted**: none.
-- **Error conditions**: none in normal operation.
-
-### `get_receipt(env: Env, payer: Address, index: u32) -> ReceiptMetadata`
-
-- **Parameters**:
-  - `payer: Address` - receipt owner.
-  - `index: u32` - zero-based receipt index for that payer.
-- **Return value**: `ReceiptMetadata { from, to, amount, timestamp, memo, ledger }`.
-- **Authorization requirements**: none.
-- **Events emitted**: none.
-- **Error conditions**:
-  - Panics with `Receipt not found` if no receipt exists for `(payer, index)`.
-
-### `get_legacy_receipt(env: Env, payer: Address, index: u32) -> LegacyReceiptMetadata`
-
-Reads a receipt written through storage schema v3, preserving its original
-`Symbol` memo. New UTF-8 receipts are read through `get_receipt` instead.
-
-### `create_escrow(env: Env, token_address: Address, from: Address, to: Address, amount: i128, release_ledger: u32) -> u32`
-
-- **Parameters**:
-  - `token_address: Address` - token contract whose funds are locked.
-  - `from: Address` - escrow funder.
-  - `to: Address` - escrow beneficiary.
-  - `amount: i128` - amount locked by the escrow.
-  - `release_ledger: u32` - first ledger at which the beneficiary may claim.
-- **Return value**: zero-based escrow id.
-- **Authorization requirements**: `from.require_auth()`.
-- **Events emitted**: `(escrow_create, escrow_id)` with `(1, from, to, amount, release_ledger)` as event data.
-- **Error conditions**:
-  - Panics when the amount is not positive or the release ledger is not in the future.
-
-### Escrow release boundary
-
-The boundary is inclusive for claims and exclusive for cancellations:
-
-- `claim_escrow` returns `EscrowClaimTooEarly` through `release_ledger - 1` and is valid at `release_ledger` and later.
-- `cancel_escrow` is valid through `release_ledger - 1` and returns `EscrowCancelTooLate` at `release_ledger` and later.
-
-Therefore claim and cancel are never both valid in the same ledger. These
-semantics are identical on testnet and mainnet because they use the current
-ledger sequence, not wall-clock time.
-
-### `batch_send(env: Env, token_address: Address, from: Address, recipients: Vec<Address>, amounts: Vec<i128>) -> ()`
-
-- **Parameters**:
-  - `token_address: Address` - Soroban token contract used for every transfer.
-  - `from: Address` - payer address.
-  - `recipients: Vec<Address>` - recipient addresses, ordered to match `amounts`.
-  - `amounts: Vec<i128>` - transfer amounts, ordered to match `recipients`.
-- **Return value**: none.
-- **Authorization requirements**: `from.require_auth()`.
-- **Events emitted**: none in the current implementation.
-- **Error conditions**:
-  - Panics with `Contract is paused` when the emergency pause is active (#802).
-  - Panics with `arrays must have equal length` if `recipients.len() != amounts.len()`.
-  - Panics with `amount must be positive` if any amount is `<= 0`.
-  - Propagates token contract transfer failures, including insufficient balance, missing trustline, or token authorization failures.
-
-### `open_stream(env: Env, token_address: Address, payer: Address, recipients: Vec<Address>, weights: Vec<u32>, rate_per_ledger: i128, deposit: i128) -> u32`
-
-- **Parameters**:
-  - `token_address: Address` - Soroban token contract the stream is denominated in.
-  - `payer: Address` - account funding the stream.
-  - `recipients: Vec<Address>` - accounts that split the stream's payout, ordered to match `weights`. A single-recipient stream is a one-element list.
-  - `weights: Vec<u32>` - each recipient's share of the payout, ordered to match `recipients`. A recipient's entitlement at any point is `weight / sum(weights)` of the total streamed so far (#559).
-  - `rate_per_ledger: i128` - combined accrual rate per ledger, split across `recipients` by weight.
-  - `deposit: i128` - amount locked in the contract up front.
-- **Return value**: zero-based stream id.
-- **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_open, stream_id)` with `(1, payer, recipients, weights, rate_per_ledger, deposit)`.
-- **Error conditions**:
-  - Panics with `Contract is paused` when the emergency pause is active (#802).
-  - Panics with `recipients and weights must have equal length` when the two lists differ in length.
-  - Panics with `at least one recipient is required` when `recipients` is empty.
-  - Panics with `weight must be positive` when any weight is `0`.
-  - Panics with `recipients must not contain duplicate addresses` when the same address appears more than once — a duplicate would only be reachable through its first entry, stranding the rest of its weight until `close_stream`.
-  - Panics with `rate_per_ledger must be positive` when `rate_per_ledger <= 0`.
-  - Panics with `deposit must be positive` when `deposit <= 0`.
-  - Panics with `deposit below minimum` when `deposit < MIN_STREAM_DEPOSIT` (10_000 stroops).
-  - Panics with `stream duration below minimum` when `deposit / rate_per_ledger < MIN_STREAM_DURATION_LEDGERS` (60 ledgers, ~5 minutes) — this also covers `rate_per_ledger > deposit`, which funds zero whole ledgers.
-  - Propagates token contract transfer failures.
-
-### `claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128`
-
-- **Parameters**:
-  - `stream_id: u32` - stream to withdraw from.
-  - `recipient: Address` - one of the stream's recipients.
-- **Return value**: amount transferred to `recipient` — their exact entitlement under the Largest Remainder allocation rule (#788) minus what they have already claimed; `0` when nothing new has accrued for them since their last claim.
-- **Authorization requirements**: `recipient.require_auth()`.
-- **Events emitted**: `(stream_claim, stream_id)` with `(1, recipient, amount)`.
-- **Error conditions**:
-  - Panics with `stream not found` for an unknown id.
-  - Panics with `unauthorized` when the caller is not one of the stream's recipients.
-  - Panics with `stream is closed` once the stream has been closed.
-
-### `top_up_stream(env: Env, stream_id: u32, payer: Address, amount: i128) -> ()`
-
-- **Parameters**:
-  - `stream_id: u32` - stream to extend.
-  - `payer: Address` - the stream's payer.
-  - `amount: i128` - additional deposit.
-- **Return value**: none.
-- **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_topup, stream_id)` with `(1, payer, amount, deposited)`.
-- **Error conditions**: `stream not found`, `unauthorized`, `stream is closed`, or `amount must be positive`.
-
-### `pause_stream(env: Env, stream_id: u32, payer: Address) -> ()`
-
-- **Parameters**:
-  - `stream_id: u32` - stream to suspend.
-  - `payer: Address` - the stream's payer.
-- **Return value**: none.
-- **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_pause, stream_id)` with `(1, payer, paused_at_ledger)`.
-- **Error conditions**: `stream not found`, `unauthorized`, `stream is closed`, or `stream already paused`.
-
-While paused, the claimable amount stops growing. Already-accrued funds stay
-claimable — pausing suspends accrual, it does not freeze the recipient's
-balance.
-
-### `resume_stream(env: Env, stream_id: u32, payer: Address) -> ()`
-
-- **Parameters**:
-  - `stream_id: u32` - stream to resume.
-  - `payer: Address` - the stream's payer.
-- **Return value**: none.
-- **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_resume, stream_id)` with `(1, payer, pause_length)`.
-- **Error conditions**: `stream not found`, `unauthorized`, `stream is closed`, or `stream is not paused`.
-
-Accrual resumes from the point it stopped: the pause length is added to
-`paused_ledgers` and subtracted from the accrual window, so paused ledgers are
-never back-paid.
-
-### `close_stream(env: Env, stream_id: u32, payer: Address) -> ()`
-
-- **Parameters**:
-  - `stream_id: u32` - stream to stop.
-  - `payer: Address` - the stream's payer.
-- **Return value**: none.
-- **Authorization requirements**: `payer.require_auth()`.
-- **Events emitted**: `(stream_close, stream_id)` with `(1, owed, refund)`, where `owed` is the combined amount paid out to all recipients during this call and `refund` is what goes back to the payer (#558).
-- **Error conditions**: `stream not found`, `unauthorized`, or `stream is closed`.
-
-Settles everything accrued to each recipient using the conservation-preserving
-Largest Remainder rule (#788) and refunds the unstreamed balance (`deposited - total_streamed`)
-to the payer in the same call.
-
-### Weighted Stream Rounding and Remainder Allocation (#788)
-
-When continuous stream flow is split across multiple weighted recipients, integer
-division across discrete token stroops (`(total_streamed * weight) / total_weight`)
-can leave unallocated stroop remainders.
-
-To guarantee exact conservation ($\sum \text{entitlement}_i \equiv \text{total\_streamed}$)
-without stranding dust or over-allocating funds, the contract enforces the
-**Largest Remainder Method (Hamilton-Hare Rule)** with deterministic recipient-order tie breaking:
-
-1. **Total Streamed Calculation**:
-   $$\text{total\_streamed} = \min(\text{deposited}, (\text{current\_ledger} - \text{start\_ledger} - \text{paused\_ledgers}) \times \text{rate\_per\_ledger})$$
-
-2. **Base Shares & Fractional Remainders**:
-   For each recipient $i \in [0, N-1]$ with weight $w_i$ and total weight $W = \sum w_j$:
-   - Integer base share: $\text{base}_i = \lfloor \frac{\text{total\_streamed} \cdot w_i}{W} \rfloor$
-   - Fractional remainder: $f_i = (\text{total\_streamed} \cdot w_i) \pmod W$
-
-3. **Total Stroop Remainder**:
-   $$R = \text{total\_streamed} - \sum_{j=0}^{N-1} \text{base}_j \quad (0 \le R < N)$$
-
-4. **Deterministic Remainder Distribution**:
-   The $R$ stroops are awarded to the $R$ recipients having the largest fractional remainders $f_i$.
-   Ties ($f_a = f_b$) are broken deterministically by recipient list order (the recipient with the lower index in `recipients` takes priority).
-   $$\text{entitlement}_i(\text{total\_streamed}) = \text{base}_i + \begin{cases} 1 & \text{if recipient } i \text{ qualifies for top } R \text{ remainders} \\ 0 & \text{otherwise} \end{cases}$$
-
-5. **Parity Between Claims and Close**:
-   Both `get_claimable` / `claim_stream` and `close_stream` use the exact same `recipient_entitled_amount` function. This guarantees:
-   - Incremental withdrawals and stream closures yield identical payouts.
-   - Payer refund on close is exact: $\text{refund} = \text{deposited} - \text{total\_streamed}$.
-   - Token balance in the contract is conserved with zero leakage or dust lockup.
-
-### `get_stream(env: Env, stream_id: u32) -> Stream`
-
-- **Return value**: `Stream { payer, recipients, rate_per_ledger, deposited, start_ledger, token, paused, paused_at_ledger, paused_ledgers, closed }`, where `recipients: Vec<StreamRecipient { recipient, weight, claimed }>` (#559).
-- **Error conditions**: panics with `stream not found` for an unknown id.
-
-### `get_claimable(env: Env, stream_id: u32, recipient: Address) -> i128`
-
-- **Parameters**:
-  - `stream_id: u32` - stream to query.
-  - `recipient: Address` - the recipient whose claimable share to compute.
-- **Return value**: amount `recipient` could withdraw at the current ledger — their exact entitlement under the Largest Remainder rule (#788), net of paused time and already claimed amounts, capped at the deposit. `0` for a closed stream or an address that is not one of the stream's recipients.
-- **Error conditions**: panics with `stream not found` for an unknown id.
-
-### `get_stream_count(env: Env) -> u32`
-
-- **Return value**: number of streams ever opened; `0` when none exist.
-
-### `get_schema_version(env: Env) -> u32`
-
-- **Return value**: storage schema version this instance's data is laid out for. `0` means the instance predates schema versioning and needs a `migrate` call.
-
-### `migrate(env: Env, admin: Address) -> u32`
-
-- **Parameters**:
-  - `admin: Address` - the stored contract administrator.
-- **Return value**: the schema version migrated to.
-- **Authorization requirements**: `admin.require_auth()`.
-- **Events emitted**: `(migrate)` with `(1, from_version, to_version)`.
-- **Error conditions**:
-  - Panics with `Contract not initialized` if `initialize` has not run.
-  - Panics with `Unauthorized` when the caller is not the stored admin.
-  - Panics with `schema already at current version` when no migration is pending.
-  - Panics with `stored schema is newer than this contract` when the on-chain data was written by a newer build.
-
-## Upgrades and Storage Migration (#562)
-
-Soroban contracts are upgraded in place: the contract id and all of its
-storage survive, only the WASM behind it is replaced. Storage written by the
-old build is handed to the new one **as-is**, so any change to a stored type
-is a breaking change unless it is migrated.
-
-### Schema version key
-
-`DataKey::SchemaVersion` holds a `u32` describing the layout of the data
-currently in storage. `initialize` stamps `SCHEMA_VERSION` on fresh
-deployments; `migrate` advances it after an upgrade.
-
-| Version | Layout |
-| ------- | ------ |
-| `0` | Pre-versioning instances (deployed before `SchemaVersion` existed): admin, tips, receipts, escrows. |
-| `1` | Adds `Stream`, `DataKey::Stream`, `DataKey::StreamCount` and `DataKey::SchemaVersion`. |
-| `2` | `Stream.recipient: Address` and `Stream.claimed: i128` replaced by `Stream.recipients: Vec<StreamRecipient>`, splitting payout across weighted recipients (#559). |
-| `3` | Adds `EscrowSenderCount`, `EscrowSenderIndex`, `EscrowRecipientCount`, and `EscrowRecipientIndex` for account-oriented escrow discovery (#796). |
-| `4` | Adds `ReceiptRecordV2` with a bounded UTF-8 `String` memo. Existing `ReceiptRecord` entries remain readable through `get_legacy_receipt`; new receipts append at the existing per-payer count and are stored under the v2 key (#797). |
-
-`get_schema_version()` returns `0` for any instance that has never been
-stamped, which is how a pre-versioning deployment is detected.
-
-#### v3 to v4 receipt migration
-
-Receipt owners are not globally enumerable, so v4 deliberately avoids an
-unbounded eager rewrite. After the admin upgrades the WASM and calls
-`migrate`, existing `(payer, index)` entries stay under `ReceiptRecord` and
-remain available through `get_legacy_receipt`. New receipts continue from the
-same `ReceiptCount` but are written under the appended `ReceiptRecordV2` key
-and read through `get_receipt`. Clients choose the getter based on the receipt
-creation era (or try v2, then legacy) and preserve legacy `Symbol` values
-exactly. A future archival migration may copy records off-chain and re-mint
-them only with each payer's authorization; this contract never silently
-converts or truncates a legacy memo.
-
-### What counts as a breaking storage change
-
-Bump `SCHEMA_VERSION` and add a row to the table above whenever you:
-
-- add, remove, or reorder a field in a stored struct (`Stream`, `Escrow`,
-  `TipRecord`, `ReceiptMetadata`);
-- change a field's type, or the meaning of an existing field;
-- add, remove, or reorder a `DataKey` variant — variants are encoded
-  positionally, so inserting one in the middle silently repoints every key
-  after it. **Always append new variants at the end.**
-
-Adding a brand-new key that no old data uses (as `v1` does for streams) is
-backward compatible: old entries keep decoding, and the new key simply has no
-value yet.
-
-### Upgrade procedure
-
-1. **Prepare.** Bump `SCHEMA_VERSION`, document the change in the table above,
-   and make the new build tolerate old data (`unwrap_or` defaults for keys that
-   may be missing, as `get_schema_version` does).
-2. **Test against real data.** Deploy the *old* WASM to testnet, exercise it,
-   then upgrade in place and confirm the pre-upgrade entries still read back
-   correctly.
-3. **Publish the new WASM.**
-   ```bash
-   stellar contract upload \
-     --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
-     --source admin \
-     --network testnet
-   ```
-4. **Point the contract at it.** The contract id and storage are unchanged.
-   ```bash
-   stellar contract invoke \
-     --id <CONTRACT_ID> \
-     --source admin \
-     --network testnet \
-     -- upgrade \
-     --new_wasm_hash <HASH_FROM_STEP_3>
-   ```
-   > `upgrade` (a thin admin-gated wrapper over
-   > `env.deployer().update_current_contract_wasm`) is not part of this build
-   > yet — deployments upgrade by redeploying. Add it in the same release that
-   > first needs an in-place upgrade, and gate it on the stored admin exactly
-   > like `migrate`.
-5. **Rewrite data if the release notes call for it.** Entries that changed
-   shape must be read and re-written by a migration entry point added for that
-   release. Streams and escrows are enumerable via `get_stream_count()` /
-   `get_escrow_count()`, so a migration can walk ids `0..count`. Batch it
-   across several transactions if the instance holds more entries than fit in
-   one resource budget.
-   > Unlike `v1` (purely additive — new keys, no existing data to touch),
-   > `v2` changes the shape of `Stream` itself. `migrate()` only stamps the
-   > version number; it does not walk and rewrite existing entries. An
-   > in-place upgrade to `v2` while any `v1`-shaped `Stream` is still open in
-   > storage needs that rewrite step added here first, or `load_stream` will
-   > fail to decode it. Not needed for a fresh deployment.
-6. **Stamp the new version.**
-   ```bash
-   stellar contract invoke \
-     --id <CONTRACT_ID> \
-     --source admin \
-     --network testnet \
-     -- migrate \
-     --admin <ADMIN_ADDRESS>
-   ```
-7. **Verify.** `get_schema_version()` returns the new version, and spot-check
-   entries written before the upgrade.
-
-### Rollback
-
-`migrate` refuses to run when the stored version is newer than the build
-(`stored schema is newer than this contract`), so rolling the WASM back to an
-older release fails loudly instead of misreading migrated data. To roll back,
-redeploy a build whose `SCHEMA_VERSION` matches what is on-chain.
-
 ## Troubleshooting (#153)
 
-The CLI commands above only work if the contract compiles. The merge residue
-that used to block `cargo build` is gone — `cargo check`, `cargo test` and
-`cargo build --target wasm32v1-none --release` are all green — but
-two build-level pitfalls remain worth knowing about:
+The CLI commands above only work if the contract compiles — and as of this
+writing `src/lib.rs` carries unresolved merge residue that blocks
+`cargo build`:
 
-- **Dependency drift.** `Cargo.lock` is committed on purpose. Deleting it (or
-  running `cargo update` casually) re-resolves soroban-sdk's transitive
-  dependencies, and some of those versions do not build on current stable
-  Rust — `error[E0512]: cannot transmute between types of different sizes` in
-  `ethnum`, or `no function or associated item named try_size_hint` in
-  `stellar-xdr`, are both this. Restore the lockfile with
-  `git checkout Cargo.lock` rather than chasing the errors upstream.
-- **Missing WASM target.** `error[E0463]: can't find crate for 'core'` means
-  the target is not installed: `rustup target add wasm32v1-none`.
+- ~~Two `DataKey` enums were defined at module scope.~~ Merged into one in
+  this PR — both sets of variants are needed by the contract methods.
+- `impl MicroPayContract { ... }` should be `impl StellarMicroPay`. The
+  `initialize` function lost its signature in the same merge — its body
+  starts directly after the section comment. A standalone follow-up issue
+  needs to reconstruct the function signatures by walking the original
+  PRs (`git log -p src/lib.rs`).
+- Several other methods (`send_tip`, `close_stream`, etc.) appear to have
+  bodies that reference identifiers from neighboring functions, suggesting
+  more than one merge dropped function boundaries.
 
-If a build error points inside `src/lib.rs` instead, check `git blame` around
-the offending line first — historically most of the breakage here has been
-incomplete merge resolutions rather than real logic bugs.
+If `cargo build --target wasm32-unknown-unknown --release` fails with
+"unexpected closing delimiter" or "cannot find type", check `git blame`
+around the offending line first — most of the breakage looks like
+incomplete merge resolutions, not real logic bugs. Until the contract
+compiles, `stellar contract deploy` has no `.wasm` artifact to upload, so
+every CLI step from "Deploy to Testnet" onward is blocked.
 
 ## XLM SAC Address (Testnet)
 
@@ -655,18 +115,6 @@ The Stellar Asset Contract address for native XLM on testnet:
 ```
 CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 ```
-
-## Formal Verification (#565)
-
-`contracts/certora/streaming.spec` is a Certora CVL spec documenting the
-streaming-payment invariants — `claimed <= deposited` (#557) and the
-authorization rules (only a stream's recipients can claim, only the payer can
-top up or close) — mirroring the sister project's escrow spec (Stellar
-MarketPay, `contracts/certora/escrow.spec`). The Certora Prover does not yet
-target Soroban/WASM directly, so this spec is documentation rather than a
-wired-up `certoraRun` CI job; it is the formally-notated statement of what
-`src/lib.rs` must uphold, re-checked by hand whenever the streaming logic
-changes.
 
 ## Roadmap
 

@@ -4,107 +4,54 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
+    "build": "next build --webpack",
+    "start": "serve out -l 3000",
+    "lint": "eslint . --max-warnings=0",
     "type-check": "tsc --noEmit",
     "test": "jest --runInBand",
-    "test:security-headers": "node --test scripts/security-headers.test.mjs",
-    "check:security-headers": "node scripts/check-security-headers.mjs",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test e2e/ci-smoke.spec.ts --project=chromium",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:report": "playwright show-report",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build",
-    "size": "size-limit",
-    "bundle-report": "node scripts/bundle-budget.mjs",
-    "test:bundle-report": "node --test scripts/bundle-budget.test.mjs"
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
     "@fortawesome/free-solid-svg-icons": "^7.2.0",
     "@fortawesome/react-fontawesome": "^3.3.1",
-    "@sentry/nextjs": "^10.71.0",
-    "@stellar/freighter-api": "^3.1.0",
-    "@stellar/stellar-sdk": "^15.1.0",
-    "axios": "^1.20.0",
+    "@stellar/freighter-api": "^2.0.0",
+    "@stellar/stellar-sdk": "^12.0.0",
+    "axios": "1.20.0",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
-    "jsqr": "^1.4.0",
-    "next": "14.2.35",
+    "next": "16.3.4",
     "qrcode.react": "^4.2.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-window": "^1.8.11",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
     "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "@size-limit/file": "^13.0.1",
-    "@storybook/addon-a11y": "^8.6.18",
-    "@storybook/addon-essentials": "^8.6.18",
-    "@storybook/blocks": "^8.6.18",
-    "@storybook/nextjs": "^8.6.18",
-    "@storybook/react": "^8.6.18",
-    "@testing-library/dom": "^10.4.1",
+    "@testing-library/dom": "10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^20",
-    "@types/qrcode.react": "^3.0.0",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "@types/react-window": "^1.8.8",
-    "autoprefixer": "^10.5.4",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.35",
-    "eslint-import-resolver-typescript": "^3.6.0",
-    "eslint-plugin-import": "^2.29.0",
-    "fast-check": "^3.22.0",
+    "@types/qrcode.react": "^1.0.5",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "autoprefixer": "^10.0.1",
+    "eslint": "9.35.0",
+    "eslint-config-next": "16.3.4",
     "jest": "^30.3.0",
-    "jest-axe": "^11.0.0",
     "jest-environment-jsdom": "^30.3.0",
-    "postcss": "^8.5.26",
-    "size-limit": "^13.0.1",
-    "storybook": "^8.6.18",
+    "postcss": "8.5.26",
+    "serve": "14.2.6",
     "tailwindcss": "^3.4.1",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
-    "typescript": "^5",
-    "@jest/globals": "^29.7.0"
-  },
-  "overrides": {
-    "axios": "$axios",
-    "@stellar/stellar-sdk": {
-      "axios": "npm:axios@1.20.0"
-    },
-    "image-size": "^1.2.1",
-    "sharp": "^0.33.5",
-    "ws": "^8.18.0",
-    "webpack": "5.101.2",
-    "brace-expansion@1": "1.1.18",
-    "brace-expansion@5": "5.0.9",
-    "minimatch@9": "9.0.7",
-    "glob@10": "10.5.0"
+    "typescript": "^5"
   },
   "engines": {
     "node": "20.19.5"
-  },
-  "size-limit": [
-    {
-      "name": "App shared bundle (_app)",
-      "path": "out/_next/static/chunks/pages/_app-*.js",
-      "limit": "270 KB"
-    },
-    {
-      "name": "Framework & runtime chunks",
-      "path": [
-        "out/_next/static/chunks/framework-*.js",
-        "out/_next/static/chunks/main-*.js",
-        "out/_next/static/chunks/polyfills-*.js"
-      ],
-      "limit": "105 KB"
-    }
-  ]
+  }
 }

@@ -3,9 +3,11 @@
 const { Horizon, Transaction, Networks } = require("stellar-sdk");
 
 const NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet"; // Use env var from backend
-const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
+const HORIZON_URL =
+  process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
 
-const NETWORK_PASSPHRASE = NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+const NETWORK_PASSPHRASE =
+  NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
 const server = new Horizon.Server(HORIZON_URL);
 

@@ -9,7 +9,7 @@ const scheduledTransactionService = require("../services/scheduledTransactionSer
  * Schedules a new transaction for future submission.
  * Body: { signedXDR: string, submitAt: string (ISO 8601) }
  */
-router.post("/", async (req, res, next) => {
+router.post("/", (req, res, next) => {
   try {
     const { signedXDR, submitAt } = req.body;
 
@@ -17,7 +17,10 @@ router.post("/", async (req, res, next) => {
       return res.status(400).json({ error: "Missing signedXDR or submitAt" });
     }
 
-    const scheduledTx = scheduledTransactionService.scheduleTransaction(signedXDR, submitAt);
+    const scheduledTx = scheduledTransactionService.scheduleTransaction(
+      signedXDR,
+      submitAt
+    );
     res.status(201).json({
       message: "Transaction scheduled successfully",
       id: scheduledTx.id,
@@ -33,10 +36,12 @@ router.post("/", async (req, res, next) => {
  * GET /api/scheduled-txns/:publicKey
  * Lists all pending scheduled transactions for a given public key.
  */
-router.get("/:publicKey", async (req, res, next) => {
+router.get("/:publicKey", (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    const transactions = scheduledTransactionService.getScheduledTransactions(publicKey);
+    const transactions = scheduledTransactionService.getScheduledTransactions(
+      publicKey
+    );
     res.json(transactions);
   } catch (error) {
     next(error);
@@ -47,10 +52,10 @@ router.get("/:publicKey", async (req, res, next) => {
  * DELETE /api/scheduled-txns/:id
  * Cancels a scheduled transaction.
  */
-router.delete("/:id", async (req, res, next) => {
+router.delete("/:id", (req, res, next) => {
   try {
     const { id } = req.params;
-    const cancelled = await scheduledTransactionService.cancelTransaction(id);
+    const cancelled = scheduledTransactionService.cancelScheduledTransaction(id);
     if (cancelled) {
       res.json({ message: `Transaction ${id} cancelled successfully.` });
     } else {

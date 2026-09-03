@@ -1,14 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-
 import TipWidget from "@/components/TipWidget";
 import { getXLMBalance } from "@/lib/stellar";
-
-import {
-  TEST_PUBLIC_KEY_A,
-  TEST_PUBLIC_KEY_B,
-  TEST_PUBLIC_KEY_C,
-} from "./fixtures/stellar";
 
 const mockSendPaymentForm = jest.fn();
 const mockUseWallet = jest.fn();
@@ -32,7 +25,7 @@ jest.mock("@/components/SendPaymentForm", () => ({
 jest.mock("@/components/WalletConnect", () => ({
   __esModule: true,
   default: ({ onConnectSuccess }: { onConnectSuccess?: (publicKey: string) => void }) => (
-    <button type="button" onClick={() => onConnectSuccess?.(TEST_PUBLIC_KEY_B)}>
+    <button type="button" onClick={() => onConnectSuccess?.(`G${"B".repeat(55)}`)}>
       Mock wallet connect
     </button>
   ),
@@ -48,7 +41,7 @@ jest.mock("@/lib/stellar", () => ({
 }));
 
 describe("TipWidget", () => {
-  const destination = TEST_PUBLIC_KEY_A;
+  const destination = `G${"A".repeat(55)}`;
 
   beforeEach(() => {
     mockSendPaymentForm.mockClear();
@@ -78,7 +71,7 @@ describe("TipWidget", () => {
     const user = userEvent.setup();
 
     mockUseWallet.mockReturnValue({
-      publicKey: TEST_PUBLIC_KEY_C,
+      publicKey: `G${"C".repeat(55)}`,
       connectWallet: jest.fn(),
       disconnectWallet: jest.fn(),
       isWalletReady: true,

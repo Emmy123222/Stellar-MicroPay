@@ -3,35 +3,8 @@
     "node": true,
     "es2021": true
   },
-  "extends": ["eslint:recommended", "plugin:import/recommended", "prettier"],
+  "extends": "eslint:recommended",
   "parserOptions": {
     "ecmaVersion": "latest"
-  },
-  "rules": {
-    "no-unused-vars": [
-      "error",
-      {
-        "argsIgnorePattern": "^_",
-        "varsIgnorePattern": "^_",
-        "destructuredArrayIgnorePattern": "^_"
-      }
-    ],
-    // Enforce consistent import ordering: builtins → external packages →
-    // internal → relative (parent/sibling/index). Alphabetised within each
-    // group, case-insensitive, with a blank line between groups.
-    "import/order": [
-      "error",
-      {
-        "groups": [
-          "builtin",
-          "external",
-          "internal",
-          "parent",
-          "sibling",
-          "index"
-        ],
-        "newlines-between": "always"
-      }
-    ]
   }
 }

@@ -2,27 +2,14 @@ FROM node:20.19.5-alpine
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-# Install production dependencies
+# Install dependencies
 COPY package*.json ./
 RUN npm install --production
 
 # Copy source code
 COPY . .
 
-# Drop root: run the API as the unprivileged `node` user.
-# The container rootfs is read-only at runtime (see docker-compose.prod.yml);
-# /tmp is mounted as tmpfs. The app performs no other filesystem writes.
-RUN chown -R node:node /app
-
-USER node
-
-# Port 4000 is unprivileged — no capabilities are re-added in docker-compose.prod.yml.
+# Expose port 4000
 EXPOSE 4000
-
-# Health probe (Node 20 global fetch) — writes nothing to disk.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 4000) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["node", "src/server.js"]

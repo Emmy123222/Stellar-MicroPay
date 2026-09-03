@@ -6,28 +6,11 @@
 "use strict";
 
 const axios = require("axios");
-
 const usernameService = require("../services/usernameService");
-
-/**
- * @typedef {object} FederationResponse
- * @property {string} stellar_address - `username*domain` federated address
- * @property {string} account_id - Stellar public key (G...)
- */
 
 /**
  * GET /federation?q=<query>&type=<type>
  * Federation endpoint per SEP-0002.
- *
- * @param {object} req - Express request
- * @param {object} req.query
- * @param {string} req.query.q - Stellar address (`type=name`) or account ID (`type=id`) to resolve
- * @param {"name"|"id"} req.query.type - Resolution direction
- * @param {object} res - Express response
- * @param {function} next - Express error-handling callback
- * @returns {Promise<void>} JSON: `FederationResponse` (or the forwarded external federation
- *   server's response body when the domain isn't ours), or `{ error: string }` with
- *   400/404 status on invalid input or unresolvable lookups
  */
 async function resolveFederation(req, res, next) {
   try {
@@ -39,15 +22,9 @@ async function resolveFederation(req, res, next) {
       });
     }
 
-    if (typeof q !== "string" || typeof type !== "string") {
-      return res.status(400).json({
-        error: "Invalid required parameters: q and type must be strings",
-      });
-    }
-
     if (type === "name") {
       // Resolve stellar address to account ID
-      const result = await resolveStellarAddress(q, req);
+      const result = await resolveStellarAddress(q);
       return res.json(result);
     } else if (type === "id") {
       // Resolve account ID to stellar address
@@ -73,7 +50,7 @@ async function resolveFederation(req, res, next) {
  * @param {string} stellarAddress - The stellar address to resolve
  * @returns {Object} Federation response
  */
-async function resolveStellarAddress(stellarAddress, req) {
+async function resolveStellarAddress(stellarAddress) {
   // Parse the stellar address
   const parts = stellarAddress.split("*");
   if (parts.length !== 2) {
@@ -82,27 +59,20 @@ async function resolveStellarAddress(stellarAddress, req) {
     throw error;
   }
 
-  const [usernameRaw, domainRaw] = parts;
-  const username = usernameRaw.trim().toLowerCase();
-  const domain = domainRaw.trim().toLowerCase();
-
-  if (!username || !domain) {
-    const error = new Error("Invalid stellar address format");
-    error.status = 400;
-    throw error;
-  }
+  const [username, domain] = parts;
 
   // Check if it's our domain
-  if (isLocalFederationDomain(domain, req)) {
+  const ourDomain = process.env.DOMAIN || "stellarmicropay.com";
+  if (domain === ourDomain) {
     // Local resolution
     const result = usernameService.resolveUsername(username);
     return {
-      stellar_address: `${username}*${domain}`,
+      stellar_address: stellarAddress,
       account_id: result.publicKey,
     };
   } else {
     // Forward federation to external server
-    return await forwardFederation(`${username}*${domain}`, "name");
+    return await forwardFederation(stellarAddress, "name");
   }
 }
 
@@ -114,13 +84,12 @@ async function resolveStellarAddress(stellarAddress, req) {
 async function resolveAccountId(accountId) {
   // First check local usernames
   const allUsernames = usernameService.getAllUsernames();
-  const match = allUsernames.find((user) => user.publicKey === accountId);
+  const match = allUsernames.find(user => user.publicKey === accountId);
 
   if (match) {
-    const domain = getPrimaryFederationDomain();
+    const domain = process.env.DOMAIN || "stellarmicropay.com";
     return {
       stellar_address: `${match.username}*${domain}`,
-      account_id: accountId,
     };
   }
 
@@ -147,8 +116,8 @@ async function forwardFederation(query, type) {
   const domain = parts[1];
 
   // Fetch stellar.toml from the domain
-  const tomlUrl = buildDiscoveryUrl(domain);
-  const tomlResponse = await secureGet(tomlUrl, { timeout: 5000, responseType: "text" });
+  const tomlUrl = `https://${domain}/.well-known/stellar.toml`;
+  const tomlResponse = await axios.get(tomlUrl, { timeout: 5000 });
   const tomlContent = tomlResponse.data;
 
   // Parse TOML to find FEDERATION_SERVER
@@ -158,10 +127,8 @@ async function forwardFederation(query, type) {
   }
 
   // Make request to external federation server
-  const federationUrl = parseSecureUrl(federationServer);
-  federationUrl.searchParams.set("q", query);
-  federationUrl.searchParams.set("type", type);
-  const response = await secureGet(federationUrl, { timeout: 5000 });
+  const federationUrl = `${federationServer}?q=${encodeURIComponent(query)}&type=${type}`;
+  const response = await axios.get(federationUrl, { timeout: 5000 });
 
   return response.data;
 }
@@ -172,25 +139,13 @@ async function forwardFederation(query, type) {
  * @returns {string|null} The federation server URL or null
  */
 function parseFederationServer(tomlContent) {
-  // Simple TOML parsing for the standard SEP-0001 top-level
-  // FEDERATION_SERVER value, with support for the older table shape that this
-  // project previously emitted.
+  // Simple TOML parsing for FEDERATION_SERVER
   const lines = tomlContent.split("\n");
   let inFederationServer = false;
   let server = null;
 
   for (const line of lines) {
     const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const topLevelMatch = trimmed.match(/^FEDERATION_SERVER\s*=\s*"([^"]+)"/);
-    if (topLevelMatch) {
-      return topLevelMatch[1];
-    }
-
     if (trimmed === "[FEDERATION_SERVER]") {
       inFederationServer = true;
     } else if (inFederationServer && trimmed.startsWith("SERVER")) {
@@ -208,53 +163,4 @@ function parseFederationServer(tomlContent) {
   return server;
 }
 
-function stripProtocol(value) {
-  return String(value || "")
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/.*$/, "")
-    .trim()
-    .toLowerCase();
-}
-
-function getPrimaryFederationDomain() {
-  return stripProtocol(
-    process.env.FEDERATION_DOMAIN ||
-      process.env.DOMAIN ||
-      process.env.HOME_DOMAIN ||
-      "stellarmicropay.io"
-  );
-}
-
-function getLocalFederationDomains(req) {
-  const domains = new Set([
-    getPrimaryFederationDomain(),
-    "stellarmicropay.io",
-    "stellarmicropay.com",
-  ]);
-
-  if (req) {
-    const requestHost = stripProtocol(req.get("host"));
-    if (requestHost) {
-      domains.add(requestHost);
-    }
-  }
-
-  for (const raw of (process.env.FEDERATION_DOMAINS || "").split(",")) {
-    const domain = stripProtocol(raw);
-    if (domain) {
-      domains.add(domain);
-    }
-  }
-
-  return domains;
-}
-
-function isLocalFederationDomain(domain, req) {
-  return getLocalFederationDomains(req).has(stripProtocol(domain));
-}
-
-module.exports = {
-  resolveFederation,
-  parseFederationServer,
-  isLocalFederationDomain,
-};
+module.exports = { resolveFederation };

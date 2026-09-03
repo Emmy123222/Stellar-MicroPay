@@ -5,51 +5,20 @@
 
 "use strict";
 
-const cors = require("cors");
 const express = require("express");
+const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
-
 const turretsRoutes = require("./routes/turrets");
 const { startRunner } = require("./services/turretsService");
-const { sanitizeAccessLogLine } = require("./utils/sanitizeLogToken");
-
-const TURRETS_LOG_FORMAT =
-  ":remote-addr - :method :url :status :res[content-length] - :response-time ms";
 
 const TURRETS_PORT = Number(process.env.TURRETS_PORT || 4100);
 
 function createTurretsApp() {
   const app = express();
 
-  // Helmet v7+ ships with CSP disabled by default — enable it explicitly.
-  // This server is a pure JSON API with no HTML responses, so the policy
-  // can be fully locked down.
-  app.use(
-    helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
-          styleSrc: ["'self'"],
-          imgSrc: ["'self'"],
-          connectSrc: ["'self'"],
-          fontSrc: ["'self'"],
-          objectSrc: ["'none'"],
-          frameSrc: ["'none'"],
-        },
-      },
-    })
-  );
-  app.use(
-    morgan(TURRETS_LOG_FORMAT, {
-      stream: {
-        write(message) {
-          process.stdout.write(sanitizeAccessLogLine(message));
-        },
-      },
-    })
-  );
+  app.use(helmet());
+  app.use(morgan("tiny"));
   app.use(express.json({ limit: "10kb" }));
   app.use(cors());
 

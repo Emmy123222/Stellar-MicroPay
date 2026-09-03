@@ -1,215 +1,75 @@
+/**
+ * src/server.js
+ * Express server entry point for Stellar MicroPay backend.
+ */
+
 "use strict";
 
-const Sentry = require("@sentry/node");
-const compression = require("compression");
-const cookieParser = require("cookie-parser");
-const cors = require("cors");
-require("dotenv").config();
 const express = require("express");
-const rateLimit = require("express-rate-limit");
+const cors = require("cors");
 const helmet = require("helmet");
-const pino = require("pino");
-const pinoHttp = require("pino-http");
-const Sentry = require("@sentry/node");
-const swaggerUi = require("swagger-ui-express");
+const morgan = require("morgan");
+const rateLimit = require("express-rate-limit");
+require("dotenv").config();
 
-const { validateEnv, parseAllowedOrigins } = require("./config/validateEnv");
-const { metricsMiddleware } = require("./metrics/middleware");
-const metricsRoutes = require("./metrics/routes");
-const { apiDeprecationHeader } = require("./middleware/deprecation");
 const accountRoutes = require("./routes/accounts");
-const analyticsRoutes = require("./routes/analytics");
 const authRoutes = require("./routes/auth");
-const federationRoutes = require("./routes/federation");
-const healthRoutes = require("./routes/health");
 const paymentRoutes = require("./routes/payments");
-const tipsRoutes = require("./routes/tips");
+const analyticsRoutes = require("./routes/analytics");
+const healthRoutes = require("./routes/health");
+const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
-const webhookRoutes = require("./routes/webhooks");
-const { resumeAllMonitors } = require("./services/paymentMonitor");
+const tipsRoutes = require("./routes/tips");
+const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
-const { resumeAllMonitors } = require("./services/paymentMonitor");
-const { recoverPendingJobs } = require("./services/scheduledTransactionService");
-const logger = require("./utils/logger");
-const { sanitizeLogToken, sanitizeReqLogRecord } = require("./utils/sanitizeLogToken");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// ─── Error message sanitization (#206) ───────────────────────────────────────
-const STELLAR_SECRET_PATTERN = /S[A-Z2-7]{55}/g;
-function sanitizeMessage(msg) {
-  return typeof msg === "string" ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]") : msg;
-}
-
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.NODE_ENV || "development",
-  enabled: !!process.env.SENTRY_DSN,
-  tracesSampleRate: 0.2,
-  beforeSend(event) {
-    if (event.exception?.values) {
-      event.exception.values = event.exception.values.map((v) => ({ ...v, value: sanitizeMessage(v.value) }));
-    }
-    return event;
-  },
-});
-
-function stripProtocol(value) {
-  return String(value || "")
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/.*$/, "")
-    .trim();
-}
-
-function getFederationDomain(req) {
-  return stripProtocol(
-    process.env.FEDERATION_DOMAIN ||
-      process.env.DOMAIN ||
-      process.env.HOME_DOMAIN ||
-      req.get("host") ||
-      "stellarmicropay.io"
-  );
-}
-
-function getFederationServerUrl(req) {
-  if (process.env.FEDERATION_SERVER_URL) {
-    return process.env.FEDERATION_SERVER_URL;
-  }
-
-  const domain = getFederationDomain(req);
-  const protocol =
-    process.env.FEDERATION_SERVER_PROTOCOL ||
-    (domain.startsWith("localhost") || domain.startsWith("127.0.0.1") ? "http" : "https");
-
-  return `${protocol}://${domain}/federation`;
-}
-
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
-/**
- * Content-Security-Policy directives for this JSON API.
- *
- * The backend serves no HTML pages of its own except Swagger UI at /api/docs,
- * so the policy is intentionally restrictive:
- *
- *  defaultSrc  – block everything not listed explicitly.
- *  scriptSrc   – only same-origin scripts (Swagger UI bundles its own JS).
- *  styleSrc    – same-origin + unsafe-inline (Swagger UI injects inline styles).
- *  imgSrc      – same-origin + data URIs (Swagger UI logo).
- *  connectSrc  – only same-origin fetch/XHR (all API calls go to self).
- *  fontSrc     – same-origin only.
- *  objectSrc   – none (no Flash / plugins).
- *  frameSrc    – none (not embedded in iframes).
- *  upgradeInsecureRequests – omitted intentionally; handled at the load-balancer
- *                            level in production.
- *
- * Helmet v7+ ships with CSP *disabled* by default, so this must be explicit.
- */
-const helmetOptions = {
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      frameSrc: ["'none'"],
-      // Disallow this API from being framed by any site (clickjacking defence,
-      // the CSP-level equivalent of X-Frame-Options: DENY).
-      frameAncestors: ["'none'"],
-      // Forbid <base> tag hijacking and form posts to third-party origins.
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
-    },
-  },
-  // HTTP Strict Transport Security — force HTTPS for two years, cover subdomains,
-  // and allow browser-preload-list inclusion. TLS is terminated at the
-  // load-balancer, so the header is emitted here for clients that reach us
-  // directly over HTTPS.
-  hsts: {
-    maxAge: 63072000, // 2 years
-    includeSubDomains: true,
-    preload: true,
-  },
-  // Send no referrer to other origins (avoids leaking API paths / tokens in
-  // Referer headers).
-  referrerPolicy: { policy: "no-referrer" },
-  // This JSON API should never be embedded cross-origin, nor share its window.
-  crossOriginResourcePolicy: { policy: "same-site" },
-  crossOriginOpenerPolicy: { policy: "same-origin" },
-  // Belt-and-braces clickjacking header for older clients that ignore CSP.
-  frameguard: { action: "deny" },
-  // Block Adobe cross-domain policy files.
-  permittedCrossDomainPolicies: { permittedPolicies: "none" },
-};
-
-// Remove the framework fingerprint header (helmet also does this, but disabling
-// at the Express level guarantees it even if helmet config changes).
-app.disable("x-powered-by");
-
-app.use(helmet(helmetOptions));
-// gzip/brotli-negotiated response compression (#611) — shrinks JSON payloads
-// before they hit the wire. Must run before routes register their handlers so
-// res.write/res.end get wrapped for every response. SSE streams are excluded so
-// EventSource can receive incremental chunks without buffering delays.
-app.use(
-  compression({
-    filter: (req, res) => {
-      if (req.path?.endsWith("/stream")) {
-        return false;
-      }
-      return compression.filter(req, res);
-    },
-  })
-);
-// Structured JSON request logging (#269) — replaces morgan('dev'); reuses the
-// shared pino logger so HTTP logs are machine-parseable (Datadog/CloudWatch).
-// Untrusted request tokens are sanitized before logging (#811).
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) {
-        return sanitizeReqLogRecord(pino.stdSerializers.req(req));
-      },
-    },
-  })
-);
+app.use(helmet());
+app.use(morgan("dev"));
 app.use(express.json({ limit: "10kb" }));
-// Parses the Cookie header into req.cookies so the SEP-0010 session cookie
-// (set in routes/auth.js) can be read back by middleware/auth.js's
-// extractToken and by the CSRF origin check (#780).
-app.use(cookieParser());
-app.use(compression());
-app.use(pinoHttp({ logger }));
 
-app.use("/api/accounts", accountRoutes);
-app.use("/api/auth", authRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/health", healthRoutes);
-app.use("/metrics", metricsRoutes);
-
-// Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
-// discover the SEP-0002 federation endpoint for `name*domain` addresses.
-app.get("/.well-known/stellar.toml", (req, res) => {
-  const serverUrl = getFederationServerUrl(req);
-  const tomlContent = `# Stellar MicroPay federation discovery
-FEDERATION_SERVER="${serverUrl}"
-`;
-
-  res.setHeader("Content-Type", "application/toml; charset=utf-8");
-  res.send(tomlContent);
+// JSON parsing error handler
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+    return res.status(400).json({ error: "Invalid JSON body" });
+  }
+  next();
 });
 
-// Global rate limiting — 100 requests per 15 minutes per IP.
-// standardHeaders: true  → emits RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset (RFC 6585 draft-7).
-// legacyHeaders: false   → suppresses deprecated X-RateLimit-* headers.
-// Clients should inspect RateLimit-Remaining and back off when it approaches 0.
+// CORS
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000")
+  .split(",")
+  .map((o) => o.trim());
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. curl, Postman)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      }
+    },
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+app.use("/api/auth",     authRoutes);
+app.use("/api/accounts", accountRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/health",       healthRoutes);
+
+// Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -219,84 +79,54 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ─── API Versioning & Deprecation Policy (#853) ────────────────────────────────
+// ─── Routes ──────────────────────────────────────────────────────────────────
 
-// Primary Versioned Routes (/api/v1/*)
-app.use("/api/v1/auth", authRoutes);
-app.use("/api/v1/accounts", accountRoutes);
-app.use("/api/v1/payments", paymentRoutes);
-app.use("/api/v1/webhooks", webhookRoutes);
-app.use("/api/v1/analytics", analyticsRoutes);
-app.use("/api/v1/turrets", turretsRoutes);
-app.use("/api/v1/tips", tipsRoutes);
-app.use("/api/v1/health", healthRoutes);
-
-// Legacy Unversioned Routes (/api/*) — includes HTTP Deprecation & Sunset headers
-app.use("/api/auth", apiDeprecationHeader, authRoutes);
-app.use("/api/accounts", apiDeprecationHeader, accountRoutes);
-app.use("/api/payments", apiDeprecationHeader, paymentRoutes);
-app.use("/api/webhooks", apiDeprecationHeader, webhookRoutes);
-app.use("/api/analytics", apiDeprecationHeader, analyticsRoutes);
-app.use("/api/turrets", apiDeprecationHeader, turretsRoutes);
-app.use("/api/tips", apiDeprecationHeader, tipsRoutes);
-app.use("/federation", federationRoutes);
+app.use("/api/accounts", accountRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
-app.use("/api/webhooks", webhookRoutes);
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use("/federation", federationRoutes);
 
-app.use(Sentry.Handlers.errorHandler());
+// ─── API Documentation ─────────────────────────────────────────────────────────
 
-const server = app.listen(PORT, () => {
-  logger.info(`Server listening on port ${PORT}`);
-  resumeAllMonitors();
-  startTurretsServer();
-});
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: "Stellar MicroPay API Docs",
+  customCss: ".swagger-ui .topbar { display: none }",
+  swaggerOptions: { url: "/api/docs.json" },
+}));
 
-// ─── Graceful Shutdown ───────────────────────────────────────────────────────
-function gracefulShutdown(signal) {
-  logger.info({ signal }, "Graceful shutdown initiated");
-
-app.use((req, res) => {
-  const sanitizedPath = sanitizeLogToken(req.path);
-  logger.warn({ method: req.method, path: sanitizedPath }, "Route not found");
-  res.status(404).json({ error: "Route not found" });
+app.get("/api/docs.json", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  res.send(swaggerSpec);
 });
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
 
-// Sentry must capture errors before the generic handler responds
-Sentry.setupExpressErrorHandler(app);
-
 app.use((err, req, res, next) => {
   void next;
   const status = err.status || 500;
-  const message = sanitizeMessage(err.message) || "Internal Server Error";
-  logger.error({ status, message }, "Request error");
-
-  if (err.code === "HORIZON_CIRCUIT_OPEN" && err.retryAfterSeconds) {
-    res.set("Retry-After", String(err.retryAfterSeconds));
-    return res.status(status).json({
-      error: message,
-      code: err.code,
-      retryAfterMs: err.retryAfterMs,
-      retryAfterSeconds: err.retryAfterSeconds,
-      horizon: {
-        origin: err.origin,
-        network: err.network,
-        state: err.state,
-      },
-    });
-  }
+  const message = err.message || "Internal Server Error";
 
   res.status(status).json({ error: message });
+});
+
+// ─── Static Files ─────────────────────────────────────────────────────────────
+
+app.get("/.well-known/stellar.toml", (req, res) => {
+  const domain = process.env.DOMAIN || "stellarmicropay.com";
+  const tomlContent = `[FEDERATION_SERVER]
+ACTIVE = true
+SERVER = "https://${domain}/federation"
+`;
+  res.setHeader("Content-Type", "application/toml");
+  res.send(tomlContent);
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
-  validateEnv();
-  logConfigurationSummary();
   app.listen(PORT, () => {
     console.log(`
   ✨ Stellar MicroPay API
@@ -306,20 +136,6 @@ if (require.main === module) {
   });
 
   startTurretsServer();
-
-  resumeAllMonitors();
-
-  recoverPendingJobs().then((recovered) => {
-    if (recovered.length > 0) {
-      logger.info(
-        { count: recovered.length },
-        "Recovered pending scheduled transactions"
-      );
-    }
-  });
 }
-
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 module.exports = app;

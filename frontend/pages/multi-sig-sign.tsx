@@ -3,12 +3,9 @@
  * Page for co-signers to view and sign multi-signature transactions.
  */
 
-import { useEffect, useState } from "react";
-
 import { useRouter } from "next/router";
-
+import { useEffect, useState } from "react";
 import { Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
-
 import { NETWORK_PASSPHRASE } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatAsset } from "@/utils/format";
@@ -79,27 +76,19 @@ export default function MultiSigSignPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-16">
-      <h1 className="font-display text-2xl font-bold text-white mb-6">
-        Sign Multi-Signature Transaction
-      </h1>
+      <h1 className="font-display text-2xl font-bold text-white mb-6">Sign Multi-Signature Transaction</h1>
 
       {transaction && (
         <div className="card mb-6">
-          <h2 className="font-display text-lg font-semibold text-white mb-4">
-            Transaction Details
-          </h2>
+          <h2 className="font-display text-lg font-semibold text-white mb-4">Transaction Details</h2>
           <div className="space-y-2">
-            <p>
-              <span className="text-slate-400">From:</span> {transaction.source}
-            </p>
+            <p><span className="text-slate-400">From:</span> {transaction.source}</p>
             {transaction.operations.map((op, i) => {
               if (op.type === "payment") {
                 const payment = op as any;
                 return (
                   <div key={i}>
-                    <p>
-                      <span className="text-slate-400">To:</span> {payment.destination}
-                    </p>
+                    <p><span className="text-slate-400">To:</span> {payment.destination}</p>
                     <p>
                       <span className="text-slate-400">Amount:</span>{" "}
                       {formatAsset(
@@ -110,16 +99,10 @@ export default function MultiSigSignPage() {
                   </div>
                 );
               }
-              return (
-                <p key={i}>
-                  Operation {i + 1}: {op.type}
-                </p>
-              );
+              return <p key={i}>Operation {i + 1}: {op.type}</p>;
             })}
             {transaction.memo && transaction.memo.type !== "none" && (
-              <p>
-                <span className="text-slate-400">Memo:</span> {transaction.memo.value?.toString()}
-              </p>
+              <p><span className="text-slate-400">Memo:</span> {transaction.memo.value?.toString()}</p>
             )}
           </div>
         </div>
@@ -131,17 +114,21 @@ export default function MultiSigSignPage() {
         </button>
       )}
 
-      {status === "signing" && <p className="text-center text-slate-400">Signing...</p>}
+      {status === "signing" && (
+        <p className="text-center text-slate-400">Signing...</p>
+      )}
 
       {status === "signed" && signedXDR && (
         <div className="card">
-          <h2 className="font-display text-lg font-semibold text-white mb-4">
-            Signed Transaction XDR
-          </h2>
+          <h2 className="font-display text-lg font-semibold text-white mb-4">Signed Transaction XDR</h2>
           <p className="text-slate-300 mb-4">
             Copy this signed XDR and send it back to the transaction initiator.
           </p>
-          <textarea value={signedXDR} readOnly className="input h-32 font-mono text-xs" />
+          <textarea
+            value={signedXDR}
+            readOnly
+            className="input h-32 font-mono text-xs"
+          />
           <button
             onClick={() => navigator.clipboard.writeText(signedXDR)}
             className="btn-secondary w-full mt-4"
@@ -151,7 +138,9 @@ export default function MultiSigSignPage() {
         </div>
       )}
 
-      {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
+      {error && (
+        <p className="text-red-400 text-sm mt-4">{error}</p>
+      )}
     </div>
   );
 }

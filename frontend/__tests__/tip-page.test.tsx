@@ -1,8 +1,6 @@
-import { useRouter } from "next/router";
-
 import { render, screen, waitFor } from "@testing-library/react";
-
 import TipPage from "@/pages/tip/[username]";
+import { useRouter } from "next/router";
 
 jest.mock("next/router", () => ({
   useRouter: jest.fn(),
@@ -10,14 +8,18 @@ jest.mock("next/router", () => ({
 
 jest.mock("@/components/TipWidget", () => ({
   __esModule: true,
-  default: ({ creatorUsername, destination }: { creatorUsername: string; destination: string }) => (
+  default: ({
+    creatorUsername,
+    destination,
+  }: {
+    creatorUsername: string;
+    destination: string;
+  }) => (
     <div data-testid="tip-widget">
       {creatorUsername}:{destination}
     </div>
   ),
 }));
-
-import { TEST_PUBLIC_KEY_A } from "./fixtures/stellar";
 
 describe("tip page", () => {
   beforeEach(() => {
@@ -41,7 +43,7 @@ describe("tip page", () => {
         success: true,
         data: {
           username: "alice",
-          publicKey: TEST_PUBLIC_KEY_A,
+          publicKey: `G${"A".repeat(55)}`,
         },
       }),
     });
@@ -49,7 +51,7 @@ describe("tip page", () => {
     render(<TipPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("tip-widget")).toHaveTextContent(`alice:${TEST_PUBLIC_KEY_A}`);
+      expect(screen.getByTestId("tip-widget")).toHaveTextContent(`alice:G${"A".repeat(55)}`);
     });
 
     expect(global.fetch).toHaveBeenCalledWith(

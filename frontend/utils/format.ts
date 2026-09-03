@@ -3,9 +3,8 @@
  * Shared formatting utilities.
  */
 
-import { formatDistanceToNow, format } from "date-fns";
-
 import { PaymentRecord } from "@/lib/stellar";
+import { formatDistanceToNow, format } from "date-fns";
 
 interface AssetFormatRule {
   minimumFractionDigits: number;
@@ -43,23 +42,17 @@ export function shortenAddress(address: string, chars = 4): string {
 
 /**
  * Format XLM amount with up to 7 decimal places, trimming trailing zeros.
- * @param amount - The amount to format
- * @param locale - The locale for formatting (defaults to 'en-US')
  */
-export function formatXLM(amount: string | number, locale = "en-US"): string {
-  return formatAsset(amount, "XLM", locale);
+export function formatXLM(amount: string | number): string {
+  return formatAsset(amount, "XLM");
 }
 
 /**
  * Format a Stellar asset amount with asset-specific precision rules.
- * @param amount - The amount to format
- * @param assetCode - The asset code (e.g., 'XLM', 'USDC')
- * @param locale - The locale for formatting (defaults to 'en-US')
  */
 export function formatAsset(
   amount: string | number,
-  assetCode = DEFAULT_ASSET_CODE,
-  locale = "en-US"
+  assetCode = DEFAULT_ASSET_CODE
 ): string {
   const normalizedAssetCode = normalizeAssetCode(assetCode);
   const rule = getAssetFormatRule(normalizedAssetCode);
@@ -67,40 +60,13 @@ export function formatAsset(
 
   if (amount == null || Number.isNaN(num)) {
     const zeroValue =
-      rule.minimumFractionDigits > 0 ? (0).toFixed(rule.minimumFractionDigits) : "0";
+      rule.minimumFractionDigits > 0
+        ? (0).toFixed(rule.minimumFractionDigits)
+        : "0";
     return `${zeroValue} ${normalizedAssetCode}`;
   }
 
-  return `${num.toLocaleString(locale, rule)} ${normalizedAssetCode}`;
-}
-
-/**
- * Format an asset amount at the asset's full precision, keeping trailing zeros
- * (e.g. "10.0000000 XLM", "15.00 USDC").
- *
- * Use this where the exact ledger value matters — batch totals, receipts,
- * confirmations — and `formatAsset` where a compact display is preferred.
- * @param amount - The amount to format
- * @param assetCode - The asset code (e.g., 'XLM', 'USDC')
- */
-export function formatAssetPrecise(
-  amount: string | number,
-  assetCode = DEFAULT_ASSET_CODE
-): string {
-  const normalizedAssetCode = normalizeAssetCode(assetCode);
-  const rule = getAssetFormatRule(normalizedAssetCode);
-  const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  const safeNum = amount == null || Number.isNaN(num) ? 0 : num;
-
-  return `${safeNum.toFixed(rule.maximumFractionDigits)} ${normalizedAssetCode}`;
-}
-
-/**
- * Format an XLM amount at full 7-decimal precision (e.g. "10.0000000 XLM").
- * @param amount - The amount to format
- */
-export function formatXLMPrecise(amount: string | number): string {
-  return formatAssetPrecise(amount, "XLM");
+  return `${num.toLocaleString("en-US", rule)} ${normalizedAssetCode}`;
 }
 
 /**
@@ -144,39 +110,12 @@ export function formatDate(dateString: string): string {
  * Copy text to clipboard and return success boolean.
  */
 export async function copyToClipboard(text: string): Promise<boolean> {
-  // Preferred path: the async Clipboard API, only available in secure contexts
-  // (HTTPS or localhost).
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Permission denied or transient failure — fall back to execCommand below.
-    }
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
   }
-
-  // Fallback for non-secure (HTTP) contexts where navigator.clipboard is
-  // undefined. Returns the real success state so callers don't show a false
-  // "Copied!" confirmation.
-  if (typeof document !== "undefined" && typeof document.execCommand === "function") {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    try {
-      return document.execCommand("copy");
-    } catch {
-      return false;
-    } finally {
-      document.body.removeChild(textarea);
-    }
-  }
-
-  return false;
 }
 
 /**
@@ -215,14 +154,14 @@ export function parseCSV(csv: string): string[][] {
       continue;
     }
 
-    if (!inQuotes && char === ",") {
+    if (!inQuotes && char === ',') {
       pushCell();
       continue;
     }
 
-    if (!inQuotes && (char === "\n" || char === "\r")) {
+    if (!inQuotes && (char === '\n' || char === '\r')) {
       pushRow();
-      if (char === "\r" && csv[i + 1] === "\n") {
+      if (char === '\r' && csv[i + 1] === '\n') {
         i += 1;
       }
       continue;
@@ -258,106 +197,11 @@ export function parseAddressBookCSV(csv: string) {
   });
 }
 
-export interface BatchRecipientCSVRow {
-  /** 1-based line number in the source file, so users can fix the right row. */
-  rowNumber: number;
-  address: string;
-  amount: string;
-  memo: string;
-  /** Structural problem with the row, or null when the row looks importable. */
-  error: string | null;
-}
-
-const BATCH_CSV_COLUMNS = ["address", "amount", "memo"] as const;
-type BatchCSVColumn = (typeof BATCH_CSV_COLUMNS)[number];
-
-const BATCH_CSV_HEADER_ALIASES: Record<string, BatchCSVColumn> = {
-  address: "address",
-  recipient: "address",
-  "recipient address": "address",
-  destination: "address",
-  "public key": "address",
-  amount: "amount",
-  xlm: "amount",
-  "amount (xlm)": "amount",
-  memo: "memo",
-  note: "memo",
-};
-
-/**
- * Parse a batch-payment recipient CSV with address, amount and memo columns.
- *
- * A header row is optional; when present its column names (including a few
- * common aliases) decide the column order, otherwise the columns are read
- * positionally as address, amount, memo.
- *
- * Rows are never dropped — a malformed row comes back with an `error` set so
- * the caller can flag it without discarding the valid rows around it.
- */
-export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
-  const rows = parseCSV(csv);
-  if (rows.length === 0) return [];
-
-  const headerCells = rows[0].map((cell) => cell.trim().toLowerCase());
-  const headerMatches = headerCells
-    .map((cell) => BATCH_CSV_HEADER_ALIASES[cell])
-    .filter((column): column is BatchCSVColumn => Boolean(column));
-  const hasHeader = headerMatches.includes("address") && headerMatches.includes("amount");
-
-  const columnIndex: Record<BatchCSVColumn, number> = {
-    address: 0,
-    amount: 1,
-    memo: 2,
-  };
-
-  if (hasHeader) {
-    BATCH_CSV_COLUMNS.forEach((column) => {
-      columnIndex[column] = headerCells.findIndex(
-        (cell) => BATCH_CSV_HEADER_ALIASES[cell] === column
-      );
-    });
-  }
-
-  const dataRows = hasHeader ? rows.slice(1) : rows;
-  const lineOffset = hasHeader ? 2 : 1;
-
-  return dataRows.map((cells, index) => {
-    const cellAt = (column: BatchCSVColumn) => {
-      const position = columnIndex[column];
-      return position >= 0 ? (cells[position] ?? "").trim() : "";
-    };
-
-    const address = cellAt("address");
-    const amount = cellAt("amount");
-    const memo = cellAt("memo");
-    const parsedAmount = parseFloat(amount);
-
-    let error: string | null = null;
-    if (!address) {
-      error = "Missing recipient address.";
-    } else if (!amount) {
-      error = "Missing amount.";
-    } else if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      error = "Amount must be a number greater than 0.";
-    }
-
-    return {
-      rowNumber: index + lineOffset,
-      address,
-      amount,
-      memo,
-      error,
-    };
-  });
-}
-
 /**
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
- * @param usdValue - The USD value to format
- * @param locale - The locale for formatting (defaults to 'en-US')
  */
-export function formatUSD(usdValue: number, locale = "en-US"): string {
-  return `≈ $${usdValue.toLocaleString(locale, {
+export function formatUSD(usdValue: number): string {
+  return `≈ $${usdValue.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })} USD`;
@@ -371,6 +215,7 @@ export function clampAmount(value: string, min = 0.0000001, max = 999999): numbe
   if (isNaN(num)) return min;
   return Math.max(min, Math.min(max, num));
 }
+
 
 /** Wrap a cell value in quotes and escape any internal quotes. */
 function csvCell(value: string | number | undefined | null): string {
@@ -401,7 +246,16 @@ function triggerDownload(contents: string, filename: string, type: string): void
  * Columns: Date, Type, Amount, Asset, From, To, Memo, Transaction Hash
  */
 export function exportToCSV(payments: PaymentRecord[]): void {
-  const HEADERS = ["Date", "Type", "Amount", "Asset", "From", "To", "Memo", "Transaction Hash"];
+  const HEADERS = [
+    "Date",
+    "Type",
+    "Amount",
+    "Asset",
+    "From",
+    "To",
+    "Memo",
+    "Transaction Hash",
+  ];
 
   const rows = payments.map((tx) => [
     csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
@@ -414,41 +268,13 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     csvCell(tx.transactionHash),
   ]);
 
-  const csv = [HEADERS.map(csvCell).join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+  const csv = [
+    HEADERS.map(csvCell).join(","),
+    ...rows.map((r) => r.join(",")),
+  ].join("\r\n");
 
   const dateStamp = format(new Date(), "yyyy-MM-dd");
   const filename = `stellar-micropay-transactions-${dateStamp}.csv`;
-  triggerDownload(csv, filename, "text/csv;charset=utf-8;");
-}
-
-interface TipCSVRecord {
-  timestamp: string;
-  senderPublicKey: string;
-  amount: string;
-  asset: string;
-  memo?: string;
-}
-
-/**
- * Convert an array of received tips to a CSV string and trigger a browser
- * file download, for creator bookkeeping (#612).
- *
- * Columns: Date, Sender, Amount, Memo
- */
-export function exportTipsToCSV(tips: TipCSVRecord[]): void {
-  const HEADERS = ["Date", "Sender", "Amount", "Memo"];
-
-  const rows = tips.map((tip) => [
-    csvCell(format(new Date(tip.timestamp), "yyyy-MM-dd HH:mm:ss")),
-    csvCell(tip.senderPublicKey),
-    csvCell(`${tip.amount} ${tip.asset}`),
-    csvCell(tip.memo ?? ""),
-  ]);
-
-  const csv = [HEADERS.map(csvCell).join(","), ...rows.map((r) => r.join(","))].join("\r\n");
-
-  const dateStamp = format(new Date(), "yyyy-MM-dd");
-  const filename = `stellar-micropay-tips-${dateStamp}.csv`;
   triggerDownload(csv, filename, "text/csv;charset=utf-8;");
 }
 

@@ -1,7 +1,5 @@
-import { useState, useEffect } from "react";
-
 import { useRouter } from "next/router";
-
+import { useState, useEffect } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import { getXLMBalance } from "@/lib/stellar";
@@ -64,7 +62,10 @@ export default function RequestPage() {
         </div>
         <h2 className="text-xl font-bold text-white mb-2">Request Unavailable</h2>
         <p className="text-slate-400 mb-6">{error}</p>
-        <button onClick={() => router.push("/dashboard")} className="btn-secondary w-full py-2">
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="btn-secondary w-full py-2"
+        >
           Return to Dashboard
         </button>
       </div>
@@ -75,9 +76,7 @@ export default function RequestPage() {
     <div className="max-w-2xl mx-auto px-4 py-16 animate-fade-in">
       <div className="text-center mb-10">
         <h1 className="font-display text-3xl font-bold text-white mb-3">Complete Request</h1>
-        <p className="text-slate-400">
-          Review the requested details and connect your wallet to pay.
-        </p>
+        <p className="text-slate-400">Review the requested details and connect your wallet to pay.</p>
       </div>
 
       {!publicKey ? (
@@ -86,12 +85,7 @@ export default function RequestPage() {
         </div>
       ) : (
         <div className="animate-slide-up">
-          <SendPaymentForm
-            publicKey={publicKey}
-            xlmBalance={xlmBalance}
-            prefill={prefill}
-            onSuccess={() => setTimeout(() => router.push("/transactions"), 3000)}
-          />
+          <SendPaymentForm publicKey={publicKey} xlmBalance={xlmBalance} prefill={prefill} onSuccess={() => setTimeout(() => router.push('/transactions'), 3000)} />
         </div>
       )}
     </div>

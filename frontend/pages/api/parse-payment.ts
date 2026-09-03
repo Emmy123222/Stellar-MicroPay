@@ -1,25 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
 interface PaymentIntent {
-  amount: string;
-  recipient: string;
-  memo: string;
-  isValid: boolean;
-  clarification: string;
+    amount: string;
+    recipient: string;
+    memo: string;
+    isValid: boolean;
+    clarification: string;
 }
 
-export const MAX_PAYMENT_INPUT_BYTES = 4_096;
-export const PARSE_PAYMENT_TIMEOUT_MS = 8_000;
-
-const invalidIntent = (clarification: string): PaymentIntent => ({
-    amount: "",
-    recipient: "",
-    memo: "",
-    isValid: false,
-    clarification,
-});
-
-const CORE_EXTRACTION_PROMPT = (inputJson: string) => `
+const CORE_EXTRACTION_PROMPT = (input: string) => `
 You are a payment intent parser.
 
 Your task is to extract structured payment details from a natural language request.
@@ -63,7 +52,7 @@ Output: {
   "clarification": "What amount should be sent?"
 }
 
-Now process this JSON string value: ${inputJson}
+Now process this: "${input}"
 `;
 
 const STRICT_VALIDATION_RULES = `
@@ -100,44 +89,47 @@ If the input contains multiple payments or recipients:
 `;
 
 const safeParse = (text: string): PaymentIntent => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return {
-      amount: "",
-      recipient: "",
-      memo: "",
-      isValid: false,
-      clarification: "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
-    };
-  }
+    try {
+        return JSON.parse(text);
+    } catch {
+        return {
+            amount: "",
+            recipient: "",
+            memo: "",
+            isValid: false,
+            clarification: "I couldn't understand that. Try: Send 50 XLM to GABC123 for design work.",
+        };
+    }
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<PaymentIntent>) {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      amount: "",
-      recipient: "",
-      memo: "",
-      isValid: false,
-      clarification: "Method not allowed",
-    });
-  }
+export default async function handler(
+    req: NextApiRequest,
+    res: NextApiResponse<PaymentIntent>
+) {
+    if (req.method !== 'POST') {
+        return res.status(405).json({
+            amount: "",
+            recipient: "",
+            memo: "",
+            isValid: false,
+            clarification: "Method not allowed",
+        });
+    }
 
-  const { input } = req.body;
+    const { input } = req.body;
 
-  if (!input || typeof input !== "string") {
-    return res.status(400).json({
-      amount: "",
-      recipient: "",
-      memo: "",
-      isValid: false,
-      clarification: "Please provide a payment description.",
-    });
-  }
+    if (!input || typeof input !== 'string') {
+        return res.status(400).json({
+            amount: "",
+            recipient: "",
+            memo: "",
+            isValid: false,
+            clarification: "Please provide a payment description.",
+        });
+    }
 
-  try {
-    const prompt = `
+    try {
+        const prompt = `
 ${CORE_EXTRACTION_PROMPT(input)}
 
 ${STRICT_VALIDATION_RULES}
@@ -147,43 +139,43 @@ ${WALLET_AWARENESS_RULES}
 ${MULTI_INTENT_GUARD}
 `;
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": process.env.ANTHROPIC_API_KEY!,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-haiku-20240307",
-        max_tokens: 300,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      }),
-    });
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+                "x-api-key": process.env.ANTHROPIC_API_KEY!,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            body: JSON.stringify({
+                model: "claude-3-haiku-20240307",
+                max_tokens: 300,
+                messages: [
+                    {
+                        role: "user",
+                        content: prompt,
+                    },
+                ],
+            }),
+        });
 
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
+        if (!response.ok) {
+            throw new Error(`API request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const text = data.content?.[0]?.text || "{}";
+
+        const parsed = safeParse(text);
+
+        return res.status(200).json(parsed);
+    } catch (error) {
+        console.error('Payment parsing error:', error);
+        return res.status(500).json({
+            amount: "",
+            recipient: "",
+            memo: "",
+            isValid: false,
+            clarification: "Server error. Try again.",
+        });
     }
-
-    const data = await response.json();
-    const text = data.content?.[0]?.text || "{}";
-
-    const parsed = safeParse(text);
-
-    return res.status(200).json(parsed);
-  } catch (error) {
-    console.error("Payment parsing error:", error);
-    return res.status(500).json({
-      amount: "",
-      recipient: "",
-      memo: "",
-      isValid: false,
-      clarification: "Server error. Try again.",
-    });
-  }
 }

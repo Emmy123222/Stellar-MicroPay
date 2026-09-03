@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 
 interface TourStep {
   id: string;
@@ -14,16 +14,14 @@ const tourSteps: TourStep[] = [
   {
     id: "balance",
     title: "Your Balance",
-    description:
-      "Here you can see your XLM balance and wallet address. This is your main account overview.",
+    description: "Here you can see your XLM balance and wallet address. This is your main account overview.",
     target: ".balance-card",
     position: "bottom",
   },
   {
     id: "send-form",
     title: "Send Payments",
-    description:
-      "Use this form to send XLM payments to other Stellar addresses. Enter the recipient and amount.",
+    description: "Use this form to send XLM payments to other Stellar addresses. Enter the recipient and amount.",
     target: ".send-payment-form",
     position: "right",
   },
@@ -44,19 +42,6 @@ interface OnboardingTourProps {
 
 export default function OnboardingTour({ isVisible, onComplete, onSkip }: OnboardingTourProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-
-  const handleNext = useCallback(() => {
-    setCurrentStep((stepIndex) => {
-      if (stepIndex < tourSteps.length - 1) return stepIndex + 1;
-      onComplete();
-      return stepIndex;
-    });
-  }, [onComplete]);
-
-  const handleSkip = useCallback(() => {
-    onSkip();
-  }, [onSkip]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -68,34 +53,12 @@ export default function OnboardingTour({ isVisible, onComplete, onSkip }: Onboar
       targetElement.classList.add("tour-highlight");
     }
 
-    panelRef.current?.focus();
-
     return () => {
       if (targetElement) {
         targetElement.classList.remove("tour-highlight");
       }
     };
   }, [currentStep, isVisible]);
-
-  useEffect(() => {
-    if (!isVisible) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        handleSkip();
-      } else if (event.key === "ArrowRight" || event.key === "ArrowDown" || event.key === "Enter") {
-        event.preventDefault();
-        handleNext();
-      } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-        event.preventDefault();
-        setCurrentStep((stepIndex) => Math.max(0, stepIndex - 1));
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isVisible, handleNext, handleSkip]);
 
   if (!isVisible) return null;
 
@@ -135,6 +98,18 @@ export default function OnboardingTour({ isVisible, onComplete, onSkip }: Onboar
     }
   };
 
+  const handleNext = () => {
+    if (currentStep < tourSteps.length - 1) {
+      setCurrentStep(currentStep + 1);
+    } else {
+      onComplete();
+    }
+  };
+
+  const handleSkip = () => {
+    onSkip();
+  };
+
   return (
     <>
       {/* Overlay */}
@@ -142,17 +117,10 @@ export default function OnboardingTour({ isVisible, onComplete, onSkip }: Onboar
 
       {/* Tooltip */}
       <div
-        ref={panelRef}
-        className="fixed z-50 bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-lg shadow-lg max-w-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+        className="fixed z-50 bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-lg shadow-lg max-w-xs"
         style={getTooltipPosition()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="onboarding-tour-title"
-        tabIndex={-1}
       >
-        <h3 id="onboarding-tour-title" className="font-semibold text-lg mb-2">
-          {step.title}
-        </h3>
+        <h3 className="font-semibold text-lg mb-2">{step.title}</h3>
         <p className="text-sm mb-4">{step.description}</p>
         <div className="flex justify-between items-center">
           <button

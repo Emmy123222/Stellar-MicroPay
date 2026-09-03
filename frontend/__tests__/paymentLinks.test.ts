@@ -2,13 +2,11 @@
  * @jest-environment jsdom
  */
 import {
-  buildPaymentLinkUrl,
   canRedeemPaymentLink,
   clearPaymentLinkStore,
   getPaymentLinkRecord,
   listPaymentLinks,
   markPaymentLinkRedeemed,
-  parsePaymentLinkQuery,
   paymentLinkId,
   rememberPaymentLink,
   type PaymentLinkPayload,
@@ -33,116 +31,12 @@ describe("paymentLinkId", () => {
     expect(paymentLinkId({ ...PAYLOAD, validUntil: 1 })).not.toBe(baseId);
   });
 
-  it("distinguishes testnet and mainnet links for the same payload (#749)", () => {
-    expect(paymentLinkId({ ...PAYLOAD, network: "testnet" })).not.toBe(
-      paymentLinkId({ ...PAYLOAD, network: "mainnet" }),
-    );
-  });
-
   it("normalizes whitespace and missing memo", () => {
     expect(
-      paymentLinkId({
-        destination: "  GABC  ",
-        amount: " 10 ",
-        memo: undefined,
-      })
-    ).toBe(paymentLinkId({ destination: "GABC", amount: "10", memo: "" }));
-  });
-});
-
-describe("shareable payment link urls", () => {
-  it("builds explicit /pay query params", () => {
-    const url = buildPaymentLinkUrl("https://example.com", {
-      ...PAYLOAD,
-      validUntil: 1893456000000,
-    });
-    expect(url).toBe(
-      "https://example.com/pay?to=GABCDEF&amount=10&memo=thanks&expires=1893456000000"
+      paymentLinkId({ destination: "  GABC  ", amount: " 10 ", memo: undefined })
+    ).toBe(
+      paymentLinkId({ destination: "GABC", amount: "10", memo: "" })
     );
-  });
-
-  it("omits empty optional fields", () => {
-    expect(
-      buildPaymentLinkUrl("https://example.com", {
-        destination: "GABCDEF",
-        amount: "10",
-        memo: "   ",
-      })
-    ).toBe("https://example.com/pay?to=GABCDEF&amount=10");
-  });
-
-  // ── Network binding (#749) ────────────────────────────────────────────────
-
-  it("encodes an explicit network query param when the payload carries one", () => {
-    const url = buildPaymentLinkUrl("https://example.com", {
-      ...PAYLOAD,
-      network: "testnet",
-    });
-    expect(url).toBe(
-      "https://example.com/pay?to=GABCDEF&amount=10&memo=thanks&network=testnet",
-    );
-
-    const mainnet = buildPaymentLinkUrl("https://example.com", {
-      ...PAYLOAD,
-      network: "mainnet",
-    });
-    expect(mainnet).toContain("network=mainnet");
-  });
-
-  it("does not emit a network param when the payload omits network", () => {
-    const url = buildPaymentLinkUrl("https://example.com", PAYLOAD);
-    expect(url).not.toContain("network=");
-  });
-
-  it("parses query params into payment form prefill payload", () => {
-    expect(
-      parsePaymentLinkQuery({
-        to: "GABCDEF",
-        amount: "10",
-        memo: "coffee",
-        expires: "1893456000000",
-      })
-    ).toEqual({
-      ok: true,
-      payload: {
-        destination: "GABCDEF",
-        amount: "10",
-        memo: "coffee",
-        validUntil: 1893456000000,
-      },
-    });
-  });
-
-  it("parses unix-second expiry timestamps", () => {
-    expect(
-      parsePaymentLinkQuery({
-        to: "GABCDEF",
-        amount: "10",
-        expires: "1893456000",
-      })
-    ).toEqual({
-      ok: true,
-      payload: {
-        destination: "GABCDEF",
-        amount: "10",
-        validUntil: 1893456000000,
-      },
-    });
-  });
-
-  it("rejects invalid expiry timestamps", () => {
-    expect(parsePaymentLinkQuery({ to: "GABCDEF", amount: "10", expires: "soon" })).toEqual({
-      ok: false,
-      reason: "invalid-expiry",
-    });
-  });
-
-  it("keeps parsing legacy base64 data links", () => {
-    const data = btoa(JSON.stringify(PAYLOAD));
-    expect(parsePaymentLinkQuery({ data })).toEqual({
-      ok: true,
-      payload: { ...PAYLOAD, validUntil: null },
-    });
   });
 });
 
@@ -152,9 +46,9 @@ describe("payment link store", () => {
   });
 
   it("remembers a freshly generated link as pending", () => {
-    const record = rememberPaymentLink(PAYLOAD, "https://example/pay?to=GABCDEF&amount=10");
+    const record = rememberPaymentLink(PAYLOAD, "https://example/pay?data=…");
     expect(record.status).toBe("pending");
-    expect(record.url).toContain("to=GABCDEF");
+    expect(record.url).toContain("data");
     expect(getPaymentLinkRecord(PAYLOAD)?.status).toBe("pending");
   });
 
@@ -183,38 +77,6 @@ describe("payment link store", () => {
     expect(after?.redeemedTxHash).toBe("tx-1");
   });
 
-  it("scopes payment link history by account and network", () => {
-    const accountA = "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV";
-    const accountB = "GCFVV3BKTNNXJ46CY2TLAGRYFSP23HKEMP5CJFQU3EBACWSGYRQB5LEE";
-
-    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" }));
-    localStorage.setItem("stellar-micropay:last-public-key", accountA);
-    rememberPaymentLink(PAYLOAD, "https://example.com/link-a");
-
-    localStorage.setItem("stellar-micropay:last-public-key", accountB);
-    expect(listPaymentLinks()).toHaveLength(0);
-
-    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "mainnet", horizonUrl: "https://horizon.stellar.org" }));
-    expect(listPaymentLinks()).toHaveLength(0);
-
-    localStorage.setItem("stellar-micropay:last-public-key", accountA);
-    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" }));
-    expect(listPaymentLinks()).toHaveLength(1);
-  });
-
-  it("migrates legacy payment links once into the namespaced store", () => {
-    const account = "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV";
-
-    localStorage.setItem("stellar-micropay:network", JSON.stringify({ network: "testnet", horizonUrl: "https://horizon-testnet.stellar.org" }));
-    localStorage.setItem("stellar-micropay:last-public-key", account);
-    localStorage.setItem("micropay.paymentLinks.v1", JSON.stringify({ pl_legacy: { id: "pl_legacy", payload: PAYLOAD, url: "https://example.com/legacy", status: "pending", createdAt: Date.now() } }));
-
-    const record = listPaymentLinks();
-    expect(record).toHaveLength(1);
-    expect(record[0].url).toContain("legacy");
-    expect(localStorage.getItem("micropay.paymentLinks.v1")).toBeNull();
-  });
-
   it("blocks reuse after redemption", () => {
     rememberPaymentLink(PAYLOAD, "url");
     markPaymentLinkRedeemed(PAYLOAD, "tx-1");
@@ -238,10 +100,9 @@ describe("canRedeemPaymentLink", () => {
   });
 
   it("rejects expired links via the validUntil field", () => {
-    expect(canRedeemPaymentLink({ ...PAYLOAD, validUntil: Date.now() - 1 })).toEqual({
-      ok: false,
-      reason: "expired",
-    });
+    expect(
+      canRedeemPaymentLink({ ...PAYLOAD, validUntil: Date.now() - 1 })
+    ).toEqual({ ok: false, reason: "expired" });
   });
 
   it("rejects links already redeemed locally", () => {

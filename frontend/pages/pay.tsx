@@ -4,125 +4,73 @@
  * Validates expiration, handles errors, and pre-fills the payment form.
  */
 import { useRouter } from "next/router";
-import Link from "next/link";
 import { useState, useEffect } from "react";
-
-import { useRouter } from "next/router";
-
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
-import { getXLMBalance, getContractTipTotal, CONTRACT_ID, NETWORK } from "@/lib/stellar";
+import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
 import { formatStroopsToXLM } from "@/utils/format";
 import {
   canRedeemPaymentLink,
   markPaymentLinkRedeemed,
-  parsePaymentLinkQuery,
-  type PaymentLinkNetwork,
 } from "@/lib/paymentLinks";
-import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
-import { formatStroopsToXLM } from "@/utils/format";
 
 interface PrefillData {
   destination: string;
   amount: string;
   memo?: string;
-  validUntil?: number | null;
+  validUntil?: number;
 }
 
 export default function PayPage() {
   const { publicKey } = useWallet();
   const router = useRouter();
+  const { data } = router.query;
 
   const [prefill, setPrefill] = useState<PrefillData | null>(null);
   const [xlmBalance, setXlmBalance] = useState<string>("0");
   const [tipTotal, setTipTotal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null); // New: Error state
 
-  // Step 1: Parse and validate URL payment details.
+  // Step 1: Decode and Validate URL data
   useEffect(() => {
-    if (!router.isReady) return;
+    if (data && typeof data === "string") {
+      try {
+        const decodedString = atob(data);
+        const parsedData = JSON.parse(decodedString);
 
-    const hasPaymentQuery = [
-      "data",
-      "to",
-      "amount",
-      "memo",
-      "expires",
-      "expiry",
-      "validUntil",
-      "network",
-    ].some((key) => router.query[key] != null);
+        // Validation: Check for Expiration
+        if (parsedData.validUntil && Date.now() > parsedData.validUntil) {
+          setError("This payment link has expired.");
+          return;
+        }
 
-    if (!hasPaymentQuery) {
-      setPrefill(null);
-      setError(null);
-      setNetworkMismatch(null);
-      return;
+        // Validation: Check for Required Fields
+        if (!parsedData.destination || !parsedData.amount) {
+          setError("The payment link data is incomplete or malformed.");
+          return;
+        }
+
+        // Reuse guard (#157): block links that have already been redeemed
+        // on this device. Expiry is also re-checked centrally here.
+        const redeemable = canRedeemPaymentLink(parsedData);
+        if (!redeemable.ok) {
+          setError(
+            redeemable.reason === "redeemed"
+              ? "This payment link has already been redeemed."
+              : "This payment link has expired."
+          );
+          return;
+        }
+
+        setPrefill(parsedData);
+        setError(null); // Clear errors if valid
+      } catch (err) {
+        console.error("Invalid payment link data", err);
+        setError("Invalid payment link. Please check the URL.");
+      }
     }
-
-    const parsed = parsePaymentLinkQuery(router.query);
-    if (!parsed.ok) {
-      setPrefill(null);
-      setError(
-        parsed.reason === "invalid-expiry"
-          ? "The payment link expiry timestamp is invalid."
-          : parsed.reason === "missing"
-            ? "The payment link data is incomplete or malformed."
-            : "Invalid payment link. Please check the URL."
-      );
-      setNetworkMismatch(null);
-      return;
-    }
-
-    // Network binding (#749): if the link was created on a different network
-    // than the one the app is currently connected to, refuse to prefill the
-    // form until the user switches networks. This stops a testnet-issued link
-    // from being paid on mainnet (or vice versa) with real funds.
-    if (parsed.payload.network && parsed.payload.network !== NETWORK) {
-      setPrefill(null);
-      setError(null);
-      setNetworkMismatch(parsed.payload.network);
-      return;
-    }
-    setNetworkMismatch(null);
-
-    // Reuse guard (#157): block links that have already been redeemed
-    // on this device. Expiry is also checked centrally immediately before
-    // the request can be paid.
-    const redeemable = canRedeemPaymentLink(parsed.payload);
-    if (!redeemable.ok) {
-      setPrefill(null);
-      setError(
-        redeemable.reason === "redeemed"
-          ? "This payment link has already been redeemed."
-          : "This payment link has expired."
-      );
-      return;
-    }
-
-    setPrefill(parsed.payload);
-    setError(null);
-  }, [router.isReady, router.query]);
-
-  // Keep long-open payment request pages from being submitted after expiry.
-  useEffect(() => {
-    if (!prefill?.validUntil) return;
-
-    const msUntilExpiry = prefill.validUntil - Date.now();
-    if (msUntilExpiry <= 0) {
-      setPrefill(null);
-      setError("This payment link has expired.");
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setPrefill(null);
-      setError("This payment link has expired.");
-    }, msUntilExpiry);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [prefill?.validUntil]);
+  }, [data]);
 
   // Step 2: Fetch balance if wallet is connected
   useEffect(() => {
@@ -151,7 +99,10 @@ export default function PayPage() {
         </div>
         <h2 className="text-xl font-bold text-white mb-2">Payment Unavailable</h2>
         <p className="text-slate-400 mb-6">{error}</p>
-        <button onClick={() => router.push("/dashboard")} className="btn-secondary w-full py-2">
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="btn-secondary w-full py-2"
+        >
           Return to Dashboard
         </button>
       </div>
@@ -161,7 +112,9 @@ export default function PayPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-16 animate-fade-in">
       <div className="text-center mb-10">
-        <h1 className="font-display text-3xl font-bold text-white mb-3">Complete Payment</h1>
+        <h1 className="font-display text-3xl font-bold text-white mb-3">
+          Complete Payment
+        </h1>
         <p className="text-slate-400">
           {publicKey
             ? "Review the details below to authorize the transaction."
@@ -173,7 +126,9 @@ export default function PayPage() {
             <span className="text-xs font-medium text-stellar-400">
               {`Recipient's Total Tips Recorded:`}
             </span>
-            <span className="text-xs font-bold text-white">{formatStroopsToXLM(tipTotal)}</span>
+            <span className="text-xs font-bold text-white">
+              {formatStroopsToXLM(tipTotal)}
+            </span>
           </div>
         )}
       </div>
@@ -195,7 +150,7 @@ export default function PayPage() {
                 markPaymentLinkRedeemed(prefill, txHash);
               }
               // Redirect to transactions after success
-              setTimeout(() => router.push("/transactions"), 3000);
+              setTimeout(() => router.push('/transactions'), 3000);
             }}
           />
         </div>

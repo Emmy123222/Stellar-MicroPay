@@ -1,227 +1,36 @@
 /**
  * @file lib/paymentLinks.ts
- * @description Helpers for shareable payment request links and local status
- * tracking for generated links.
+ * @description Status tracking and one-shot redemption for shareable payment
+ * request links (#157).
  *
- * Shareable links use explicit query parameters so they can be inspected and
- * shared easily, for example: `/pay?to=G...&amount=10&memo=coffee`. Optional
- * expiry is carried as a Unix timestamp in the `expires` parameter. Legacy
- * base64 `?data=` links are still parsed for backwards compatibility.
+ * The link payload itself is encoded in the URL (see PaymentLinkGenerator —
+ * `?data=<base64>`). This module is the local source of truth for *what state
+ * a link is in* — `pending`, `redeemed`, or `expired`. Until we wire backend
+ * persistence, it lives in `localStorage` keyed by a deterministic id derived
+ * from the payload, so the issuer's "My links" view and the payer's pay page
+ * agree on whether a link has been used yet.
  */
 
-const STORAGE_KEY = "micropay.paymentLinks.v1";
+const STORAGE_KEY = 'micropay.paymentLinks.v1';
 
-function getActiveNetworkName(): string {
-  if (typeof window === "undefined") return "testnet";
-
-  try {
-    const stored = window.localStorage.getItem("stellar-micropay:network");
-    if (!stored) return "testnet";
-    const parsed = JSON.parse(stored) as { network?: string };
-    return parsed?.network === "mainnet" ? "mainnet" : "testnet";
-  } catch {
-    return "testnet";
-  }
-}
-
-function getActivePublicKey(): string | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const value = window.localStorage.getItem("stellar-micropay:last-public-key");
-    return value && value.trim() ? value.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-function getScopedStorageKey(
-  publicKey: string | null = getActivePublicKey(),
-  networkName: string = getActiveNetworkName(),
-): string {
-  const key = (publicKey ?? "anonymous").trim() || "anonymous";
-  return `${STORAGE_KEY}:${networkName}:${key}`;
-}
-
-function migrateLegacyPaymentLinks(): Record<string, PaymentLinkRecord> {
-  if (typeof window === "undefined") return {};
-
-  const scopedKey = getScopedStorageKey();
-  const current = readAllFromKey(scopedKey);
-  if (Object.keys(current).length > 0) return current;
-
-  const legacy = readAllFromKey(STORAGE_KEY);
-  if (Object.keys(legacy).length === 0) return {};
-
-  try {
-    window.localStorage.setItem(scopedKey, JSON.stringify(legacy));
-    window.localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Ignore storage failures (private browsing, full quota, etc.).
-  }
-
-  return legacy;
-}
-
-export type PaymentLinkStatus = "pending" | "redeemed" | "expired";
-
-/**
- * The supported Stellar networks a payment link can be bound to. A link must
- * carry an explicit network so a request created on one network is never
- * accidentally paid on another (#749).
- */
-export type PaymentLinkNetwork = "testnet" | "mainnet";
-
-const SUPPORTED_NETWORKS: ReadonlySet<string> = new Set(["testnet", "mainnet"]);
+export type PaymentLinkStatus = 'pending' | 'redeemed' | 'expired';
 
 export interface PaymentLinkPayload {
-  destination: string;
-  amount: string;
-  memo?: string;
-  /** Unix ms; absent means no expiry. */
-  validUntil?: number | null;
-  /**
-   * The Stellar network the link was created for. Generated links always set
-   * this so the pay page can verify it before a payment is submitted.
-   */
-  network?: PaymentLinkNetwork;
+   destination: string;
+   amount: string;
+   memo?: string;
+   /** Unix ms; absent means no expiry. */
+   validUntil?: number | null;
 }
 
 export interface PaymentLinkRecord {
-  id: string;
-  payload: PaymentLinkPayload;
-  url: string;
-  status: PaymentLinkStatus;
-  createdAt: number;
-  redeemedAt?: number;
-  redeemedTxHash?: string;
-}
-
-type QueryValue = string | string[] | undefined;
-export type PaymentLinkQuery = Record<string, QueryValue>;
-
-export type ParsedPaymentLinkQuery =
-  | { ok: true; payload: PaymentLinkPayload }
-  | { ok: false; reason: "missing" | "malformed" | "invalid-expiry" | "expired" };
-
-/**
- * Check whether a payment link's expiry has already passed.
- * Exported so callers (tests, pay.tsx, SendPaymentForm) can gate on it
- * without re-implementing the clock boundary.
- */
-export function isExpired(payload: PaymentLinkPayload, now = Date.now()): boolean {
-  return payload.validUntil != null && now > payload.validUntil;
-}
-
-function getQueryString(value: QueryValue): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function decodeBase64Json(value: string): unknown {
-  const json =
-    typeof atob === "function" ? atob(value) : Buffer.from(value, "base64").toString("utf8");
-  return JSON.parse(json);
-}
-
-function normalizeExpiry(value: unknown): number | null {
-  if (value == null || value === "") return null;
-
-  const numeric =
-    typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : NaN;
-
-  if (Number.isFinite(numeric)) {
-    // Accept Unix seconds for easier manual link creation, but store ms.
-    return numeric > 0 && numeric < 1_000_000_000_000
-      ? Math.trunc(numeric * 1000)
-      : Math.trunc(numeric);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-
-  return Number.NaN;
-}
-
-function coercePayload(raw: unknown): ParsedPaymentLinkQuery {
-  if (!raw || typeof raw !== "object") return { ok: false, reason: "malformed" };
-  const source = raw as Record<string, unknown>;
-  const destination =
-    typeof source.destination === "string"
-      ? source.destination.trim()
-      : typeof source.to === "string"
-        ? source.to.trim()
-        : "";
-  const amount = source.amount == null ? "" : String(source.amount).trim();
-  const memo = typeof source.memo === "string" ? source.memo.trim() : "";
-  const expiryValue = source.validUntil ?? source.expires ?? source.expiry;
-  const validUntil = normalizeExpiry(expiryValue);
-
-  if (!destination || !amount) return { ok: false, reason: "missing" };
-  if (Number.isNaN(validUntil)) return { ok: false, reason: "invalid-expiry" };
-
-  // Validate expiry during parse — reject links that have already expired.
-  if (validUntil != null && Date.now() > validUntil) {
-    return { ok: false, reason: "expired" };
-  }
-
-  return {
-    ok: true,
-    payload: {
-      destination,
-      amount,
-      memo: memo || undefined,
-      validUntil,
-      network: network ? network : undefined,
-    },
-  };
-}
-
-/**
- * Build the public payment request URL required by roadmap v1.5:
- * `/pay?to=G...&amount=10&memo=coffee`, with optional `expires=<unix-ms>`.
- *
- * When a payload carries an explicit `network`, it is encoded as a `network`
- * query param so the recipient's pay page can verify the active network
- * matches the one the link was generated on (#749).
- */
-export function buildPaymentLinkUrl(origin: string, payload: PaymentLinkPayload): string {
-  const url = new URL("/pay", origin);
-  url.searchParams.set("to", payload.destination.trim());
-  url.searchParams.set("amount", String(payload.amount).trim());
-  const memo = payload.memo?.trim();
-  if (memo) url.searchParams.set("memo", memo);
-  if (payload.validUntil != null) {
-    url.searchParams.set("expires", String(Math.trunc(payload.validUntil)));
-  }
-  if (payload.network) {
-    url.searchParams.set("network", payload.network);
-  }
-  return url.toString();
-}
-
-/** Parse both the new explicit query-param links and legacy `?data=` links. */
-export function parsePaymentLinkQuery(query: PaymentLinkQuery): ParsedPaymentLinkQuery {
-  const encodedData = getQueryString(query.data);
-  if (encodedData) {
-    try {
-      return coercePayload(decodeBase64Json(encodedData));
-    } catch {
-      return { ok: false, reason: "malformed" };
-    }
-  }
-
-  const to = getQueryString(query.to);
-  const amount = getQueryString(query.amount);
-  const memo = getQueryString(query.memo);
-  const expires =
-    getQueryString(query.expires) ??
-    getQueryString(query.expiry) ??
-    getQueryString(query.validUntil);
-  const network = getQueryString(query.network);
-
-  return coercePayload({ to, amount, memo, expires, network });
+   id: string;
+   payload: PaymentLinkPayload;
+   url: string;
+   status: PaymentLinkStatus;
+   createdAt: number;
+   redeemedAt?: number;
+   redeemedTxHash?: string;
 }
 
 /**
@@ -230,71 +39,63 @@ export function parsePaymentLinkQuery(query: PaymentLinkQuery): ParsedPaymentLin
  * duplicates in the local store.
  */
 export function paymentLinkId(payload: PaymentLinkPayload): string {
-  const canonical = JSON.stringify({
-    destination: payload.destination.trim(),
-    amount: String(payload.amount).trim(),
-    memo: payload.memo?.trim() || "",
-    validUntil: payload.validUntil ?? null,
-    // Bind the id to the network so a testnet and a mainnet link to the same
-    // account are tracked as distinct payment requests (#749).
-    network: payload.network ?? "",
-  });
-  // Cheap stable hash — fnv-1a 32-bit. Not crypto, just a deterministic key.
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < canonical.length; i += 1) {
-    hash ^= canonical.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `pl_${hash.toString(16).padStart(8, "0")}`;
-}
-
-function readAllFromKey(key: string): Record<string, PaymentLinkRecord> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, PaymentLinkRecord>;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+   const canonical = JSON.stringify({
+      destination: payload.destination.trim(),
+      amount: String(payload.amount).trim(),
+      memo: payload.memo?.trim() || '',
+      validUntil: payload.validUntil ?? null,
+   });
+   // Cheap stable hash — fnv-1a 32-bit. Not crypto, just a deterministic key.
+   let hash = 0x811c9dc5;
+   for (let i = 0; i < canonical.length; i += 1) {
+      hash ^= canonical.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+   }
+   return `pl_${hash.toString(16).padStart(8, '0')}`;
 }
 
 function readAll(): Record<string, PaymentLinkRecord> {
-  const scopedKey = getScopedStorageKey();
-  const current = readAllFromKey(scopedKey);
-  if (Object.keys(current).length > 0) return current;
-  return migrateLegacyPaymentLinks();
+   if (typeof window === 'undefined') return {};
+   try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Record<string, PaymentLinkRecord>;
+      return parsed && typeof parsed === 'object' ? parsed : {};
+   } catch {
+      return {};
+   }
 }
 
 function writeAll(records: Record<string, PaymentLinkRecord>): void {
-  if (typeof window === "undefined") return;
-  try {
-    const scopedKey = getScopedStorageKey();
-    window.localStorage.setItem(scopedKey, JSON.stringify(records));
-  } catch {
-    // Quota exceeded or storage disabled — silently drop. UI still works.
-  }
+   if (typeof window === 'undefined') return;
+   try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+   } catch {
+      // Quota exceeded or storage disabled — silently drop. UI still works.
+   }
 }
 
 /**
  * Record a newly-generated link as `pending`. Idempotent: if the same payload
  * was already stored, the existing record is returned untouched.
  */
-export function rememberPaymentLink(payload: PaymentLinkPayload, url: string): PaymentLinkRecord {
-  const id = paymentLinkId(payload);
-  const all = readAll();
-  if (all[id]) return all[id];
-  const record: PaymentLinkRecord = {
-    id,
-    payload,
-    url,
-    status: "pending",
-    createdAt: Date.now(),
-  };
-  all[id] = record;
-  writeAll(all);
-  return record;
+export function rememberPaymentLink(
+   payload: PaymentLinkPayload,
+   url: string
+): PaymentLinkRecord {
+   const id = paymentLinkId(payload);
+   const all = readAll();
+   if (all[id]) return all[id];
+   const record: PaymentLinkRecord = {
+      id,
+      payload,
+      url,
+      status: 'pending',
+      createdAt: Date.now(),
+   };
+   all[id] = record;
+   writeAll(all);
+   return record;
 }
 
 /**
@@ -303,21 +104,24 @@ export function rememberPaymentLink(payload: PaymentLinkPayload, url: string): P
  * don't have a local record (e.g. payer on a different device) should still
  * honour the on-link `validUntil`.
  */
-export function getPaymentLinkRecord(payload: PaymentLinkPayload): PaymentLinkRecord | null {
-  const id = paymentLinkId(payload);
-  const all = readAll();
-  const existing = all[id];
-  if (!existing) return null;
+export function getPaymentLinkRecord(
+   payload: PaymentLinkPayload
+): PaymentLinkRecord | null {
+   const id = paymentLinkId(payload);
+   const all = readAll();
+   const existing = all[id];
+   if (!existing) return null;
 
-  if (existing.status === "pending") {
-    const expired = payload.validUntil != null && Date.now() > payload.validUntil;
-    if (expired) {
-      existing.status = "expired";
-      all[id] = existing;
-      writeAll(all);
-    }
-  }
-  return existing;
+   if (existing.status === 'pending') {
+      const expired =
+         payload.validUntil != null && Date.now() > payload.validUntil;
+      if (expired) {
+         existing.status = 'expired';
+         all[id] = existing;
+         writeAll(all);
+      }
+   }
+   return existing;
 }
 
 /**
@@ -325,18 +129,21 @@ export function getPaymentLinkRecord(payload: PaymentLinkPayload): PaymentLinkRe
  * Returns true if the link transitioned to `redeemed`, false if it was
  * already redeemed or expired (and therefore cannot be reused).
  */
-export function markPaymentLinkRedeemed(payload: PaymentLinkPayload, txHash: string): boolean {
-  const id = paymentLinkId(payload);
-  const all = readAll();
-  const existing = all[id];
-  if (!existing) return false;
-  if (existing.status !== "pending") return false;
-  existing.status = "redeemed";
-  existing.redeemedAt = Date.now();
-  existing.redeemedTxHash = txHash;
-  all[id] = existing;
-  writeAll(all);
-  return true;
+export function markPaymentLinkRedeemed(
+   payload: PaymentLinkPayload,
+   txHash: string
+): boolean {
+   const id = paymentLinkId(payload);
+   const all = readAll();
+   const existing = all[id];
+   if (!existing) return false;
+   if (existing.status !== 'pending') return false;
+   existing.status = 'redeemed';
+   existing.redeemedAt = Date.now();
+   existing.redeemedTxHash = txHash;
+   all[id] = existing;
+   writeAll(all);
+   return true;
 }
 
 /**
@@ -344,18 +151,18 @@ export function markPaymentLinkRedeemed(payload: PaymentLinkPayload, txHash: str
  * stale `pending` records past their expiry surface as `expired` to the UI.
  */
 export function listPaymentLinks(): PaymentLinkRecord[] {
-  const all = readAll();
-  const records = Object.values(all).map((record) => {
-    if (
-      record.status === "pending" &&
-      record.payload.validUntil != null &&
-      Date.now() > record.payload.validUntil
-    ) {
-      return { ...record, status: "expired" as const };
-    }
-    return record;
-  });
-  return records.sort((a, b) => b.createdAt - a.createdAt);
+   const all = readAll();
+   const records = Object.values(all).map(record => {
+      if (
+         record.status === 'pending' &&
+         record.payload.validUntil != null &&
+         Date.now() > record.payload.validUntil
+      ) {
+         return { ...record, status: 'expired' as const };
+      }
+      return record;
+   });
+   return records.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /**
@@ -363,28 +170,27 @@ export function listPaymentLinks(): PaymentLinkRecord[] {
  * paid. Used by pay.tsx to block reuse after redemption.
  */
 export function canRedeemPaymentLink(
-  payload: PaymentLinkPayload
-): { ok: true } | { ok: false; reason: "expired" | "redeemed" } {
-  if (payload.validUntil != null && Date.now() > payload.validUntil) {
-    return { ok: false, reason: "expired" };
-  }
-  const record = getPaymentLinkRecord(payload);
-  if (record?.status === "redeemed") {
-    return { ok: false, reason: "redeemed" };
-  }
-  if (record?.status === "expired") {
-    return { ok: false, reason: "expired" };
-  }
-  return { ok: true };
+   payload: PaymentLinkPayload
+): { ok: true } | { ok: false; reason: 'expired' | 'redeemed' } {
+   if (payload.validUntil != null && Date.now() > payload.validUntil) {
+      return { ok: false, reason: 'expired' };
+   }
+   const record = getPaymentLinkRecord(payload);
+   if (record?.status === 'redeemed') {
+      return { ok: false, reason: 'redeemed' };
+   }
+   if (record?.status === 'expired') {
+      return { ok: false, reason: 'expired' };
+   }
+   return { ok: true };
 }
 
-/** Test/dev helper — wipes the current scoped store and the legacy global store. */
+/** Test/dev helper — wipes the local store. */
 export function clearPaymentLinkStore(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(getScopedStorageKey());
-    window.localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // ignore
-  }
+   if (typeof window === 'undefined') return;
+   try {
+      window.localStorage.removeItem(STORAGE_KEY);
+   } catch {
+      // ignore
+   }
 }

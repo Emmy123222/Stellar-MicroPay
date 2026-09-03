@@ -109,7 +109,7 @@ This document describes the implementation of Ledger hardware wallet support for
 
 #### 7. Compatibility Testing
 - [ ] Chrome browser: Full functionality
-- [ ] Edge browser: Full functionality  
+- [ ] Edge browser: Full functionality
 - [ ] Firefox browser: WebHID warning, Ledger disabled
 - [ ] Safari browser: WebHID warning, Ledger disabled
 
@@ -231,7 +231,7 @@ The Ledger hardware wallet implementation provides a secure alternative to Freig
 
 All acceptance criteria have been met:
 - ✅ Ledger option appears in WalletConnect
-- ✅ Public key fetched from Ledger device  
+- ✅ Public key fetched from Ledger device
 - ✅ Transactions signed on the Ledger device
 - ✅ Error states for disconnected device and closed app
-- ✅ Freighter option still works as before............
+- ✅ Freighter option still works as before

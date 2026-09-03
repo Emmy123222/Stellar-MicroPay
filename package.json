@@ -1,38 +1,29 @@
 {
+  "name": "stellar-micropay",
+  "private": true,
   "scripts": {
-    "clean": "rm -rf frontend/.next backend/dist contracts/target && echo 'Clean complete: removed .next, dist, and target directories'",
-    "load-test": "node scripts/load-test.js",
-    "smoke-test": "node scripts/smoke-test.js",
-    "validate:compose": "node scripts/validate-compose.js",
-    "validate:ci-cache": "node scripts/validate-ci-cache.js",
-    "generate:openapi": "node scripts/generate-openapi.js",
-    "prepare": "husky install",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "dev": "concurrently -k -n backend,frontend -c green,blue \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend"
   },
   "dependencies": {
     "clsx": "^2.1.1"
   },
   "devDependencies": {
-    "@commitlint/cli": "^19.0.0",
-    "@commitlint/config-conventional": "^19.0.0",
-    "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.59.1",
     "@types/jest": "^29.0.0",
     "@types/node": "^20.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.68.0",
-    "@typescript-eslint/parser": "^8.68.0",
-    "autocannon": "^8.0.0",
-    "eslint": "^9.39.5",
-    "eslint-config-prettier": "^9.1.2",
-    "eslint-plugin-import": "^2.32.0",
-    "husky": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "autocannon": "8.0.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^8.0.0",
     "jest": "^29.0.0",
     "playwright": "^1.59.1",
-    "prettier": "^3.9.6",
     "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": "20.19.5"
   },
   "keywords": [
     "stellar",

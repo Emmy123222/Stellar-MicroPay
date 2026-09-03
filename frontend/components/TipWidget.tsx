@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-
 import clsx from "clsx";
-
+import { useEffect, useRef, useState } from "react";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import { getXLMBalance, shortenAddress } from "@/lib/stellar";
-import { useWallet } from "@/lib/useWallet";
 import { formatXLM } from "@/utils/format";
+import { useWallet } from "@/lib/useWallet";
 
 interface TipWidgetProps {
   creatorUsername: string;
@@ -21,7 +19,10 @@ const PRESET_TIPS = [
 
 const MIN_TIP_AMOUNT = 0.0000001;
 
-export default function TipWidget({ creatorUsername, destination }: TipWidgetProps) {
+export default function TipWidget({
+  creatorUsername,
+  destination,
+}: TipWidgetProps) {
   const { publicKey } = useWallet();
   const [amount, setAmount] = useState<string>(PRESET_TIPS[0].amount);
   const [showConnectPrompt, setShowConnectPrompt] = useState(false);
@@ -210,28 +211,21 @@ export default function TipWidget({ creatorUsername, destination }: TipWidgetPro
             <div className="mt-6 rounded-2xl border border-white/10 bg-cosmos-950/50 px-4 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Selected tip</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Selected tip</p>
                   <p className="mt-2 font-display text-3xl font-semibold text-white">
                     {hasValidAmount ? formatXLM(parsedAmount) : "0 XLM"}
                   </p>
                   <p className="mt-2 text-sm text-slate-400">
-                    Recipient:{" "}
-                    <span className="font-semibold text-slate-200">@{creatorUsername}</span>
+                    Recipient: <span className="font-semibold text-slate-200">@{creatorUsername}</span>
                   </p>
                 </div>
 
                 {publicKey ? (
                   <div className="text-right">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                      Connected wallet
-                    </p>
-                    <p className="mt-2 font-mono text-sm text-slate-200">
-                      {shortenAddress(publicKey)}
-                    </p>
-                    <p className="mt-2 text-xs text-slate-400">
-                      {isBalanceLoading
-                        ? "Checking balance..."
-                        : `Balance: ${formatXLM(xlmBalance)}`}
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Connected wallet</p>
+                    <p className="mt-2 font-mono text-sm text-slate-200">{shortenAddress(publicKey)}</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {isBalanceLoading ? "Checking balance..." : `Balance: ${formatXLM(xlmBalance)}`}
                     </p>
                   </div>
                 ) : (
@@ -250,9 +244,7 @@ export default function TipWidget({ creatorUsername, destination }: TipWidgetPro
                 className="btn-primary mt-6 flex w-full items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <WalletIcon className="h-4 w-4" />
-                {hasValidAmount
-                  ? `Connect wallet to tip ${formatXLM(parsedAmount)}`
-                  : "Enter an amount"}
+                {hasValidAmount ? `Connect wallet to tip ${formatXLM(parsedAmount)}` : "Enter an amount"}
               </button>
             )}
           </div>
@@ -268,14 +260,11 @@ export default function TipWidget({ creatorUsername, destination }: TipWidgetPro
             )}
 
             {!publicKey && showConnectPrompt && (
-              <div
-                ref={connectPromptRef}
-                className="rounded-3xl border border-stellar-500/20 bg-white/[0.03] p-1"
-              >
+              <div ref={connectPromptRef} className="rounded-3xl border border-stellar-500/20 bg-white/[0.03] p-1">
                 <div className="rounded-[22px] border border-white/10 bg-cosmos-950/50 p-5">
                   <p className="text-sm text-slate-400 mb-4">
-                    Connect your wallet to send{" "}
-                    {hasValidAmount ? formatXLM(parsedAmount) : "this tip"} to @{creatorUsername}.
+                    Connect your wallet to send {hasValidAmount ? formatXLM(parsedAmount) : "this tip"} to
+                    {" "}@{creatorUsername}.
                   </p>
                   <WalletConnect onConnectSuccess={handleConnect} />
                 </div>
@@ -286,8 +275,7 @@ export default function TipWidget({ creatorUsername, destination }: TipWidgetPro
               <div className="space-y-4">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4">
                   <p className="text-sm text-slate-300">
-                    You are tipping{" "}
-                    <span className="font-semibold text-white">@{creatorUsername}</span> at{" "}
+                    You are tipping <span className="font-semibold text-white">@{creatorUsername}</span> at{" "}
                     <span className="font-mono text-slate-200">{shortenAddress(destination)}</span>.
                   </p>
                 </div>
@@ -301,13 +289,12 @@ export default function TipWidget({ creatorUsername, destination }: TipWidgetPro
                   title={`Send a tip to @${creatorUsername}`}
                   submitLabel={hasValidAmount ? `Send ${formatXLM(parsedAmount)} tip` : "Send tip"}
                   successTitle={`Tip sent to @${creatorUsername}!`}
-                  successMessage={
-                    hasValidAmount ? `${formatXLM(parsedAmount)} is on the way.` : undefined
-                  }
+                  successMessage={hasValidAmount ? `${formatXLM(parsedAmount)} is on the way.` : undefined}
                   assetOptions={["XLM"]}
                   hideAssetSelector
                   hideDestinationField
                   hideAmountField
+                  hideMemoField
                 />
               </div>
             )}
@@ -370,13 +357,7 @@ function ConfettiBurst() {
 
 function WalletIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-    >
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -388,18 +369,8 @@ function WalletIcon({ className }: { className?: string }) {
 
 function SparkIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9l4.6-1.4L12 3zM18.5 16l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3zM5.5 15l.9 2.8 2.8.9-2.8.9-.9 2.8-.9-2.8-2.8-.9 2.8-.9.9-2.8z"
-      />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9l4.6-1.4L12 3zM18.5 16l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3zM5.5 15l.9 2.8 2.8.9-2.8.9-.9 2.8-.9-2.8-2.8-.9 2.8-.9.9-2.8z" />
     </svg>
   );
 }

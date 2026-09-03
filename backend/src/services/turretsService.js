@@ -1,10 +1,15 @@
+/**
+ * src/services/turretsService.js
+ * In-memory Turrets txFunctions registry with DCA and stop-loss evaluators.
+ */
+
 "use strict";
 
 const crypto = require("crypto");
-
 const {
   Account,
   Asset,
+  Horizon,
   Keypair,
   Networks,
   Operation,
@@ -12,46 +17,17 @@ const {
   TransactionBuilder,
 } = require("@stellar/stellar-sdk");
 
-const { server } = require("../config/stellar");
-const {
-  turretsExecutionsTotal,
-  turretsExecutionDuration,
-  turretsDeploymentsTotal,
-  turretsActiveDeployments,
-} = require("../metrics/registry");
-const logger = require("../utils/logger");
-const { correlationHeaders } = require("../utils/logger");
+const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+const NETWORK_PASSPHRASE =
+  process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
-const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+const server = new Horizon.Server(HORIZON_URL);
 
 const deployments = new Map();
 const executionHistory = [];
-const auditLog = [];
 
 let runnerStarted = false;
 let runnerTimer = null;
-
-function stopRunner() {
-  if (runnerTimer) {
-    clearInterval(runnerTimer);
-    runnerTimer = null;
-  }
-  runnerStarted = false;
-  logger.info("[turrets] Runner stopped");
-}
-
-  // Also log to structured logger for persistence
-  logger.info(
-    {
-      audit: true,
-      action,
-      actor,
-      deploymentId,
-      details,
-    },
-    `Turrets audit: ${action} by ${actor}`
-  );
-}
 
 function validatePublicKey(publicKey) {
   if (!publicKey || !/^G[A-Z0-9]{55}$/.test(publicKey)) {
@@ -62,7 +38,10 @@ function validatePublicKey(publicKey) {
 }
 
 function getConfigHash(type, config) {
-  return crypto.createHash("sha256").update(JSON.stringify({ type, config })).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify({ type, config }))
+    .digest("hex");
 }
 
 function normalizeDcaConfig(config = {}) {
@@ -83,7 +62,12 @@ function normalizeDcaConfig(config = {}) {
     throw err;
   }
 
-  return { intervalMinutes, amountQuote, quoteAssetCode, quoteAssetIssuer };
+  return {
+    intervalMinutes,
+    amountQuote,
+    quoteAssetCode,
+    quoteAssetIssuer,
+  };
 }
 
 function normalizeStopLossConfig(config = {}) {
@@ -111,97 +95,51 @@ function normalizeStopLossConfig(config = {}) {
     throw err;
   }
 
-  return { thresholdPrice, amountSell, sellAssetCode, sellAssetIssuer, cooldownMinutes };
-}
-
-function normalizeEscrowReleaseConfig(config = {}) {
-  const escrowPublicKey = config.escrowPublicKey || null;
-  const beneficiaryPublicKey = config.beneficiaryPublicKey || null;
-  const releaseAmount = Number(config.releaseAmount || 0);
-  const assetCode = (config.assetCode || "XLM").toUpperCase();
-  const assetIssuer = config.assetIssuer || null;
-  const releaseCondition = config.releaseCondition || "time";
-  const releaseAfterMs = Number(config.releaseAfterMs || 0);
-
-  if (!escrowPublicKey || !/^G[A-Z0-9]{55}$/.test(escrowPublicKey)) {
-    const err = new Error("escrow_release: valid escrowPublicKey is required");
-    err.status = 400;
-    throw err;
-  }
-
-  if (!beneficiaryPublicKey || !/^G[A-Z0-9]{55}$/.test(beneficiaryPublicKey)) {
-    const err = new Error("escrow_release: valid beneficiaryPublicKey is required");
-    err.status = 400;
-    throw err;
-  }
-
-  if (!Number.isFinite(releaseAmount) || releaseAmount <= 0) {
-    const err = new Error("escrow_release: releaseAmount must be greater than 0");
-    err.status = 400;
-    throw err;
-  }
-
-  if (!["time", "manual"].includes(releaseCondition)) {
-    const err = new Error("escrow_release: releaseCondition must be 'time' or 'manual'");
-    err.status = 400;
-    throw err;
-  }
-
-  if (releaseCondition === "time" && (!Number.isFinite(releaseAfterMs) || releaseAfterMs <= 0)) {
-    const err = new Error(
-      "escrow_release: releaseAfterMs must be greater than 0 for time-based release"
-    );
-    err.status = 400;
-    throw err;
-  }
-
   return {
-    escrowPublicKey,
-    beneficiaryPublicKey,
-    releaseAmount,
-    assetCode,
-    assetIssuer,
-    releaseCondition,
-    releaseAfterMs,
+    thresholdPrice,
+    amountSell,
+    sellAssetCode,
+    sellAssetIssuer,
+    cooldownMinutes,
   };
 }
 
 function normalizeConfig(type, config) {
   if (type === "dca") return normalizeDcaConfig(config);
   if (type === "stop_loss") return normalizeStopLossConfig(config);
-  if (type === "escrow_release") return normalizeEscrowReleaseConfig(config);
-  const err = new Error(
-    "Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'."
-  );
+  const err = new Error("Unsupported txFunction type. Use 'dca' or 'stop_loss'.");
   err.status = 400;
   throw err;
 }
 
 async function createSigningChallenge({ ownerPublicKey, type, config }) {
   validatePublicKey(ownerPublicKey);
-  let normalizedConfig;
 
-  switch (type) {
-    case "dca": normalizedConfig = normalizeDcaConfig(config); break;
-    case "stop_loss": normalizedConfig = normalizeStopLossConfig(config); break;
-    case "escrow_release": normalizedConfig = normalizeEscrowReleaseConfig(config); break;
-    default:
-      const err = new Error("Unknown txFunction type");
-      err.status = 400;
-      throw err;
+  const normalizedConfig = normalizeConfig(type, config);
+  const deploymentHash = getConfigHash(type, normalizedConfig);
+
+  let sourceAccount;
+  try {
+    sourceAccount = await server.loadAccount(ownerPublicKey);
+  } catch {
+    sourceAccount = new Account(ownerPublicKey, "0");
   }
 
-  const deploymentHash = getConfigHash(type, normalizedConfig);
-  const sourceKeypair = Keypair.random();
-  const account = new Account(sourceKeypair.publicKey(), "0");
-  const tx = new TransactionBuilder(account, { fee: "100", networkPassphrase: NETWORK_PASSPHRASE })
-    .addOperation(Operation.payment({ destination: ownerPublicKey, asset: Asset.native(), amount: "0.0000001" }))
-    .setSequence("1")
+  const challengeTx = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.manageData({
+        name: `turrets-deploy:${type}`,
+        value: deploymentHash,
+      })
+    )
     .setTimeout(300)
     .build();
 
   return {
-    challengeXDR: tx.toXDR(),
+    challengeXDR: challengeTx.toXDR(),
     deploymentHash,
     normalizedConfig,
     networkPassphrase: NETWORK_PASSPHRASE,
@@ -285,24 +223,6 @@ function stopLossTxFunction(config, xlmUsdPrice) {
   };
 }
 
-function escrowReleaseTxFunction(config) {
-  const asset =
-    config.assetCode === "XLM"
-      ? { code: "XLM", issuer: null }
-      : { code: config.assetCode, issuer: config.assetIssuer };
-
-  return {
-    action: "escrow_release",
-    stellarOperation: "payment",
-    from: config.escrowPublicKey,
-    to: config.beneficiaryPublicKey,
-    asset,
-    amount: config.releaseAmount.toFixed(7),
-    releaseCondition: config.releaseCondition,
-    note: "Release escrowed funds to beneficiary without the backend holding private keys.",
-  };
-}
-
 function addExecutionLog(deploymentId, status, message, result = null) {
   executionHistory.push({
     id: crypto.randomUUID(),
@@ -318,97 +238,31 @@ function addExecutionLog(deploymentId, status, message, result = null) {
   }
 }
 
-const PRICE_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
-const PRICE_MIN_VALID = 0.0001;
-const PRICE_MAX_VALID = 10.0;
-
-async function fetchCoinGeckoPrice() {
-  const res = await fetch(
-    "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd&include_last_updated_at=true"
-  );
-  if (!res.ok) throw new Error(`CoinGecko failed (${res.status})`);
-  const data = await res.json();
-  const value = Number(data?.stellar?.usd);
-  const updatedAt = Number(data?.stellar?.last_updated_at) * 1000;
-  return { value, updatedAt, source: "coingecko" };
-}
-
-async function fetchBinancePrice() {
-  const res = await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=XLMUSDT");
-  if (!res.ok) throw new Error(`Binance failed (${res.status})`);
-  const data = await res.json();
-  const value = Number(data?.lastPrice);
-  const updatedAt = Number(data?.closeTime);
-  return { value, updatedAt, source: "binance" };
-}
-
-function validatePriceData(data, now) {
-  if (!data || !Number.isFinite(data.value) || !Number.isFinite(data.updatedAt)) {
-    throw new Error("Malformed price data: missing or invalid value/timestamp");
-  }
-  if (data.value < PRICE_MIN_VALID || data.value > PRICE_MAX_VALID) {
-    throw new Error(
-      `Price out of sanity range (${PRICE_MIN_VALID} - ${PRICE_MAX_VALID}): ${data.value}`
-    );
-  }
-
-  const age = now - data.updatedAt;
-  if (age < -60_000) {
-    throw new Error(`Price timestamp is in the future: ${data.updatedAt}`);
-  } else if (age > PRICE_MAX_AGE_MS) {
-    throw new Error(`Price data is stale. Age: ${age}ms, Max: ${PRICE_MAX_AGE_MS}ms`);
-  }
-  return true;
-}
-
-let priceCache = { value: null, fetchedAt: 0, updatedAt: 0 };
-
-function resetPriceCache() {
-  priceCache = { value: null, fetchedAt: 0, updatedAt: 0 };
-}
+let priceCache = { value: null, fetchedAt: 0 };
 
 async function getXlmUsdPrice() {
   const now = Date.now();
-
-  if (
-    priceCache.value !== null &&
-    now - priceCache.fetchedAt < 30_000 &&
-    now - priceCache.updatedAt < PRICE_MAX_AGE_MS
-  ) {
+  if (priceCache.value !== null && now - priceCache.fetchedAt < 30_000) {
     return priceCache.value;
   }
 
-  let priceData = null;
-  let errors = [];
+  const res = await fetch(
+    "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd"
+  );
 
-  // Primary: CoinGecko
-  try {
-    const cgData = await fetchCoinGeckoPrice();
-    validatePriceData(cgData, now);
-    priceData = cgData;
-  } catch (err) {
-    errors.push(err.message);
-    logger.warn({ err: err.message }, "CoinGecko price fetch failed, attempting fallback");
+  if (!res.ok) {
+    throw new Error(`Price lookup failed (${res.status})`);
   }
 
-  // Fallback: Binance (Documented fallback strategy)
-  if (!priceData) {
-    try {
-      const binData = await fetchBinancePrice();
-      validatePriceData(binData, now);
-      priceData = binData;
-    } catch (err) {
-      errors.push(err.message);
-      logger.warn({ err: err.message }, "Binance price fetch failed");
-    }
+  const data = await res.json();
+  const value = Number(data?.stellar?.usd);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("Invalid price response from upstream provider");
   }
 
-  if (!priceData) {
-    throw new Error(`All price oracles failed or returned invalid data: ${errors.join(" | ")}`);
-  }
-
-  priceCache = { value: priceData.value, fetchedAt: now, updatedAt: priceData.updatedAt };
-  return priceData.value;
+  priceCache = { value, fetchedAt: now };
+  return value;
 }
 
 function nextRunIso(intervalMinutes) {
@@ -421,8 +275,6 @@ async function evaluateDeployment(deployment) {
 
   if (nextRunMs && now < nextRunMs) return;
 
-  const start = process.hrtime.bigint();
-
   try {
     const price = await getXlmUsdPrice();
     deployment.lastObservedPriceUsd = price;
@@ -433,9 +285,6 @@ async function evaluateDeployment(deployment) {
       deployment.lastExecutedAt = new Date().toISOString();
       deployment.nextRunAt = nextRunIso(deployment.config.intervalMinutes);
       addExecutionLog(deployment.id, "executed", "DCA txFunction generated", result);
-      const dur = Number(process.hrtime.bigint() - start) / 1e9;
-      turretsExecutionDuration.observe({ type: "dca" }, dur);
-      turretsExecutionsTotal.inc({ type: "dca", status: "executed" });
       return;
     }
 
@@ -445,41 +294,14 @@ async function evaluateDeployment(deployment) {
         deployment.lastExecutedAt = new Date().toISOString();
         deployment.nextRunAt = nextRunIso(deployment.config.cooldownMinutes);
         addExecutionLog(deployment.id, "executed", "Stop-loss condition met", result);
-        const dur = Number(process.hrtime.bigint() - start) / 1e9;
-        turretsExecutionDuration.observe({ type: "stop_loss" }, dur);
-        turretsExecutionsTotal.inc({ type: "stop_loss", status: "executed" });
       } else {
         deployment.nextRunAt = new Date(Date.now() + 60 * 1000).toISOString();
-        const dur = Number(process.hrtime.bigint() - start) / 1e9;
-        turretsExecutionDuration.observe({ type: "stop_loss" }, dur);
-        turretsExecutionsTotal.inc({ type: "stop_loss", status: "skipped" });
       }
-    }
-
-    if (deployment.type === "escrow_release") {
-      const releaseAt = deployment.createdAtMs + deployment.config.releaseAfterMs;
-      if (deployment.config.releaseCondition === "time" && now >= releaseAt) {
-        const result = escrowReleaseTxFunction(deployment.config);
-        deployment.lastExecutedAt = new Date().toISOString();
-        deployment.status = "completed";
-        addExecutionLog(
-          deployment.id,
-          "executed",
-          "Escrow time-lock expired, release triggered",
-          result
-        );
-      }
-      const dur = Number(process.hrtime.bigint() - start) / 1e9;
-      turretsExecutionDuration.observe({ type: "escrow_release" }, dur);
-      turretsExecutionsTotal.inc({ type: "escrow_release", status: deployment.status === "completed" ? "completed" : "pending" });
     }
   } catch (err) {
     deployment.lastError = err.message;
     deployment.lastCheckedAt = new Date().toISOString();
     addExecutionLog(deployment.id, "error", err.message);
-    const dur = Number(process.hrtime.bigint() - start) / 1e9;
-    turretsExecutionDuration.observe({ type: deployment.type }, dur);
-    turretsExecutionsTotal.inc({ type: deployment.type, status: "error" });
   }
 }
 
@@ -504,61 +326,84 @@ function stopRunner() {
 }
 
 function deployTxFunction({ ownerPublicKey, type, config, deploymentHash, signedChallengeXDR }) {
+  validatePublicKey(ownerPublicKey);
+  verifySignedChallenge({ ownerPublicKey, signedChallengeXDR });
+
+  const normalizedConfig = normalizeConfig(type, config);
+  const calculatedHash = getConfigHash(type, normalizedConfig);
+
+  if (calculatedHash !== deploymentHash) {
+    const err = new Error("Configuration hash mismatch. Recreate challenge and sign again.");
+    err.status = 400;
+    throw err;
+  }
+
+  if (type === "dca") {
+    toDexAsset(normalizedConfig.quoteAssetCode, normalizedConfig.quoteAssetIssuer);
+  }
+
+  if (type === "stop_loss") {
+    toDexAsset(normalizedConfig.sellAssetCode, normalizedConfig.sellAssetIssuer);
+  }
+
   const id = crypto.randomUUID();
+
   const deployment = {
     id,
     ownerPublicKey,
     type,
-    config,
+    status: "active",
+    config: normalizedConfig,
     deploymentHash,
     signedChallengeXDR,
-    status: "active",
     createdAt: new Date().toISOString(),
-    nextRunAt: new Date(Date.now() + 60000).toISOString(),
+    nextRunAt:
+      type === "dca"
+        ? nextRunIso(normalizedConfig.intervalMinutes)
+        : new Date(Date.now() + 60 * 1000).toISOString(),
     lastExecutedAt: null,
+    lastCheckedAt: null,
+    lastObservedPriceUsd: null,
     lastError: null,
   };
 
   deployments.set(id, deployment);
-  addAuditLog("deploy", ownerPublicKey, id, { type });
+  addExecutionLog(id, "created", "txFunction deployed");
+
+  startRunner();
+
   return deployment;
 }
 
 function listDeployments(ownerPublicKey) {
-  return Array.from(deployments.values()).filter((d) => d.ownerPublicKey === ownerPublicKey);
+  if (ownerPublicKey) {
+    validatePublicKey(ownerPublicKey);
+    return Array.from(deployments.values()).filter((d) => d.ownerPublicKey === ownerPublicKey);
+  }
+  return Array.from(deployments.values());
 }
 
 function getDeployment(id) {
-  const d = deployments.get(id);
-  if (!d) {
+  const deployment = deployments.get(id);
+  if (!deployment) {
     const err = new Error("txFunction not found");
     err.status = 404;
     throw err;
   }
-  return d;
+  return deployment;
 }
 
-function updateDeploymentStatus(id, status, error = null) {
-  const d = deployments.get(id);
-  if (d) {
-    d.status = status;
-    if (error) d.lastError = error;
-    deployments.set(id, d);
-  }
+function getExecutionHistory(deploymentId) {
+  return executionHistory
+    .filter((entry) => entry.deploymentId === deploymentId)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
-function startRunner(intervalMs = 60000) {
-  if (runnerStarted) return;
-  runnerStarted = true;
-  runnerTimer = setInterval(async () => {
-    for (const [id, d] of deployments.entries()) {
-      if (d.status !== "active") continue;
-      if (new Date(d.nextRunAt) > new Date()) continue;
-      logger.info({ id }, "[turrets] Executing scheduled txFunction");
-      d.nextRunAt = new Date(Date.now() + intervalMs).toISOString();
-      deployments.set(id, d);
-    }
-  }, intervalMs);
+function setDeploymentStatus(id, status) {
+  const deployment = getDeployment(id);
+  deployment.status = status;
+  addExecutionLog(id, "status", `txFunction ${status}`);
+  return deployment;
 }
 
 module.exports = {
@@ -566,9 +411,8 @@ module.exports = {
   deployTxFunction,
   listDeployments,
   getDeployment,
-  updateDeploymentStatus,
+  getExecutionHistory,
+  setDeploymentStatus,
   startRunner,
   stopRunner,
-  _getXlmUsdPrice: getXlmUsdPrice,
-  _resetPriceCache: resetPriceCache,
 };

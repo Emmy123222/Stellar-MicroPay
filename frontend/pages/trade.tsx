@@ -4,13 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-
 import { Asset } from "@stellar/stellar-sdk";
-import { format } from "date-fns";
-
-import Toast from "@/components/Toast";
-import TradeForm from "@/components/TradeForm";
-import WalletConnect from "@/components/WalletConnect";
 import {
   fetchOrderbook,
   fetchTradeAggregations,
@@ -18,14 +12,16 @@ import {
   buildCancelOfferTransaction,
   submitTransaction,
   NETWORK_PASSPHRASE,
-  NETWORK,
   USDC,
   Orderbook,
   TradeAggregation,
   OpenOffer,
 } from "@/lib/stellar";
+import TradeForm from "@/components/TradeForm";
+import Toast from "@/components/Toast";
+import WalletConnect from "@/components/WalletConnect";
 import { useWallet } from "@/lib/useWallet";
-
+import { format } from "date-fns";
 
 export default function Trade() {
   const { publicKey } = useWallet();
@@ -84,22 +80,19 @@ export default function Trade() {
     try {
       const transaction = await buildCancelOfferTransaction({
         fromPublicKey: publicKey,
-        offerId: String(offer.id),
+        offerId: offer.id,
         selling: offer.selling,
         buying: offer.buying,
       });
 
       // Sign with Freighter
       const { signTransaction } = await import("@stellar/freighter-api");
-      const signed = await signTransaction(transaction.toXDR(), {
+      const signedXDR = await signTransaction(transaction.toXDR(), {
         networkPassphrase: NETWORK_PASSPHRASE,
       });
-      if (signed.error) {
-        throw new Error(signed.error.message || "Transaction signing failed");
-      }
 
       // Submit transaction
-      await submitTransaction(signed.signedTxXdr);
+      await submitTransaction(signedXDR);
 
       showToast("Offer cancelled successfully!", "success");
       loadOpenOffers(); // Reload offers
@@ -137,7 +130,9 @@ export default function Trade() {
     return (
       <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
         <div className="mb-10 text-center">
-          <h1 className="mb-3 font-display text-3xl font-bold text-white">Stellar DEX Trading</h1>
+          <h1 className="mb-3 font-display text-3xl font-bold text-white">
+            Stellar DEX Trading
+          </h1>
           <p className="text-slate-400">
             Connect your wallet to trade XLM and USDC on the Stellar DEX.
           </p>
@@ -151,8 +146,12 @@ export default function Trade() {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold text-white mb-2">Stellar DEX Trading</h1>
-        <p className="text-slate-400">Trade XLM and USDC on the Stellar decentralised exchange</p>
+        <h1 className="font-display text-3xl font-bold text-white mb-2">
+          Stellar DEX Trading
+        </h1>
+        <p className="text-slate-400">
+          Trade XLM and USDC on the Stellar decentralised exchange
+        </p>
       </div>
 
       {/* Tab Navigation */}
@@ -216,14 +215,12 @@ export default function Trade() {
                   <div>
                     <h3 className="text-sm font-medium text-slate-400 mb-2">Sell Orders</h3>
                     <div className="space-y-1">
-                      {orderbook.asks
-                        .slice(0, 5)
-                        .map((ask: { price: string; amount: string }, index: number) => (
-                          <div key={index} className="flex justify-between text-sm">
-                            <span className="text-red-400">{ask.price}</span>
-                            <span className="text-slate-300">{ask.amount}</span>
-                          </div>
-                        ))}
+                      {orderbook.asks.slice(0, 5).map((ask: { price: string; amount: string }, index: number) => (
+                        <div key={index} className="flex justify-between text-sm">
+                          <span className="text-red-400">{ask.price}</span>
+                          <span className="text-slate-300">{ask.amount}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
@@ -233,10 +230,7 @@ export default function Trade() {
                       <span className="text-slate-400">Spread</span>
                       <span className="text-stellar-400">
                         {orderbook.asks[0] && orderbook.bids[0]
-                          ? (
-                              parseFloat(orderbook.asks[0].price) -
-                              parseFloat(orderbook.bids[0].price)
-                            ).toFixed(7)
+                          ? (parseFloat(orderbook.asks[0].price) - parseFloat(orderbook.bids[0].price)).toFixed(7)
                           : "N/A"}
                       </span>
                     </div>
@@ -246,19 +240,19 @@ export default function Trade() {
                   <div>
                     <h3 className="text-sm font-medium text-slate-400 mb-2">Buy Orders</h3>
                     <div className="space-y-1">
-                      {orderbook.bids
-                        .slice(0, 5)
-                        .map((bid: { price: string; amount: string }, index: number) => (
-                          <div key={index} className="flex justify-between text-sm">
-                            <span className="text-emerald-400">{bid.price}</span>
-                            <span className="text-slate-300">{bid.amount}</span>
-                          </div>
-                        ))}
+                      {orderbook.bids.slice(0, 5).map((bid: { price: string; amount: string }, index: number) => (
+                        <div key={index} className="flex justify-between text-sm">
+                          <span className="text-emerald-400">{bid.price}</span>
+                          <span className="text-slate-300">{bid.amount}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-8 text-slate-400">Loading orderbook...</div>
+                <div className="text-center py-8 text-slate-500">
+                  Loading orderbook...
+                </div>
               )}
             </div>
           </div>
@@ -277,15 +271,9 @@ export default function Trade() {
                   <tr className="border-b border-stellar-500/20">
                     <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">Pair</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">Type</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">
-                      Amount
-                    </th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">
-                      Price
-                    </th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">
-                      Actions
-                    </th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Amount</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Price</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -295,13 +283,11 @@ export default function Trade() {
                         {formatAsset(offer.selling)}/{formatAsset(offer.buying)}
                       </td>
                       <td className="py-3 px-4 text-sm">
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-medium ${
-                            offer.selling.isNative()
-                              ? "bg-red-500/20 text-red-400"
-                              : "bg-emerald-500/20 text-emerald-400"
-                          }`}
-                        >
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          offer.selling.isNative()
+                            ? "bg-red-500/20 text-red-400"
+                            : "bg-emerald-500/20 text-emerald-400"
+                        }`}>
                           {offer.selling.isNative() ? "Sell" : "Buy"}
                         </span>
                       </td>
@@ -322,7 +308,9 @@ export default function Trade() {
               </table>
             </div>
           ) : (
-            <div className="text-center py-8 text-slate-400">No open orders</div>
+            <div className="text-center py-8 text-slate-500">
+              No open orders
+            </div>
           )}
         </div>
       )}
@@ -338,18 +326,10 @@ export default function Trade() {
                 <thead>
                   <tr className="border-b border-stellar-500/20">
                     <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">Time</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">
-                      Price
-                    </th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">
-                      Volume (USDC)
-                    </th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">
-                      Volume (XLM)
-                    </th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">
-                      Trades
-                    </th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Price</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Volume (USDC)</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Volume (XLM)</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-400">Trades</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -359,28 +339,30 @@ export default function Trade() {
                         {format(new Date(trade.timestamp), "HH:mm")}
                       </td>
                       <td className="py-3 px-4 text-sm text-white text-right">{trade.price}</td>
-                      <td className="py-3 px-4 text-sm text-white text-right">
-                        {trade.base_volume}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-white text-right">
-                        {trade.counter_volume}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-white text-right">
-                        {trade.trade_count}
-                      </td>
+                      <td className="py-3 px-4 text-sm text-white text-right">{trade.base_volume}</td>
+                      <td className="py-3 px-4 text-sm text-white text-right">{trade.counter_volume}</td>
+                      <td className="py-3 px-4 text-sm text-white text-right">{trade.trade_count}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <div className="text-center py-8 text-slate-400">No trades in the last 24 hours</div>
+            <div className="text-center py-8 text-slate-500">
+              No trades in the last 24 hours
+            </div>
           )}
         </div>
       )}
 
       {/* Toast Notification */}
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 }

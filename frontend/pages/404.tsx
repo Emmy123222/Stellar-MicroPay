@@ -39,7 +39,9 @@ export default function Custom404() {
         </div>
 
         {/* 404 number */}
-        <h1 className="font-display text-7xl md:text-8xl font-bold text-gradient mb-4">404</h1>
+        <h1 className="font-display text-7xl md:text-8xl font-bold text-gradient mb-4">
+          404
+        </h1>
 
         {/* Error message */}
         <h2 className="font-display text-2xl font-semibold text-white mb-4">

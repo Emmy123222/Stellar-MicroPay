@@ -1,8 +1,5 @@
-/* eslint-disable react/display-name */
 import React from "react";
-
 import { render, screen, waitFor } from "@testing-library/react";
-
 import "@testing-library/jest-dom";
 import Dashboard from "@/pages/dashboard";
 
@@ -32,24 +29,15 @@ jest.mock("@/components/SendPaymentForm", () => ({
 }));
 
 jest.mock("@/lib/stellar", () => ({
-  getBalances: jest
-    .fn()
-    .mockResolvedValue([{ asset: "native", balance: "500.0000000", assetCode: "XLM" }]),
   getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
   getAccountReserveInfo: jest.fn().mockResolvedValue(null),
   getUSDCBalance: jest.fn().mockResolvedValue(null),
   getRecentPaymentsForStats: jest.fn().mockResolvedValue([]),
   getRecentPaymentsForSparkline: jest.fn().mockResolvedValue([]),
-  fetchAllPayments: jest.fn().mockResolvedValue([]),
   getPaymentHistory: jest.fn().mockResolvedValue({ records: [], hasMore: false }),
-  getFriendBotFunding: jest.fn(),
-  waitForAccountFunding: jest.fn().mockResolvedValue(true),
+  fundWithFriendbot: jest.fn(),
   ACCOUNT_NOT_FOUND_ERROR: "ACCOUNT_NOT_FOUND",
   streamPayments: jest.fn(() => jest.fn()),
-  primeRealtimeCursor: jest.fn(),
-  handleRealtimePayment: jest.fn(),
-  startPollingFallback: jest.fn(),
-  stopPollingFallback: jest.fn(),
   isValidStellarAddress: jest.fn().mockReturnValue(true),
   shortenAddress: jest.fn((pk: string) => pk.slice(0, 6)),
   explorerUrl: jest.fn((hash: string) => `https://stellar.expert/tx/${hash}`),
@@ -57,7 +45,9 @@ jest.mock("@/lib/stellar", () => ({
 
 const PUBLIC_KEY = "GABC1234567890ABCDEF";
 
-function mockDashboardFetch(coinGeckoResponse: Promise<Response>): jest.Mock {
+function mockDashboardFetch(
+  coinGeckoResponse: Promise<Response>
+): jest.Mock {
   return jest.fn((input: RequestInfo | URL) => {
     const url = String(input);
 
@@ -119,7 +109,9 @@ describe("Dashboard USD price display", () => {
   });
 
   it("hides USD line when CoinGecko fails", async () => {
-    global.fetch = mockDashboardFetch(Promise.reject(new Error("Network error")));
+    global.fetch = mockDashboardFetch(
+      Promise.reject(new Error("Network error"))
+    );
 
     render(<Dashboard />);
 

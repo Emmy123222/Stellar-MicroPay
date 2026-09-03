@@ -6,11 +6,9 @@
 "use strict";
 
 const express = require("express");
-
-const federationController = require("../controllers/federationController");
-const { strictLimiter } = require("../middleware/rateLimit");
-
 const router = express.Router();
+const { strictLimiter } = require("../middleware/rateLimit");
+const federationController = require("../controllers/federationController");
 
 /**
  * GET /federation?q=<query>&type=<type>

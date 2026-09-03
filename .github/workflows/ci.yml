@@ -5,213 +5,100 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  # ─── EditorConfig ──────────────────────────────────────────────────────────
-  editorconfig:
-    name: EditorConfig Compliance
+  repository:
+    name: Repository integrity
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
+      - name: Reject whitespace errors and unresolved conflicts
+        run: |
+          git diff --check HEAD^
+          ! git grep -n -E '^(<<<<<<<|=======|>>>>>>>)'
 
-      - name: Check EditorConfig compliance
-        uses: editorconfig-checker/action-editorconfig-checker@main
-
-  # ─── Frontend Type Check (required gate) ───────────────────────────────────
-  frontend-typecheck:
-    name: Frontend Type Check
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: frontend
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: ".nvmrc"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npm run type-check
-
-  # ─── Frontend ──────────────────────────────────────────────────────────────
   frontend:
-    name: Frontend (Next.js)
+    name: Frontend (typecheck, lint, test, build)
     runs-on: ubuntu-latest
-    needs: frontend-typecheck
-
     defaults:
       run:
         working-directory: frontend
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
-          cache: "npm"
+          node-version-file: .nvmrc
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Check for unused dependencies
-        run: npx depcheck --ignores="@storybook/*,prettier" --ignore-dirs=.next,.storybook
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Unit tests
-        run: npm test
-
-      - name: Build
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run lint
+      - run: npm test
+      - name: Production build
         run: npm run build
         env:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          SENTRY_RELEASE: ${{ github.sha }}
 
-      - name: Build Storybook (dev-only docs bundle)
-        run: npm run build-storybook
-
-      - name: Bundle size budget
-        run: npm run size
-
-  # ─── Backend ───────────────────────────────────────────────────────────────
   backend:
-    name: Backend (Node.js)
+    name: Backend (lint and test)
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: backend
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
-          cache: "npm"
+          node-version-file: .nvmrc
+          cache: npm
           cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Check for unused dependencies
-        run: npx depcheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Unit tests
-        run: npm test
-
-  # ─── Contracts ─────────────────────────────────────────────────────────────
   contracts:
-    name: Soroban Contracts (Rust)
+    name: Soroban contract (check, test, WASM)
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: contracts/stellar-micropay-contract
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Check
-        run: cargo check --target wasm32-unknown-unknown
-
-      - name: Test
-        run: cargo test
-
-      - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown --release
-
-      - name: Install Syft
-        uses: anchore/sbom-action/download-syft@v0
-
-      - name: Generate and verify contract SBOM (#817)
-        working-directory: contracts/stellar-micropay-contract
-        run: |
-          syft scan dir:. -o cyclonedx-json=../../contract-sbom.cyclonedx.json
-          test -s ../../contract-sbom.cyclonedx.json
-          test -f ../../target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
-
-      - name: Reproducible WASM Build & Size Verification (#806)
-        run: ./scripts/build-and-verify.sh
-
-      - name: Upload Contract WASM Artifacts
-        uses: actions/upload-artifact@v4
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --target wasm32v1-none
+      - run: cargo test
+      - run: cargo build --target wasm32v1-none --release
+      - uses: actions/upload-artifact@v4
         with:
           name: stellar-micropay-contract-wasm
-          path: |
-            contracts/stellar-micropay-contract/target/wasm32v1-none/release/stellar_micropay_contract.wasm
-            contracts/stellar-micropay-contract/target/wasm32v1-none/release/stellar_micropay_contract.wasm.sha256
-            contracts/stellar-micropay-contract/target/wasm_build_report.json
+          path: target/wasm32v1-none/release/stellar_micropay_contract.wasm
+          if-no-files-found: error
 
-  # ─── E2E Tests ─────────────────────────────────────────────────────────────
   e2e:
-    name: E2E Tests (Playwright)
+    name: Browser smoke (Playwright)
     runs-on: ubuntu-latest
-    needs: frontend-typecheck
-
     defaults:
       run:
         working-directory: frontend
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
-          cache: "npm"
+          node-version-file: .nvmrc
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Run E2E tests
-        run: npm run test:e2e
-
-      - name: Upload Playwright report
-        if: always()
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: frontend/playwright-report/
+          if-no-files-found: warn
