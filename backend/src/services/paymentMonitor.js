@@ -1,9 +1,3 @@
-/**
- * src/services/paymentMonitor.js
- * Monitors Stellar accounts for incoming payments via Horizon SSE streaming.
- * Fires registered webhooks using Promise.allSettled for parallel, safe delivery.
- */
-
 "use strict";
 
 const { Horizon } = require("@stellar/stellar-sdk");
@@ -24,11 +18,6 @@ const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.
 
 const horizonServer = new Horizon.Server(HORIZON_URL);
 
-/**
- * Map of publicKey → SSE close function.
- * Prevents duplicate streams for the same account.
- * @type {Map<string, () => void>}
- */
 const activeStreams = new Map();
 
 /**
@@ -97,7 +86,6 @@ function startMonitoring(publicKey) {
     .cursor(resumeCursor)
     .stream({
       onmessage: async (record) => {
-        // Only handle incoming simple payments to this account
         if (record.type !== "payment" || record.to !== publicKey) return;
 
         // Deduplicate rows replayed by an inclusive resume.
@@ -132,7 +120,6 @@ function startMonitoring(publicKey) {
           ledger: record.ledger_attr ?? 0,
           timestamp: record.created_at,
         };
-
         const hooks = getWebhooksByPublicKey(publicKey);
         if (hooks.length > 0) {
           // Parallel delivery — one failed hook must not block others
@@ -144,7 +131,6 @@ function startMonitoring(publicKey) {
         cursorStore.set(publicKey, record.paging_token);
         breaker.recordSuccess();
       },
-
       onerror: (err) => {
         breaker.recordFailure();
         logger.error(
@@ -166,19 +152,10 @@ function startMonitoring(publicKey) {
   return { started: true };
 }
 
-/**
- * Stop monitoring a Stellar account and close its SSE stream.
- *
- * @param {string} publicKey
- */
 function stopMonitoring(publicKey) {
   const close = activeStreams.get(publicKey);
   if (close) {
-    try {
-      close();
-    } catch (err) {
-      logger.error({ publicKey, err }, "[monitor] error closing stream");
-    }
+    try { close(); } catch (err) { logger.error({ publicKey, err }, "[monitor] error closing stream"); }
     activeStreams.delete(publicKey);
     logger.info({ publicKey }, "[monitor] SSE stream closed");
   }
@@ -195,11 +172,6 @@ function ensureMonitored(publicKey) {
   return startMonitoring(publicKey);
 }
 
-/**
- * Resume monitoring for all webhooks that exist at startup.
- * Call this once during app initialisation so existing registrations
- * survive server restarts.
- */
 function resumeAllMonitors() {
   const allWebhooks = getAllWebhooks();
   const seen = new Set();
@@ -229,6 +201,7 @@ function getMonitorStatus() {
 module.exports = {
   startMonitoring,
   stopMonitoring,
+  stopAllMonitoring,
   ensureMonitored,
   resumeAllMonitors,
   getMonitorStatus,

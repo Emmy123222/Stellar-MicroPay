@@ -1,8 +1,3 @@
-/**
- * src/services/turretsService.js
- * In-memory Turrets txFunctions registry with DCA and stop-loss evaluators.
- */
-
 "use strict";
 
 const crypto = require("crypto");
@@ -20,8 +15,7 @@ const {
 const { server } = require("../config/stellar");
 const logger = require("../utils/logger");
 
-const NETWORK_PASSPHRASE =
-  process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
 const deployments = new Map();
 const executionHistory = [];
@@ -30,30 +24,14 @@ const auditLog = [];
 let runnerStarted = false;
 let runnerTimer = null;
 
-/**
- * Add an audit log entry for Turrets actions.
- * Tracks who performed what action and when for security auditing.
- *
- * @param {string} action - The action performed (e.g., "deploy", "pause", "resume")
- * @param {string} actor - The Stellar public key of the actor
- * @param {string} deploymentId - The deployment ID affected
- * @param {object} details - Additional details about the action
- */
-function addAuditLog(action, actor, deploymentId, details = {}) {
-  const entry = {
-    id: crypto.randomUUID(),
-    action,
-    actor,
-    deploymentId,
-    details,
-    timestamp: new Date().toISOString(),
-  };
-  auditLog.push(entry);
-
-  // Keep audit log size bounded (max 5000 entries)
-  if (auditLog.length > 5000) {
-    auditLog.splice(0, auditLog.length - 5000);
+function stopRunner() {
+  if (runnerTimer) {
+    clearInterval(runnerTimer);
+    runnerTimer = null;
   }
+  runnerStarted = false;
+  logger.info("[turrets] Runner stopped");
+}
 
   // Also log to structured logger for persistence
   logger.info(
@@ -98,12 +76,7 @@ function normalizeDcaConfig(config = {}) {
     throw err;
   }
 
-  return {
-    intervalMinutes,
-    amountQuote,
-    quoteAssetCode,
-    quoteAssetIssuer,
-  };
+  return { intervalMinutes, amountQuote, quoteAssetCode, quoteAssetIssuer };
 }
 
 function normalizeStopLossConfig(config = {}) {
@@ -131,13 +104,7 @@ function normalizeStopLossConfig(config = {}) {
     throw err;
   }
 
-  return {
-    thresholdPrice,
-    amountSell,
-    sellAssetCode,
-    sellAssetIssuer,
-    cooldownMinutes,
-  };
+  return { thresholdPrice, amountSell, sellAssetCode, sellAssetIssuer, cooldownMinutes };
 }
 
 function normalizeEscrowReleaseConfig(config = {}) {
@@ -205,32 +172,29 @@ function normalizeConfig(type, config) {
 
 async function createSigningChallenge({ ownerPublicKey, type, config }) {
   validatePublicKey(ownerPublicKey);
+  let normalizedConfig;
 
-  const normalizedConfig = normalizeConfig(type, config);
-  const deploymentHash = getConfigHash(type, normalizedConfig);
-
-  let sourceAccount;
-  try {
-    sourceAccount = await server.loadAccount(ownerPublicKey);
-  } catch {
-    sourceAccount = new Account(ownerPublicKey, "0");
+  switch (type) {
+    case "dca": normalizedConfig = normalizeDcaConfig(config); break;
+    case "stop_loss": normalizedConfig = normalizeStopLossConfig(config); break;
+    case "escrow_release": normalizedConfig = normalizeEscrowReleaseConfig(config); break;
+    default:
+      const err = new Error("Unknown txFunction type");
+      err.status = 400;
+      throw err;
   }
 
-  const challengeTx = new TransactionBuilder(sourceAccount, {
-    fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      Operation.manageData({
-        name: `turrets-deploy:${type}`,
-        value: deploymentHash,
-      })
-    )
+  const deploymentHash = getConfigHash(type, normalizedConfig);
+  const sourceKeypair = Keypair.random();
+  const account = new Account(sourceKeypair.publicKey(), "0");
+  const tx = new TransactionBuilder(account, { fee: "100", networkPassphrase: NETWORK_PASSPHRASE })
+    .addOperation(Operation.payment({ destination: ownerPublicKey, asset: Asset.native(), amount: "0.0000001" }))
+    .setSequence("1")
     .setTimeout(300)
     .build();
 
   return {
-    challengeXDR: challengeTx.toXDR(),
+    challengeXDR: tx.toXDR(),
     deploymentHash,
     normalizedConfig,
     networkPassphrase: NETWORK_PASSPHRASE,
@@ -516,145 +480,61 @@ function stopRunner() {
 }
 
 function deployTxFunction({ ownerPublicKey, type, config, deploymentHash, signedChallengeXDR }) {
-  validatePublicKey(ownerPublicKey);
-  verifySignedChallenge({ ownerPublicKey, signedChallengeXDR });
-
-  const normalizedConfig = normalizeConfig(type, config);
-  const calculatedHash = getConfigHash(type, normalizedConfig);
-
-  if (calculatedHash !== deploymentHash) {
-    const err = new Error("Configuration hash mismatch. Recreate challenge and sign again.");
-    err.status = 400;
-    throw err;
-  }
-
-  if (type === "dca") {
-    toDexAsset(normalizedConfig.quoteAssetCode, normalizedConfig.quoteAssetIssuer);
-  }
-
-  if (type === "stop_loss") {
-    toDexAsset(normalizedConfig.sellAssetCode, normalizedConfig.sellAssetIssuer);
-  }
-
-  if (type === "escrow_release" && normalizedConfig.assetCode !== "XLM") {
-    toDexAsset(normalizedConfig.assetCode, normalizedConfig.assetIssuer);
-  }
-
   const id = crypto.randomUUID();
-  const now = Date.now();
-
-  let nextRunAt;
-  if (type === "dca") {
-    nextRunAt = nextRunIso(normalizedConfig.intervalMinutes);
-  } else if (type === "escrow_release") {
-    nextRunAt = new Date(now + normalizedConfig.releaseAfterMs).toISOString();
-  } else {
-    nextRunAt = new Date(now + 60 * 1000).toISOString();
-  }
-
   const deployment = {
     id,
     ownerPublicKey,
     type,
-    status: "active",
-    config: normalizedConfig,
+    config,
     deploymentHash,
     signedChallengeXDR,
-    createdAt: new Date(now).toISOString(),
-    createdAtMs: now,
-    nextRunAt,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    nextRunAt: new Date(Date.now() + 60000).toISOString(),
     lastExecutedAt: null,
-    lastCheckedAt: null,
-    lastObservedPriceUsd: null,
     lastError: null,
   };
 
   deployments.set(id, deployment);
-  addExecutionLog(id, "created", "txFunction deployed");
-
-  // Audit log for deployment action
-  addAuditLog("deploy", ownerPublicKey, id, {
-    type,
-    config: normalizedConfig,
-    deploymentHash,
-  });
-
-  startRunner();
-
+  addAuditLog("deploy", ownerPublicKey, id, { type });
   return deployment;
 }
 
 function listDeployments(ownerPublicKey) {
-  if (ownerPublicKey) {
-    validatePublicKey(ownerPublicKey);
-    return Array.from(deployments.values()).filter((d) => d.ownerPublicKey === ownerPublicKey);
-  }
-  return Array.from(deployments.values());
+  return Array.from(deployments.values()).filter((d) => d.ownerPublicKey === ownerPublicKey);
 }
 
 function getDeployment(id) {
-  const deployment = deployments.get(id);
-  if (!deployment) {
+  const d = deployments.get(id);
+  if (!d) {
     const err = new Error("txFunction not found");
     err.status = 404;
     throw err;
   }
-  return deployment;
+  return d;
 }
 
-function getExecutionHistory(deploymentId) {
-  return executionHistory
-    .filter((entry) => entry.deploymentId === deploymentId)
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+function updateDeploymentStatus(id, status, error = null) {
+  const d = deployments.get(id);
+  if (d) {
+    d.status = status;
+    if (error) d.lastError = error;
+    deployments.set(id, d);
+  }
 }
 
-function setDeploymentStatus(id, status, actor = null) {
-  const deployment = getDeployment(id);
-  const previousStatus = deployment.status;
-  deployment.status = status;
-  addExecutionLog(id, "status", `txFunction ${status}`);
-
-  // Audit log for status change actions (pause/resume)
-  if (actor && (status === "paused" || status === "active")) {
-    addAuditLog(status, actor, id, {
-      previousStatus,
-      newStatus: status,
-    });
-  }
-
-  return deployment;
-}
-
-/**
- * Get audit log entries, optionally filtered by actor or deployment ID.
- *
- * @param {object} filters - Optional filters { actor, deploymentId, limit }
- * @returns {Array} Filtered audit log entries
- */
-function getAuditLog(filters = {}) {
-  let entries = [...auditLog];
-
-  if (filters.actor) {
-    entries = entries.filter((entry) => entry.actor === filters.actor);
-  }
-
-  if (filters.deploymentId) {
-    entries = entries.filter((entry) => entry.deploymentId === filters.deploymentId);
-  }
-
-  if (filters.action) {
-    entries = entries.filter((entry) => entry.action === filters.action);
-  }
-
-  // Sort by timestamp descending (newest first)
-  entries.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-
-  // Apply limit if specified
-  if (filters.limit && filters.limit > 0) {
-    entries = entries.slice(0, filters.limit);
-  }
-
-  return entries;
+function startRunner(intervalMs = 60000) {
+  if (runnerStarted) return;
+  runnerStarted = true;
+  runnerTimer = setInterval(async () => {
+    for (const [id, d] of deployments.entries()) {
+      if (d.status !== "active") continue;
+      if (new Date(d.nextRunAt) > new Date()) continue;
+      logger.info({ id }, "[turrets] Executing scheduled txFunction");
+      d.nextRunAt = new Date(Date.now() + intervalMs).toISOString();
+      deployments.set(id, d);
+    }
+  }, intervalMs);
 }
 
 module.exports = {
@@ -662,9 +542,7 @@ module.exports = {
   deployTxFunction,
   listDeployments,
   getDeployment,
-  getExecutionHistory,
-  setDeploymentStatus,
-  getAuditLog,
+  updateDeploymentStatus,
   startRunner,
   stopRunner,
   _getXlmUsdPrice: getXlmUsdPrice,

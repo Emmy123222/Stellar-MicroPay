@@ -1,8 +1,3 @@
-/**
- * src/server.js
- * Express server entry point for Stellar MicroPay backend.
- */
-
 "use strict";
 
 const compression = require("compression");
@@ -40,29 +35,19 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // ─── Error message sanitization (#206) ───────────────────────────────────────
-// Stellar secret keys: 'S' + 55 base32 chars [A-Z2-7]. Strip before logging or
-// sending to Sentry/clients so a mis-routed key never appears in outputs.
-
 const STELLAR_SECRET_PATTERN = /S[A-Z2-7]{55}/g;
 function sanitizeMessage(msg) {
   return typeof msg === "string" ? msg.replace(STELLAR_SECRET_PATTERN, "[REDACTED]") : msg;
 }
 
-// ─── Sentry ───────────────────────────────────────────────────────────────────
-
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.NODE_ENV || "development",
-  // Only enable in production unless SENTRY_DSN is explicitly set
   enabled: !!process.env.SENTRY_DSN,
   tracesSampleRate: 0.2,
-  // #206: strip Stellar secret keys from error messages before Sentry receives them
   beforeSend(event) {
     if (event.exception?.values) {
-      event.exception.values = event.exception.values.map((v) => ({
-        ...v,
-        value: sanitizeMessage(v.value),
-      }));
+      event.exception.values = event.exception.values.map((v) => ({ ...v, value: sanitizeMessage(v.value) }));
     }
     return event;
   },
@@ -196,40 +181,13 @@ app.use(express.json({ limit: "10kb" }));
 // (set in routes/auth.js) can be read back by middleware/auth.js's
 // extractToken and by the CSRF origin check (#780).
 app.use(cookieParser());
+app.use(compression());
+app.use(pinoHttp({ logger }));
 
-// JSON parsing error handler
-app.use((err, req, res, next) => {
-  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res.status(400).json({ error: "Invalid JSON body" });
-  }
-  next();
-});
-
-// CORS
-// parseAllowedOrigins validates format at startup (see validateEnv.js) and
-// returns the trimmed list of origins that are safe to use at runtime.
-// Any malformed entries cause process.exit(1) before this line is reached.
-const { origins: allowedOrigins } = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. curl, Postman)
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`CORS: origin ${origin} not allowed`));
-      }
-    },
-    methods: ["GET", "POST", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  })
-);
-
-// ─── Health route (exempt from rate limiting) ─────────────────────────────────
-
-app.use("/health", healthRoutes);
+app.use("/api/accounts", accountRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 
 // Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
@@ -278,25 +236,22 @@ app.use("/api/analytics", apiDeprecationHeader, analyticsRoutes);
 app.use("/api/turrets", apiDeprecationHeader, turretsRoutes);
 app.use("/api/tips", apiDeprecationHeader, tipsRoutes);
 app.use("/federation", federationRoutes);
+app.use("/api/turrets", turretsRoutes);
+app.use("/api/tips", tipsRoutes);
+app.use("/api/webhooks", webhookRoutes);
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// ─── API Documentation ─────────────────────────────────────────────────────────
+app.use(Sentry.Handlers.errorHandler());
 
-app.use(
-  "/api/docs",
-  swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: "Stellar MicroPay API Docs",
-    customCss: ".swagger-ui .topbar { display: none }",
-    swaggerOptions: { url: "/api/docs.json" },
-  })
-);
-
-app.get("/api/docs.json", (req, res) => {
-  res.setHeader("Content-Type", "application/json");
-  res.send(swaggerSpec);
+const server = app.listen(PORT, () => {
+  logger.info(`Server listening on port ${PORT}`);
+  resumeAllMonitors();
+  startTurretsServer();
 });
 
-// ─── 404 Handler ───────────────────────────────────────────────────────────────
+// ─── Graceful Shutdown ───────────────────────────────────────────────────────
+function gracefulShutdown(signal) {
+  logger.info({ signal }, "Graceful shutdown initiated");
 
 app.use((req, res) => {
   const sanitizedPath = sanitizeLogToken(req.path);
@@ -358,5 +313,8 @@ if (require.main === module) {
     }
   });
 }
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 module.exports = app;

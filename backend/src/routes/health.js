@@ -1,8 +1,3 @@
-/**
- * src/routes/health.js
- * Health check endpoint — used by CI and deployment probes.
- */
-
 "use strict";
 
 const express = require("express");
@@ -10,6 +5,7 @@ const { getAllBreakerStates } = require("../services/horizonCircuitBreaker");
 const { getMonitorStatus } = require("../services/paymentMonitor");
 
 const router = express.Router();
+const { server } = require("../config/stellar");
 
 router.get("/", (req, res) => {
   const monitor = getMonitorStatus();
