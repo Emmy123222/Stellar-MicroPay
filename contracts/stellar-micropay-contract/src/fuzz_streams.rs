@@ -1,16 +1,19 @@
 //! Property-based fuzz harness for stream operation sequences (#563).
 //!
 //! `proptest` generates random sequences of claim_stream/top_up_stream/
-//! close_stream calls (interleaved with random ledger advances) against a
-//! stream opened by open_stream with a random number of recipients (1-3) and
-//! random weights, with top-up amounts drawn from a wide range that stresses
-//! the accrual arithmetic — including the per-recipient weighted-share
-//! multiplication (#559) — much harder than the fixed-size amounts used in
-//! the hand-written tests. After every call the harness re-checks the
-//! `claimed <= deposited` invariant (#557), summed across every recipient,
-//! and that the contract's token balance still covers what it owes. An
-//! unexpected panic — an arithmetic overflow, or an invariant violation —
-//! fails the test and proptest shrinks the sequence to a minimal
+//! pause_stream/resume_stream/close_stream calls (interleaved with random
+//! ledger advances) against a stream opened by open_stream with a random
+//! number of recipients (1-3) and random weights, with top-up amounts drawn
+//! from a wide range that stresses the accrual arithmetic — including the
+//! per-recipient weighted-share multiplication (#559) — much harder than the
+//! fixed-size amounts used in the hand-written tests. After every call the
+//! harness re-checks the `claimed <= deposited` invariant (#557), summed
+//! across every recipient, and that the contract's token balance still
+//! covers what it owes; while paused it also cross-checks the stream's
+//! `paused_ledgers` field against an independently-tracked expected total, so
+//! a double-counted or dropped pause window fails the test immediately
+//! (#792). An unexpected panic — an arithmetic overflow, or an invariant
+//! violation — fails the test and proptest shrinks the sequence to a minimal
 //! reproduction.
 //!
 //! Runs as part of the normal `cargo test` job already wired into CI
@@ -30,6 +33,8 @@ enum Op {
     Claim(u32),
     TopUp(i128),
     Advance(u32),
+    Pause,
+    Resume,
     Close,
 }
 
@@ -38,6 +43,8 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         2 => (0u32..3u32).prop_map(Op::Claim),
         3 => (MIN_STREAM_DEPOSIT..=1_000_000_000_000_000_000_000_000_000i128).prop_map(Op::TopUp),
         3 => (1u32..2_000u32).prop_map(Op::Advance),
+        2 => Just(Op::Pause),
+        2 => Just(Op::Resume),
         1 => Just(Op::Close),
     ]
 }
@@ -92,6 +99,12 @@ proptest! {
         );
 
         let mut closed = false;
+        // Independently-tracked expected value for stream.paused_ledgers, so a
+        // double-counted or dropped pause window in the contract shows up as a
+        // mismatch rather than only being self-consistent with its own bug (#792).
+        let mut is_paused = false;
+        let mut paused_since: u32 = 0;
+        let mut expected_paused_ledgers: u32 = 0;
         for op in ops {
             match op {
                 Op::Advance(ledgers) => {
@@ -106,6 +119,17 @@ proptest! {
                 Op::TopUp(amount) if !closed => {
                     client.top_up_stream(&id, &payer, &amount);
                 }
+                Op::Pause if !closed && !is_paused => {
+                    client.pause_stream(&id, &payer);
+                    is_paused = true;
+                    paused_since = env.ledger().sequence();
+                }
+                Op::Resume if !closed && is_paused => {
+                    client.resume_stream(&id, &payer);
+                    expected_paused_ledgers +=
+                        env.ledger().sequence().saturating_sub(paused_since);
+                    is_paused = false;
+                }
                 Op::Close if !closed => {
                     client.close_stream(&id, &payer);
                     closed = true;
@@ -114,6 +138,11 @@ proptest! {
             }
 
             let stream = client.get_stream(&id);
+            prop_assert_eq!(
+                stream.paused_ledgers,
+                expected_paused_ledgers,
+                "paused_ledgers diverged from the independently-tracked expected total"
+            );
             let mut total_claimed: i128 = 0;
             for i in 0..stream.recipients.len() {
                 let entry = stream.recipients.get(i).unwrap();

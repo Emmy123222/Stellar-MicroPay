@@ -9,8 +9,6 @@ require("dotenv").config();
 
 const { encrypt, decrypt } = require("./scheduledTransactionCrypto");
 
-const logger = require("../utils/logger");
-
 // In-memory storage for scheduled transactions
 // In a production environment, this would be replaced with a database
 const scheduledTransactions = new Map();

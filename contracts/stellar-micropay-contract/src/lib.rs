@@ -194,7 +194,10 @@ fn total_claimed(recipients: &Vec<StreamRecipient>) -> i128 {
 fn paused_ledgers_total(stream: &Stream, current_ledger: u32) -> u32 {
     if stream.paused {
         let ongoing = current_ledger.saturating_sub(stream.paused_at_ledger);
-        stream.paused_ledgers.saturating_add(ongoing)
+        stream
+            .paused_ledgers
+            .checked_add(ongoing)
+            .expect("paused duration overflow")
     } else {
         stream.paused_ledgers
     }
@@ -1252,7 +1255,11 @@ impl MicroPayContract {
 
         let current_ledger = env.ledger().sequence();
         let pause_length = current_ledger.saturating_sub(stream.paused_at_ledger);
-        stream.paused_ledgers = stream.paused_ledgers.saturating_add(pause_length);
+        // checked_add, not saturating_add — see paused_ledgers_total's doc comment.
+        stream.paused_ledgers = stream
+            .paused_ledgers
+            .checked_add(pause_length)
+            .expect("paused duration overflow");
         stream.paused = false;
         stream.paused_at_ledger = 0;
         save_stream(&env, stream_id, &stream);
@@ -1497,6 +1504,7 @@ mod tests {
         testutils::{Address as _, Ledger as _},
         Address, Env,
     };
+    use soroban_sdk::storage::{Instance as _, Persistent as _};
 
     #[test]
     fn test_initialize() {
@@ -2456,6 +2464,7 @@ mod tests {
     /// `Stream.claimed`, and covers a top-up followed by multiple claims.
     #[test]
     fn test_claim_and_top_up_same_ledger() {
+        let env = Env::default();
         let (contract_id, client, token_id, payer, recipient1) = stream_fixture(&env, DEPOSIT * 2);
         let recipient2 = Address::generate(&env);
         let recipient = recipient1.clone();
@@ -3068,6 +3077,64 @@ mod tests {
         let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
         client.close_stream(&id, &payer);
         client.pause_stream(&id, &payer);
+    }
+
+    /// #792 — repeated pause/resume cycles must accumulate `paused_ledgers`
+    /// once per cycle, never double-counting a completed pause window.
+    #[test]
+    fn test_multiple_pause_resume_cycles_accumulate_correctly() {
+        let env = Env::default();
+        let (_, client, token_id, payer, recipient) = stream_fixture(&env, DEPOSIT);
+
+        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+
+        // Cycle 1: run 10, pause 50.
+        advance_by(&env, 10);
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 50);
+        client.resume_stream(&id, &payer);
+        assert_eq!(client.get_stream(&id).paused_ledgers, 50);
+
+        // Cycle 2: run 20, pause 30.
+        advance_by(&env, 20);
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 30);
+        client.resume_stream(&id, &payer);
+        assert_eq!(client.get_stream(&id).paused_ledgers, 80);
+
+        // Cycle 3: run 5, pause 15.
+        advance_by(&env, 5);
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 15);
+        client.resume_stream(&id, &payer);
+        assert_eq!(client.get_stream(&id).paused_ledgers, 95);
+
+        // Total running time across all three cycles: 10 + 20 + 5 = 35 ledgers.
+        assert_eq!(client.get_claimable(&id, &recipient), RATE * 35);
+    }
+
+    /// #792 — accumulating `paused_ledgers` past `u32::MAX` must reject the
+    /// call with a clear error rather than silently wrapping or saturating
+    /// to a value that under-counts real paused time.
+    #[test]
+    #[should_panic(expected = "paused duration overflow")]
+    fn test_paused_ledgers_overflow_rejected() {
+        let env = Env::default();
+        let (contract_id, client, token_id, payer, recipient) = stream_fixture(&env, DEPOSIT);
+
+        let id = open_single_stream(&env, &client, &token_id, &payer, &recipient, RATE, DEPOSIT);
+
+        // Seed paused_ledgers right at the boundary, as if countless prior
+        // cycles had already accumulated it there.
+        env.as_contract(&contract_id, || {
+            let mut stream = load_stream(&env, id);
+            stream.paused_ledgers = u32::MAX - 3;
+            save_stream(&env, id, &stream);
+        });
+
+        client.pause_stream(&id, &payer);
+        advance_by(&env, 10); // pushes the completed pause length past the remaining headroom
+        client.resume_stream(&id, &payer);
     }
 
     // ── Schema versioning / migration (#562) ────────────────────────────────
