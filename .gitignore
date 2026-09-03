@@ -7,3 +7,6 @@ secrets/*.txt
 !secrets/.gitkeep
 target/
 
+# ─── Local scripts (never push) ───────────────────────────────────────────────
+scripts/create_issues.py
+backend/data/usernames.json

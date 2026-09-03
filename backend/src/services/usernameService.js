@@ -10,6 +10,36 @@
 // In-memory storage for username → publicKey mapping
 const usernameMap = new Map();
 
+/** Load previously persisted registrations from disk (skipped in tests). */
+function load() {
+  if (process.env.NODE_ENV === "test") return;
+  try {
+    const records = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    for (const record of records) {
+      usernameMap.set(record.username, record.publicKey);
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
+/** Persist the current registrations to disk (skipped in tests). */
+function persist() {
+  if (process.env.NODE_ENV === "test") return;
+  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+  const temp = `${storePath}.${process.pid}.tmp`;
+  fs.writeFileSync(
+    temp,
+    `${JSON.stringify(
+      Array.from(usernameMap, ([username, publicKey]) => ({ username, publicKey })),
+      null,
+      2
+    )}\n`,
+    { mode: 0o600 }
+  );
+  fs.renameSync(temp, storePath);
+}
+
 /**
  * Register a new username with a public key.
  * @param {string} username - The username to register
