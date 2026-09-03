@@ -5,13 +5,14 @@
 #   make test                — run all tests (frontend unit + backend unit)
 #   make lint                — lint frontend + backend
 #   make build               — build Docker images (dev compose)
-#   make contracts-build     — build Soroban contracts WASM
+#   make contracts-build     — build Soroban contracts WASM (target wasm32v1-none)
+#   make contracts-verify    — reproducible double-build & size ceiling verification (#806)
 #   make contracts-test      — run Soroban contract tests
 #   make contracts-fmt       — check Rust formatting (mirrors CI gate 1)
 #   make contracts-scout     — run Clippy lints with warnings-as-errors (mirrors CI gate 2)
 #   make contracts-check     — run all four CI gates locally in sequence
 
-.PHONY: dev test lint build storybook contracts-build contracts-test contracts-fmt contracts-scout contracts-check
+.PHONY: dev test lint build storybook contracts-build contracts-verify contracts-test contracts-fmt contracts-scout contracts-check
 
 dev:
 	npm run dev

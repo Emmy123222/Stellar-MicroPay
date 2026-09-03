@@ -22,8 +22,8 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Add WASM target
-rustup target add wasm32-unknown-unknown
+# Add WASM target (pinned in rust-toolchain.toml)
+rustup target add wasm32v1-none
 
 # Install Stellar CLI
 cargo install --locked stellar-cli
@@ -32,10 +32,38 @@ cargo install --locked stellar-cli
 ## Build
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
+# Direct cargo build
+cargo build --target wasm32v1-none --release
+
+# Or via Makefile from project root
+make contracts-build
 ```
 
-Output: `target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm`
+Output: `target/wasm32v1-none/release/stellar_micropay_contract.wasm`
+
+## Reproducible Build & Size Ceiling Attestation (#806)
+
+To prevent code bloat, unoptimized binary regressions, and non-deterministic compiler output, the contract enforces deterministic builds and a strict WASM size budget in CI and local workflows.
+
+```bash
+# Run double-build verification and size ceiling check
+./scripts/build-and-verify.sh
+
+# Or from project root
+make contracts-verify
+```
+
+### Verification Pipeline:
+1. **Pinned Toolchain**: Uses `rust-toolchain.toml` with `wasm32v1-none` target.
+2. **Double-Build Determinism**: Compiles the contract into two isolated, independent target directories and compares their SHA-256 hashes ($H_1 == H_2$).
+3. **Size Ceiling Enforcement**: Asserts that the compiled `.wasm` binary does not exceed **64 KB (65,536 bytes)**.
+   - **Documented Ceiling**: `65,536 bytes` (64 KB)
+   - **Current Baseline**: `~26,833 bytes` (~26.8 KB)
+   - **Headroom**: `~38,703 bytes` (~37.7 KB headroom for future features)
+4. **Attestation Artifacts**:
+   - `target/wasm32v1-none/release/stellar_micropay_contract.wasm`
+   - `target/wasm32v1-none/release/stellar_micropay_contract.wasm.sha256`
+   - `target/wasm_build_report.json`
 
 ## Test
 
@@ -43,19 +71,13 @@ Output: `target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm`
 cargo test
 ```
 
-### Fuzz testing (#563)
+### Fuzz testing (#563, #788)
 
-`src/fuzz_streams.rs` is a `proptest`-based property test that generates
-random sequences of `claim_stream` / `top_up_stream` / `close_stream` calls
-against a stream opened by `open_stream` — interleaved with random ledger
-advances and top-up amounts drawn from a much wider range than the
-hand-written tests use — and re-checks the `claimed <= deposited` invariant
-(#557) and contract solvency after every call. It runs as part of the normal
-`cargo test` job already wired into CI (`.github/workflows/ci.yml`); no
-separate nightly job is needed since it is a stable-Rust property test rather
-than a `cargo-fuzz`/libFuzzer harness. A failing case is automatically
-shrunk by `proptest` to a minimal reproduction and printed on test failure.
-Baseline runs have found no panics or overflows.
+`src/fuzz_streams.rs` contains property-based test suites using `proptest`:
+- `fuzz_stream_ops_preserve_invariants`: Generates random sequences of `claim_stream` / `top_up_stream` / `close_stream` calls against a stream opened by `open_stream` — interleaved with random ledger advances and top-up amounts drawn from a wide range — and verifies the `claimed <= deposited` invariant (#557) and contract solvency after every call.
+- `fuzz_weighted_stream_exact_conservation`: Generates arbitrary recipient counts (1..=8), arbitrary positive weights (1..=100_000), arbitrary accrual rates, and arbitrary elapsed ledger sequences, asserting that the sum of all recipient entitlements (`claimable + claimed`) strictly and exactly equals `total_streamed_amount` at all ledgers (zero stroop rounding loss) and that closure refunds the exact difference `deposited - total_streamed` to the payer (#788).
+
+These run as part of the normal `cargo test` job wired into CI (`.github/workflows/ci.yml`). Failing cases are automatically shrunk by `proptest` to a minimal reproduction.
 
 ## Deploy to Testnet
 
@@ -68,7 +90,7 @@ stellar keys fund alice --network testnet
 
 # Deploy
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm \
+  --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
   --source alice \
   --network testnet
 ```
@@ -445,7 +467,7 @@ value yet.
 3. **Publish the new WASM.**
    ```bash
    stellar contract upload \
-     --wasm target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm \
+     --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
      --source admin \
      --network testnet
    ```
@@ -498,7 +520,7 @@ redeploy a build whose `SCHEMA_VERSION` matches what is on-chain.
 
 The CLI commands above only work if the contract compiles. The merge residue
 that used to block `cargo build` is gone — `cargo check`, `cargo test` and
-`cargo build --target wasm32-unknown-unknown --release` are all green — but
+`cargo build --target wasm32v1-none --release` are all green — but
 two build-level pitfalls remain worth knowing about:
 
 - **Dependency drift.** `Cargo.lock` is committed on purpose. Deleting it (or
@@ -509,7 +531,7 @@ two build-level pitfalls remain worth knowing about:
   `stellar-xdr`, are both this. Restore the lockfile with
   `git checkout Cargo.lock` rather than chasing the errors upstream.
 - **Missing WASM target.** `error[E0463]: can't find crate for 'core'` means
-  the target is not installed: `rustup target add wasm32-unknown-unknown`.
+  the target is not installed: `rustup target add wasm32v1-none`.
 
 If a build error points inside `src/lib.rs` instead, check `git blame` around
 the offending line first — historically most of the breakage here has been

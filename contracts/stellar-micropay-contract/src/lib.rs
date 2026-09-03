@@ -2590,7 +2590,7 @@ mod tests {
             vec![
                 &env,
                 (
-                    contract_id,
+                    contract_id.clone(),
                     (Symbol::new(&env, "stream_close"), id).into_val(&env),
                     (EVENT_SCHEMA_VERSION, streamed, refund).into_val(&env),
                 ),
