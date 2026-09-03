@@ -300,6 +300,13 @@ FEDERATION_SERVER="http://localhost:4000/federation"
 
 SEP-0002 federation resolver. Subject to **read-only** rate limit.
 
+External `type=name` lookups use the public network only. Both the discovery
+document and advertised federation endpoint must use HTTPS. Every DNS answer is
+checked for private, loopback, link-local, reserved, and metadata addresses,
+and the same validation is repeated and socket-pinned for every redirect. This
+behavior is independent of Stellar testnet/mainnet selection because federation
+discovery is a DNS/HTTPS protocol rather than a Horizon network operation.
+
 **Query parameters**
 
 | Name | Type | Required | Description |
