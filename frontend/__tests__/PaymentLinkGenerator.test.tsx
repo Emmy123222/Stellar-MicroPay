@@ -57,9 +57,15 @@ function fillForm(
 
 describe("PaymentLinkGenerator", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     mockBuildPaymentLinkUrl.mockReturnValue(FAKE_URL);
     mockListPaymentLinks.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
   });
 
   // ── Rendering ─────────────────────────────────────────────────────────────
@@ -80,7 +86,7 @@ describe("PaymentLinkGenerator", () => {
   // ── Link generation ────────────────────────────────────────────────────────
 
   it("generates a link containing the entered amount and destination", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     await fillForm(user)();
@@ -95,7 +101,7 @@ describe("PaymentLinkGenerator", () => {
   });
 
   it("includes memo in the link payload when provided", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     await fillForm(user, { memo: "coffee" })();
@@ -124,7 +130,7 @@ describe("PaymentLinkGenerator", () => {
   });
 
   it("does not generate a link when destination is empty", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     // Only type an amount, no destination
@@ -138,7 +144,7 @@ describe("PaymentLinkGenerator", () => {
   // ── Expiry encoding ────────────────────────────────────────────────────────
 
   it("passes validUntil=null when expiry is set to 'never'", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     // "Never Expire" is the default selection
@@ -152,7 +158,7 @@ describe("PaymentLinkGenerator", () => {
   });
 
   it("passes a future validUntil timestamp when '24 Hours' expiry is selected", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     const before = Date.now();
     render(<PaymentLinkGenerator />);
 
@@ -167,7 +173,7 @@ describe("PaymentLinkGenerator", () => {
   });
 
   it("passes a 7-day validUntil timestamp when '7 Days' expiry is selected", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     const before = Date.now();
     render(<PaymentLinkGenerator />);
 
@@ -183,7 +189,7 @@ describe("PaymentLinkGenerator", () => {
   // ── Clipboard ─────────────────────────────────────────────────────────────
 
   it("copies the generated link to clipboard when Copy is clicked", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     await fillForm(user)();
@@ -194,8 +200,7 @@ describe("PaymentLinkGenerator", () => {
   });
 
   it("shows 'Copied!' feedback after clicking copy", async () => {
-    jest.useFakeTimers();
-    const user = userEvent.setup({ delay: null });
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     await fillForm(user)();
@@ -204,17 +209,16 @@ describe("PaymentLinkGenerator", () => {
 
     expect(screen.getByRole("button", { name: /copied!/i })).toBeInTheDocument();
 
-    act(() => jest.advanceTimersByTime(2100));
+    act(() => { jest.advanceTimersByTime(2100); });
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /^copy$/i })).toBeInTheDocument()
     );
-    jest.useRealTimers();
   });
 
   // ── QR code ───────────────────────────────────────────────────────────────
 
   it("shows QR code when 'Show QR' is clicked after generation", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     await fillForm(user)();
@@ -227,7 +231,7 @@ describe("PaymentLinkGenerator", () => {
   });
 
   it("hides QR code when 'Hide QR' is clicked", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     await fillForm(user)();
@@ -241,7 +245,7 @@ describe("PaymentLinkGenerator", () => {
   // ── Link history ──────────────────────────────────────────────────────────
 
   it("shows link history section when 'Show Link History' is clicked", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     await user.click(screen.getByRole("button", { name: /show link history/i }));
@@ -249,7 +253,7 @@ describe("PaymentLinkGenerator", () => {
   });
 
   it("calls rememberPaymentLink after generating a link", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     render(<PaymentLinkGenerator />);
 
     await fillForm(user)();
