@@ -6,12 +6,34 @@
  * Emmy123222/Stellar-MicroPay
  */
 
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import clsx from "clsx";
+
 import { withErrorBoundary } from "@/components/ErrorBoundary";
+import {
+  SendIcon,
+  CheckIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  StarIcon,
+  QrCodeIcon,
+  ReceiptIcon,
+} from "@/components/icons";
+import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
 import PaymentStatusModal, {
   type PaymentFlowStatus,
   type PaymentStepId,
   type PaymentStepTiming,
 } from "@/components/PaymentStatusModal";
+import {
+  type AddressBookContact,
+  loadAddressBookContacts,
+  saveAddressBookContacts,
+  subscribeToAddressBookContacts,
+  upsertAddressBookContact,
+} from "@/lib/addressBook";
+import { useTranslation } from "@/lib/i18n";
 import {
   buildPaymentTransaction,
   buildReceiptMintTransaction,

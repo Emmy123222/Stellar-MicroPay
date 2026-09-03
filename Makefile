@@ -33,7 +33,7 @@ storybook:
 # ── Contracts ────────────────────────────────────────────────────────────────
 
 contracts-build:
-	cd contracts/stellar-micropay-contract && cargo build --target wasm32-unknown-unknown --release
+	cd contracts/stellar-micropay-contract && cargo build --target wasm32v1-none --release
 
 contracts-test:
 	cd contracts/stellar-micropay-contract && cargo test
@@ -42,7 +42,7 @@ contracts-fmt:
 	cd contracts/stellar-micropay-contract && cargo fmt --all -- --check
 
 contracts-scout:
-	cd contracts/stellar-micropay-contract && cargo clippy --target wasm32-unknown-unknown -- -D warnings
+	cd contracts/stellar-micropay-contract && cargo clippy --target wasm32v1-none -- -D warnings
 
 contracts-check: contracts-fmt contracts-scout contracts-test contracts-build
 	@echo "All four contract gates passed."

@@ -65,6 +65,7 @@ async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const start = process.hrtime.bigint();
 
     try {
       const result = await Promise.race([
@@ -149,7 +150,7 @@ async function getAccount(publicKey) {
   }
 
   try {
-    const account = await withTimeoutAndRetry(() => server.loadAccount(publicKey));
+    const account = await withTimeoutAndRetry(() => server.loadAccount(publicKey), undefined, "loadAccount");
 
     const balances = account.balances.map((b) => {
       if (b.asset_type === "native") {
@@ -218,7 +219,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     query = query.cursor(cursor);
   }
 
-  const result = await withTimeoutAndRetry(() => query.call());
+  const result = await withTimeoutAndRetry(() => query.call(), undefined, "payments");
 
   const payments = [];
 
@@ -228,7 +229,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 
     let memo;
     try {
-      const tx = await withTimeoutAndRetry(() => op.transaction());
+      const tx = await withTimeoutAndRetry(() => op.transaction(), undefined, "transaction");
       if (tx.memo_type === "text" && tx.memo) {
         memo = tx.memo;
       }
@@ -255,6 +256,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 function streamPaymentEvents(publicKey, { onPayment, onError } = {}) {
   validatePublicKey(publicKey);
 
+  horizonCallsTotal.inc({ operation: "stream", status: "started" });
   const close = server
     .payments()
     .forAccount(publicKey)

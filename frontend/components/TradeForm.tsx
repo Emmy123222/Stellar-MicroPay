@@ -4,7 +4,10 @@
  */
 
 import { useEffect, useState } from "react";
+
 import { Asset } from "@stellar/stellar-sdk";
+
+import { SwapIcon } from "@/components/icons";
 import {
   buildSellOfferTransaction,
   buildBuyOfferTransaction,
@@ -17,7 +20,6 @@ import {
   type StrictSendQuote,
 } from "@/lib/stellar";
 import { formatAsset } from "@/utils/format";
-import { SwapIcon } from "@/components/icons";
 
 interface TradeFormProps {
   publicKey: string;

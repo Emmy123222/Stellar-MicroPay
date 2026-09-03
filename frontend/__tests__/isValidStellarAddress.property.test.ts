@@ -12,6 +12,7 @@
  */
 
 import fc from "fast-check";
+
 import { isValidStellarAddress } from "@/lib/stellar";
 
 // ─── Arbitraries ─────────────────────────────────────────────────────────────

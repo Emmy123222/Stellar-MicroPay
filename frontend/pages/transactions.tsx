@@ -3,18 +3,20 @@
  * Full transaction history page with UX cursor fixes.
  */
 
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import Head from "next/head";
 import Link from "next/link";
-import WalletConnect from "@/components/WalletConnect";
+
 import TransactionList, {
   filterPayments,
   TransactionDirectionFilter,
   TransactionFilters,
 } from "@/components/TransactionList";
+import WalletConnect from "@/components/WalletConnect";
 import { fetchAllPayments, NETWORK, shortenAddress, PaymentRecord } from "@/lib/stellar";
-import { exportToCSV, exportToJSON, formatAsset, formatDate } from "@/utils/format";
 import { useWallet } from "@/lib/useWallet";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { exportToCSV, exportToJSON, formatAsset, formatDate } from "@/utils/format";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "stellar-micropay:transaction-filters";
 

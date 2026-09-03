@@ -6,6 +6,9 @@
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useState, useEffect } from "react";
+
+import { useRouter } from "next/router";
+
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletConnect from "@/components/WalletConnect";
 import { getXLMBalance, getContractTipTotal, CONTRACT_ID, NETWORK } from "@/lib/stellar";
@@ -16,7 +19,9 @@ import {
   parsePaymentLinkQuery,
   type PaymentLinkNetwork,
 } from "@/lib/paymentLinks";
+import { getXLMBalance, getContractTipTotal, CONTRACT_ID } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+import { formatStroopsToXLM } from "@/utils/format";
 
 interface PrefillData {
   destination: string;

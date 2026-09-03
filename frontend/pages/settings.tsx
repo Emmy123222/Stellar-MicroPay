@@ -4,10 +4,13 @@
  */
 
 import { useState, useEffect, useRef } from "react";
+
 import Head from "next/head";
 import Link from "next/link";
-import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
-import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
+
+import { useTheme } from "@/contexts/ThemeContext";
+import { resetOnboardingTour } from "@/hooks/useOnboarding";
+import { getNetworkConfig, setNetworkConfig, NetworkConfig , shortenAddress } from "@/lib/stellar";
 import {
   createTurretsChallenge,
   deployTurretsFunction,
@@ -16,9 +19,8 @@ import {
   resumeTurretsFunction,
   TurretsDeployment,
 } from "@/lib/turrets";
-import { shortenAddress } from "@/lib/stellar";
-import { useTheme } from "@/contexts/ThemeContext";
-import { resetOnboardingTour } from "@/hooks/useOnboarding";
+import { disconnectWallet, signTransactionWithWallet } from "@/lib/wallet";
+
 
 interface SettingsPageProps {
   publicKey: string | null;

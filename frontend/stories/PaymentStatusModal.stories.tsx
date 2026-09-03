@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+
 import PaymentStatusModal from "@/components/PaymentStatusModal";
 
 const meta: Meta<typeof PaymentStatusModal> = {

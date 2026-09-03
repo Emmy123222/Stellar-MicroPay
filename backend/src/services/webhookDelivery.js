@@ -23,6 +23,11 @@
 
 const dns = require("node:dns").promises;
 
+const {
+  webhookDeliveriesTotal,
+  webhookDeliveryDuration,
+  webhookDeliveryErrorsTotal,
+} = require("../metrics/registry");
 const logger = require("../utils/logger");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
 
@@ -222,6 +227,7 @@ async function deliverWebhook(webhook, payload, options = {}) {
   const limits = resolveLimits(options.limits);
   const body = JSON.stringify(payload);
   const sig = generateWebhookSignature(body, webhook.secret);
+  const start = process.hrtime.bigint();
 
   const totalController = new AbortController();
   const totalTimer = setTimeout(
@@ -248,6 +254,10 @@ async function deliverWebhook(webhook, payload, options = {}) {
         url = new URL(res.headers.get("location"), parsed).href;
         continue;
       }
+
+      const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
+      webhookDeliveryDuration.observe(durationSec);
+      webhookDeliveriesTotal.inc({ status: String(res.status) });
 
       if (!res.ok) {
         logger.error(

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 import { userEvent, within } from "@storybook/test";
+
+import PaymentLinkGenerator from "@/components/PaymentLinkGenerator";
 
 const meta: Meta<typeof PaymentLinkGenerator> = {
   title: "Components/PaymentLinkGenerator",

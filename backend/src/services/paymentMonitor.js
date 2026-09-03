@@ -2,6 +2,10 @@
 
 const { Horizon } = require("@stellar/stellar-sdk");
 
+const {
+  activeStreams: activeStreamsGauge,
+  streamErrorsTotal,
+} = require("../metrics/registry");
 const logger = require("../utils/logger");
 
 const cursorStore = require("./cursorStore");
@@ -143,8 +147,10 @@ function startMonitoring(publicKey) {
           `[monitor] stream error for ${publicKey}: ${err.message ?? err}`
         );
         // Remove the dead stream so ensureMonitored can restart it next time
-        activeStreams.delete(publicKey);
+	streams.delete(publicKey);
         seenTokens.delete(publicKey);
+      	syncStreamGauge();
+        streamErrorsTotal.inc();
       },
     });
 
@@ -153,7 +159,7 @@ function startMonitoring(publicKey) {
 }
 
 function stopMonitoring(publicKey) {
-  const close = activeStreams.get(publicKey);
+  const close = streams.get(publicKey);
   if (close) {
     try { close(); } catch (err) { logger.error({ publicKey, err }, "[monitor] error closing stream"); }
     activeStreams.delete(publicKey);

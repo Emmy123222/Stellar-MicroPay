@@ -200,6 +200,9 @@ jest.mock("@/lib/i18n", () => ({
 import SendPaymentForm from "../components/SendPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
+
+import SendPaymentForm from "../components/SendPaymentForm";
+
 import { TEST_PUBLIC_KEY_A, TEST_PUBLIC_KEY_B } from "./fixtures/stellar";
 
 const mockBuildPaymentTransaction = stellarModule.buildPaymentTransaction as jest.Mock;

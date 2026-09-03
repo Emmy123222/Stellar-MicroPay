@@ -20,8 +20,10 @@
  */
 
 import { useState, useCallback, useEffect, useRef, useId } from "react";
+
 import { Transaction } from "@stellar/stellar-sdk";
 import clsx from "clsx";
+
 import {
   buildPaymentTransaction,
   collectSignatures,

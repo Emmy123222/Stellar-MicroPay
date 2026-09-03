@@ -1,5 +1,8 @@
+/* eslint-disable react/display-name */
 import React from "react";
+
 import { render, screen, waitFor } from "@testing-library/react";
+
 import "@testing-library/jest-dom";
 import Dashboard from "@/pages/dashboard";
 

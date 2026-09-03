@@ -5,6 +5,7 @@
  */
 
 import React from "react";
+
 import { render } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
@@ -143,11 +144,11 @@ jest.mock("@/utils/format", () => ({
 
 import { I18nProvider } from "@/contexts/I18nContext";
 import Navbar from "@/components/Navbar";
-import WalletConnect from "@/components/WalletConnect";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import TransactionList from "@/components/TransactionList";
-import Home from "@/pages/index";
+import WalletConnect from "@/components/WalletConnect";
 import Dashboard from "@/pages/dashboard";
+import Home from "@/pages/index";
 import Transactions from "@/pages/transactions";
 
 // ─── Navbar ───────────────────────────────────────────────────────────────────

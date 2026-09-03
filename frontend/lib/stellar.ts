@@ -27,6 +27,15 @@ import {
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
+
+import { apiFetch } from "./api";
+import {
+  createTimeoutController,
+  classifyFetchError,
+  RequestTimeoutError,
+  RequestAbortedError,
+  OfflineError,
+} from "./request";
 import {
   server,
   getServer,
@@ -1254,16 +1263,6 @@ export interface NetworkFeeStats {
   feeLevel: FeeLevel;
   /** Most-recent base fee in XLM (e.g. 0.00001) */
   baseFeeXlm: number;
-}
-
-export interface NetworkStats {
-  latestLedgerSequence: number;
-  lastLedgerCloseTime: string;
-  avgTransactionCount: number;
-  currentBaseFee: number;
-  p50Fee: number;
-  p95Fee: number;
-  p99Fee: number;
 }
 
 /**

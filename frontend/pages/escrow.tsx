@@ -8,7 +8,6 @@
  */
 import { useState, useEffect } from "react";
 import WalletConnect from "@/components/WalletConnect";
-import { useWallet } from "@/lib/useWallet";
 import {
   buildCreateEscrowTransaction,
   buildClaimEscrowTransaction,
@@ -21,6 +20,7 @@ import {
   CONTRACT_ID,
   EscrowRecord,
 } from "@/lib/stellar";
+import { useWallet } from "@/lib/useWallet";
 import { signTransactionWithWallet } from "@/lib/wallet";
 
 type LookupState =

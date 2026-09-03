@@ -6,6 +6,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
+
 import WalletConnect from "@/components/WalletConnect";
 import { isValidStellarAddress, resolveFederationAddress } from "@/lib/stellar";
 import {
@@ -19,10 +21,13 @@ import {
   updateContactTags,
   upsertAddressBookContact,
 } from "@/lib/addressBook";
-import { copyToClipboard } from "@/utils/format";
+import {
+  isValidStellarAddress,
+  resolveFederationAddress,
+} from "@/lib/stellar";
 import { useToast } from "@/lib/useToast";
-import { useRouter } from "next/router";
 import { useWallet } from "@/lib/useWallet";
+import { copyToClipboard } from "@/utils/format";
 
 export default function Contacts() {
   const { publicKey } = useWallet();

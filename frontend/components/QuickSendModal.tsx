@@ -5,8 +5,8 @@
  * This is for Issue #64 / #33 — Add keyboard shortcut to open send payment form
  */
 
-import SendPaymentForm from "@/components/SendPaymentForm";
 import Modal from "@/components/Modal";
+import SendPaymentForm from "@/components/SendPaymentForm";
 
 interface QuickSendModalProps {
   isOpen: boolean;

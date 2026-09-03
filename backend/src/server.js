@@ -1,5 +1,6 @@
 "use strict";
 
+const Sentry = require("@sentry/node");
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
@@ -189,6 +190,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
+app.use("/metrics", metricsRoutes);
 
 // Stellar SEP-0001 discovery document. Wallets and SDKs read this file to
 // discover the SEP-0002 federation endpoint for `name*domain` addresses.

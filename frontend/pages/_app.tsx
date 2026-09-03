@@ -3,9 +3,11 @@
  * Global app wrapper for theme, wallet, navigation, and shared overlays.
  */
 
-import type { AppProps } from "next/app";
 import { useState, useEffect } from "react";
+
+import type { AppProps } from "next/app";
 import Head from "next/head";
+
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
 import { ToastContainer } from "@/components/Toast";

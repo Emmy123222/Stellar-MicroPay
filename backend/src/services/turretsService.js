@@ -13,6 +13,12 @@ const {
 } = require("@stellar/stellar-sdk");
 
 const { server } = require("../config/stellar");
+const {
+  turretsExecutionsTotal,
+  turretsExecutionDuration,
+  turretsDeploymentsTotal,
+  turretsActiveDeployments,
+} = require("../metrics/registry");
 const logger = require("../utils/logger");
 
 const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
@@ -414,6 +420,8 @@ async function evaluateDeployment(deployment) {
 
   if (nextRunMs && now < nextRunMs) return;
 
+  const start = process.hrtime.bigint();
+
   try {
     const price = await getXlmUsdPrice();
     deployment.lastObservedPriceUsd = price;
@@ -424,6 +432,9 @@ async function evaluateDeployment(deployment) {
       deployment.lastExecutedAt = new Date().toISOString();
       deployment.nextRunAt = nextRunIso(deployment.config.intervalMinutes);
       addExecutionLog(deployment.id, "executed", "DCA txFunction generated", result);
+      const dur = Number(process.hrtime.bigint() - start) / 1e9;
+      turretsExecutionDuration.observe({ type: "dca" }, dur);
+      turretsExecutionsTotal.inc({ type: "dca", status: "executed" });
       return;
     }
 
@@ -433,8 +444,14 @@ async function evaluateDeployment(deployment) {
         deployment.lastExecutedAt = new Date().toISOString();
         deployment.nextRunAt = nextRunIso(deployment.config.cooldownMinutes);
         addExecutionLog(deployment.id, "executed", "Stop-loss condition met", result);
+        const dur = Number(process.hrtime.bigint() - start) / 1e9;
+        turretsExecutionDuration.observe({ type: "stop_loss" }, dur);
+        turretsExecutionsTotal.inc({ type: "stop_loss", status: "executed" });
       } else {
         deployment.nextRunAt = new Date(Date.now() + 60 * 1000).toISOString();
+        const dur = Number(process.hrtime.bigint() - start) / 1e9;
+        turretsExecutionDuration.observe({ type: "stop_loss" }, dur);
+        turretsExecutionsTotal.inc({ type: "stop_loss", status: "skipped" });
       }
     }
 
@@ -451,11 +468,17 @@ async function evaluateDeployment(deployment) {
           result
         );
       }
+      const dur = Number(process.hrtime.bigint() - start) / 1e9;
+      turretsExecutionDuration.observe({ type: "escrow_release" }, dur);
+      turretsExecutionsTotal.inc({ type: "escrow_release", status: deployment.status === "completed" ? "completed" : "pending" });
     }
   } catch (err) {
     deployment.lastError = err.message;
     deployment.lastCheckedAt = new Date().toISOString();
     addExecutionLog(deployment.id, "error", err.message);
+    const dur = Number(process.hrtime.bigint() - start) / 1e9;
+    turretsExecutionDuration.observe({ type: deployment.type }, dur);
+    turretsExecutionsTotal.inc({ type: deployment.type, status: "error" });
   }
 }
 

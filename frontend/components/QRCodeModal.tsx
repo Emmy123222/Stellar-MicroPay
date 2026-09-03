@@ -4,7 +4,9 @@
  */
 
 import { useRef } from "react";
+
 import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
+
 import Modal from "@/components/Modal";
 
 interface QRCodeModalProps {
