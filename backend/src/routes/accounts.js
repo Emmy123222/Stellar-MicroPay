@@ -36,6 +36,9 @@ router.get(
   accountController.resolveUsername
 );
 
+router.patch("/username/:username", strictLimiter, verifyJWT, sanitizeUsername, accountController.renameUsername);
+router.delete("/username/:username", strictLimiter, verifyJWT, sanitizeUsername, accountController.deleteUsername);
+
 /**
  * GET /api/accounts/:publicKey
  * Fetch account info and balances from Horizon.

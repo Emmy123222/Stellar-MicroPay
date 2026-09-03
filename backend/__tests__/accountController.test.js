@@ -9,6 +9,17 @@ const usernameService = require("../src/services/usernameService");
 jest.mock("../src/services/stellarService");
 jest.mock("../src/services/usernameService");
 
+// Mirrors the SEP-0010 verifyJWT middleware: controllers read req.user.publicKey.
+// Tests pass the authenticated public key via the x-test-user header (falling
+// back to the register body's publicKey for the pre-existing register tests).
+function setTestUser(req, res, next) {
+  const publicKey = req.get("x-test-user") || req.body?.publicKey;
+  if (publicKey) {
+    req.user = { publicKey };
+  }
+  next();
+}
+
 function setupApp() {
   const app = express();
   app.use(express.json());
@@ -163,6 +174,105 @@ describe("accountController", () => {
         
       expect(res.status).toBe(409);
       expect(res.body).toEqual({ error: "Username already taken" });
+    });
+  });
+
+  describe("renameUsername", () => {
+    it("returns 400 when newUsername is missing", async () => {
+      const res = await request(app)
+        .patch("/api/accounts/username/alice")
+        .set("x-test-user", "G_VALID")
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: "newUsername is required" });
+    });
+
+    it("renames a username owned by the caller", async () => {
+      usernameService.renameUsername.mockReturnValue({
+        username: "bob",
+        publicKey: "G_VALID",
+      });
+
+      const res = await request(app)
+        .patch("/api/accounts/username/alice")
+        .set("x-test-user", "G_VALID")
+        .send({ newUsername: "Bob" });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        data: { username: "bob", publicKey: "G_VALID" },
+        message: "Username renamed successfully",
+      });
+      expect(usernameService.renameUsername).toHaveBeenCalledWith(
+        "alice",
+        "bob",
+        "G_VALID"
+      );
+    });
+
+    it("propagates ownership and conflict errors from usernameService", async () => {
+      const cases = [
+        { status: 403, message: "Forbidden: username is owned by another account" },
+        { status: 409, message: "Username already registered" },
+        { status: 404, message: "Username not found" },
+      ];
+
+      for (const { status, message } of cases) {
+        usernameService.renameUsername.mockImplementation(() => {
+          const err = new Error(message);
+          err.status = status;
+          throw err;
+        });
+
+        const res = await request(app)
+          .patch("/api/accounts/username/alice")
+          .set("x-test-user", "G_VALID")
+          .send({ newUsername: "bob" });
+
+        expect(res.status).toBe(status);
+        expect(res.body).toEqual({ error: message });
+      }
+    });
+  });
+
+  describe("deleteUsername", () => {
+    it("returns 403 when the username is owned by another account", async () => {
+      usernameService.resolveUsername.mockReturnValue({
+        username: "alice",
+        publicKey: "G_OTHER",
+      });
+
+      const res = await request(app)
+        .delete("/api/accounts/username/alice")
+        .set("x-test-user", "G_VALID");
+
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({
+        error: "Forbidden: username is owned by another account",
+      });
+      expect(usernameService.removeUsername).not.toHaveBeenCalled();
+    });
+
+    it("removes a username owned by the caller", async () => {
+      usernameService.resolveUsername.mockReturnValue({
+        username: "alice",
+        publicKey: "G_VALID",
+      });
+      usernameService.removeUsername.mockReturnValue({ username: "alice" });
+
+      const res = await request(app)
+        .delete("/api/accounts/username/alice")
+        .set("x-test-user", "G_VALID");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        data: { username: "alice" },
+        message: "Username removed successfully",
+      });
+      expect(usernameService.removeUsername).toHaveBeenCalledWith("alice");
     });
   });
 

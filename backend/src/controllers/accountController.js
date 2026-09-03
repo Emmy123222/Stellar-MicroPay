@@ -152,4 +152,30 @@ async function resolveUsername(req, res, next) {
   }
 }
 
-module.exports = { getAccount, getBalance, registerUsername, resolveUsername };
+function renameUsername(req, res, next) {
+  try {
+    const { username } = req.params;
+    const { newUsername } = req.body || {};
+    if (!newUsername) return res.status(400).json({ error: "newUsername is required" });
+    const result = usernameService.renameUsername(username, newUsername.trim().toLowerCase(), req.user.publicKey);
+    return res.json({ success: true, data: result, message: "Username renamed successfully" });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+function deleteUsername(req, res, next) {
+  try {
+    const { username } = req.params;
+    const current = usernameService.resolveUsername(username);
+    if (current.publicKey !== req.user.publicKey) {
+      return res.status(403).json({ error: "Forbidden: username is owned by another account" });
+    }
+    const result = usernameService.removeUsername(username);
+    return res.json({ success: true, data: result, message: "Username removed successfully" });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+module.exports = { getAccount, getBalance, registerUsername, resolveUsername, renameUsername, deleteUsername };
