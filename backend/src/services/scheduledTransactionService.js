@@ -7,6 +7,8 @@ const DATA_DIR = path.join(__dirname, "..", "data");
 const DATA_FILE = path.join(DATA_DIR, "scheduled-transactions.json");
 require("dotenv").config();
 
+const { encrypt, decrypt } = require("./scheduledTransactionCrypto");
+
 const logger = require("../utils/logger");
 
 // In-memory storage for scheduled transactions
@@ -248,7 +250,13 @@ function getPendingTransactions(publicKey) {
 }
 
 function getTransactionById(id) {
-  return scheduledTransactions.get(id) || null;
+  return redactTransaction(scheduledTransactions.get(id));
+}
+
+/** Return the XDR only to the internal scheduler, never to an API serializer. */
+function getSignedXDRForSubmission(id) {
+  const tx = scheduledTransactions.get(id);
+  return tx ? decrypt(tx.signedXDREncrypted) : null;
 }
 
 async function cancelTransaction(id) {
@@ -390,6 +398,7 @@ module.exports = {
   scheduleTransaction,
   getPendingTransactions,
   getTransactionById,
+  getSignedXDRForSubmission,
   cancelTransaction,
   getDueTransactions,
   incrementAttempt,

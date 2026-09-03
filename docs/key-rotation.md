@@ -11,6 +11,14 @@ Stellar MicroPay uses two critical cryptographic secrets:
 
 Both secrets are defined in `backend/.env` and are critical for system security. Regular rotation is recommended as part of security best practices.
 
+Scheduled transaction XDRs are separately protected at rest with
+`SCHEDULED_TX_ENCRYPTION_KEY`, a base64-encoded 32-byte AES-256-GCM key. Set
+`SCHEDULED_TX_ENCRYPTION_KEY_PREVIOUS` during rotation; new schedules use the
+current key while existing records remain decryptable with the previous key.
+Remove the previous key only after records encrypted with it have been
+submitted, migrated, or expired. Production startup fails closed when the
+current scheduled-transaction key is missing or malformed.
+
 ---
 
 ## JWT_SECRET Rotation

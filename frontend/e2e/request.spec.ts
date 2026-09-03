@@ -30,8 +30,8 @@ test.describe("Payment Request Links", () => {
     await expect(page.locator("text=Send Payment")).toBeVisible();
 
     // Verify prefilled values
-    await expect(page.locator('input[type="text"]').first()).toHaveValue(requestData.destination);
-    await expect(page.locator('input[type="number"]')).toHaveValue(requestData.amount);
-    await expect(page.locator('input[placeholder="Optional memo"]')).toHaveValue(requestData.memo);
+    await expect(authenticatedPage.locator('input[type="text"]').first()).toHaveValue(requestData.destination);
+    await expect(authenticatedPage.locator('input[type="number"]')).toHaveValue(requestData.amount);
+    await expect(authenticatedPage.locator('input[placeholder="Optional memo"]')).toHaveValue(requestData.memo);
   });
 });
