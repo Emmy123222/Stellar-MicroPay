@@ -11,6 +11,9 @@ const router = express.Router();
 const analyticsController = require("../controllers/analyticsController");
 const { strictLimiter } = require("../middleware/rateLimit");
 const { sanitizePublicKey } = require("../middleware/sanitization");
+ perf/sse-connection-limits
+const { sseConnectionLimiter } = require("../middleware/sseGuard");
+
 
 /**
  * GET /api/analytics/:publicKey/summary
@@ -59,6 +62,8 @@ router.get(
   "/:publicKey/stream",
   strictLimiter,
   sanitizePublicKey,
+  // #841 — enforce per-account and per-IP active SSE connection limits (429).
+  sseConnectionLimiter(),
   analyticsController.streamPayments
 );
 

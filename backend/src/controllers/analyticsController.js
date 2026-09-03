@@ -5,6 +5,11 @@
 
 "use strict";
 
+const {
+  createSseWriter,
+  heartbeatPing,
+  releaseConnection,
+} = require("../middleware/sseGuard");
 const analyticsService = require("../services/analyticsService");
 const stellarService = require("../services/stellarService");
 
@@ -158,22 +163,25 @@ async function streamPayments(req, res, next) {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    // Backpressure-aware writer (#841): buffers frames while the socket is
+    // full and flushes on 'drain', terminating a permanently-stalled client.
+    const writer = createSseWriter(res);
+
     if (typeof res.flushHeaders === "function") {
       res.flushHeaders();
     }
 
-    res.write("retry: 5000\n\n");
+    writer.write("retry: 5000\n\n");
 
-    const heartbeat = setInterval(() => {
-      res.write(": heartbeat\n\n");
-    }, 25000);
+    // Keep-alive pings + stale-connection termination (#841).
+    const stopHeartbeat = heartbeatPing(res, writer);
 
     const stopStream = stellarService.streamPaymentEvents(publicKey, {
       onPayment: (payment) => {
-        res.write(`event: payment\ndata: ${JSON.stringify(payment)}\n\n`);
+        writer.write(`event: payment\ndata: ${JSON.stringify(payment)}\n\n`);
       },
       onError: (error) => {
-        res.write(
+        writer.write(
           `event: error\ndata: ${JSON.stringify({
             message: error instanceof Error ? error.message : "Payment stream error",
           })}\n\n`
@@ -181,17 +189,27 @@ async function streamPayments(req, res, next) {
       },
     });
 
+    // Idempotent cleanup: stop timers/stream, release the connection slot held
+    // by the limiter, and end the response. Guarded so it only runs once no
+    // matter how many of these events fire first.
+    let cleaned = false;
     const cleanup = () => {
-      clearInterval(heartbeat);
+      if (cleaned) return;
+      cleaned = true;
+      stopHeartbeat();
       stopStream();
-      if (!res.writableEnded) {
-        res.end();
-      }
+      releaseConnection(res);
+      writer.end();
     };
 
     req.on("close", cleanup);
     req.on("aborted", cleanup);
+    req.on("end", cleanup);
+    req.socket?.on("error", cleanup);
+    res.on("close", cleanup);
   } catch (err) {
+    // Ensure the limiter slot is released if we error out mid-setup.
+    releaseConnection(res);
     next(err);
   }
 }
