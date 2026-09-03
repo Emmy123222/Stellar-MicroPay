@@ -160,6 +160,9 @@ export function setStoredLocale(locale: Locale): void {
   } catch {
     // localStorage might be disabled
   }
+
+// Broadcast so `useTranslation` consumers react immediately.
+  window.dispatchEvent(new CustomEvent<Locale>(LOCALE_CHANGE_EVENT, { detail: locale }));
 }
 
 /**

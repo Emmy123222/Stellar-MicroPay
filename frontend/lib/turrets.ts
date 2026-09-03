@@ -70,7 +70,7 @@ export async function listTurretsFunctions(
   const result = await apiFetch<TurretsDeployment[]>(
     `/api/turrets?ownerPublicKey=${encodeURIComponent(ownerPublicKey)}`
   );
-  return Array.isArray(result) ? result : [];
+return Array.isArray(result) ? result : [];
 }
 
 /** Fetch the execution history for a Turrets deployment by id. */

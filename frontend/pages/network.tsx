@@ -42,6 +42,30 @@ function latencyColour(ms: number): "green" | "amber" | "red" {
   return "red";
 }
 
+function getAverageLatency(samples: LatencySample[]): string {
+  const valid = samples.filter((s) => s.latencyMs !== null);
+  if (valid.length === 0) return "N/A";
+  const avg = valid.reduce((sum, s) => sum + s.latencyMs!, 0) / valid.length;
+  return formatMs(Math.round(avg));
+}
+
+function getHealthStatus(samples: LatencySample[], error: string | null): string {
+  if (error) return "Error";
+  if (samples.length === 0) return "Unknown";
+  const valid = samples.filter((s) => s.latencyMs !== null);
+  const greenCount = valid.filter((s) => latencyColour(s.latencyMs!) === "green").length;
+  const ratio = valid.length > 0 ? greenCount / valid.length : 0;
+  if (ratio >= 0.8) return "Healthy";
+  if (ratio >= 0.5) return "Degraded";
+  return "Down";
+}
+
+function describeSample(sample: LatencySample): string {
+  const time = new Date(sample.time).toLocaleTimeString();
+  if (sample.latencyMs === null) return `Failed at ${time}`;
+  return `Latency ${formatMs(sample.latencyMs)} at ${time}`;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Network() {

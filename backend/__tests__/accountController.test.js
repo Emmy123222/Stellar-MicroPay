@@ -25,7 +25,12 @@ function setupApp() {
   app.get("/api/accounts/resolve/:username", accountController.resolveUsername);
   app.get("/api/accounts/:publicKey/balance", accountController.getBalance);
   app.get("/api/accounts/:publicKey", accountController.getAccount);
-  app.post("/api/accounts/register", accountController.registerUsername);
+  // Mirror the real SEP-10 auth middleware: populate req.user (the wallet subject)
+  // for authenticated registration requests so the controller's ownership check passes.
+  app.post("/api/accounts/register", (req, res, next) => {
+    req.user = { publicKey: req.body.publicKey };
+    next();
+  }, accountController.registerUsername);
   
   // Standard error handler resembling the one in server.js
   app.use((err, req, res, next) => {

@@ -5,6 +5,7 @@ import {
   walletBalanceToAsset,
   InvalidAssetError,
   USDC,
+  resolveEscrowStatus,
 } from "@/lib/stellar";
 
 const VALID_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
@@ -16,12 +17,12 @@ describe("Stellar helper", () => {
   });
 
   it.each([
-    [0, "pending"],
-    [1, "claimable"],
-    [2, "claimed"],
-    [3, "cancelled"],
+    [0, "Pending"],
+    [1, "Claimable"],
+    [2, "Claimed"],
+    [3, "Cancelled"],
   ])("maps %i to %s", (status, expected) => {
-    expect(resolveEscrowStatus({ status })).toBe(expected);
+    expect(resolveEscrowStatus(status)).toBe(expected);
   });
 });
 

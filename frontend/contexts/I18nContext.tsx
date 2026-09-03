@@ -10,7 +10,6 @@ import {
   SUPPORTED_LOCALES,
   getStoredLocale,
   setStoredLocale,
-  getTranslations,
   isRTL,
   type Translations,
 } from "@/lib/i18n";
@@ -74,6 +73,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       document.documentElement.lang = locale;
     }
   }, [locale, isClient]);
+
+  const t = useMemo<I18nT>(() => createTranslator(locale), [locale]);
 
   const value: I18nContextType = {
     locale,

@@ -129,6 +129,41 @@ describe("addressBook", () => {
       const event = mockDispatchEvent.mock.calls[0][0];
       expect(event.type).toBe("stellar-micropay:contacts-updated");
     });
+
+    it('scopes contacts by active wallet and network', () => {
+      const alice = 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV';
+      const bob = 'GCFVV3BKTNNXJ46CY2TLAGRYFSP23HKEMP5CJFQU3EBACWSGYRQB5LEE';
+
+      localStorage.setItem('stellar-micropay:network', JSON.stringify({ network: 'testnet', horizonUrl: 'https://horizon-testnet.stellar.org' }));
+      localStorage.setItem('stellar-micropay:last-public-key', alice);
+
+      upsertAddressBookContact({ nickname: 'Alice', address: alice });
+      localStorage.setItem('stellar-micropay:last-public-key', bob);
+      upsertAddressBookContact({ nickname: 'Bob', address: bob });
+
+      expect(loadAddressBookContacts()).toHaveLength(1);
+      expect(loadAddressBookContacts().map((c) => c.nickname)).toEqual(['Bob']);
+
+      localStorage.setItem('stellar-micropay:last-public-key', alice);
+      localStorage.setItem('stellar-micropay:network', JSON.stringify({ network: 'mainnet', horizonUrl: 'https://horizon.stellar.org' }));
+      expect(loadAddressBookContacts()).toHaveLength(0);
+    });
+
+    it('migrates legacy contacts once into the namespaced key', () => {
+      const legacyAddress = 'GCFVV3BKTNNXJ46CY2TLAGRYFSP23HKEMP5CJFQU3EBACWSGYRQB5LEE';
+
+      localStorage.setItem('stellar-micropay:network', JSON.stringify({ network: 'testnet', horizonUrl: 'https://horizon-testnet.stellar.org' }));
+      localStorage.setItem('stellar-micropay:last-public-key', 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV');
+      localStorage.setItem('stellar-micropay:contacts', JSON.stringify([
+        { id: 'legacy-1', nickname: 'Legacy', address: legacyAddress, createdAt: Date.now(), updatedAt: Date.now() },
+      ]));
+
+      const migrated = loadAddressBookContacts();
+      expect(migrated).toHaveLength(1);
+      expect(migrated[0].nickname).toBe('Legacy');
+      expect(localStorage.getItem('stellar-micropay:contacts')).toBeNull();
+      expect(JSON.parse(localStorage.getItem(getAddressBookStorageKey())!)[0].nickname).toBe('Legacy');
+    });
   });
 
   describe("Remove contact deletes it from storage", () => {
@@ -224,6 +259,7 @@ describe("addressBook", () => {
 
     it("deduplicates contacts loaded from storage", () => {
       const storageKey = getAddressBookStorageKey();
+      const duplicateAddress = VALID_ADDRESS_I;
       const duplicateData = [
         {
           id: "1",
