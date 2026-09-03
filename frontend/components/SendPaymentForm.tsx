@@ -18,11 +18,9 @@ import {
   buildSorobanTipTransaction,
   explorerUrl,
   fetchNetworkFeeStats,
-  isValidFederationAddress,
   isValidStellarAddress,
-  isStellarName,
-  resolveFederationAddress,
-  resolveStellarName,
+  classifyDestination,
+  resolveDestination,
   server,
   STELLAR_BASE_FEE_XLM,
   STELLAR_MEMO_TEXT_MAX_BYTES,
@@ -371,13 +369,16 @@ function SendPaymentForm({
     setResolvedPaymentDestination(null);
   }, [prefill]);
 
-  // Debounced SNS resolution — fires 400ms after the user stops typing a
-  // .xlm name or federation address.  Shows an inline spinner during lookup
-  // and the resolved G... address (or an error) below the destination field.
+  // Debounced destination classification + preview resolution.
+  // Fires 400ms after the user stops typing.  Uses the unified pipeline
+  // (classifyDestination + resolveDestination) so preview and submit
+  // follow identical validation logic.
   useEffect(() => {
-    if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
+    if (destDebounceRef.current) clearTimeout(destDebounceRef.current);
 
     const trimmed = destination.trim();
+    const classification = classifyDestination(trimmed);
+    setDestClassification(classification);
 
     // Only trigger for SNS/federation names — raw addresses and usernames are
     // handled elsewhere.
@@ -391,22 +392,22 @@ function SendPaymentForm({
     setSnsResolvedAddress(null);
     setDestinationResolutionError(null);
 
-    snsDebounceRef.current = setTimeout(async () => {
+    destDebounceRef.current = setTimeout(async () => {
       try {
         const resolved = await resolveStellarName(trimmed);
         setSnsResolvedAddress(resolved);
         setDestinationResolutionError(null);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Could not resolve name";
+        const message = err instanceof Error ? err.message : "Could not resolve destination";
         setDestinationResolutionError(message);
         setSnsResolvedAddress(null);
       } finally {
-        setSnsResolving(false);
+        setIsResolvingDestination(false);
       }
     }, 400);
 
     return () => {
-      if (snsDebounceRef.current) clearTimeout(snsDebounceRef.current);
+      if (destDebounceRef.current) clearTimeout(destDebounceRef.current);
     };
   }, [destination]);
 
@@ -512,12 +513,9 @@ function SendPaymentForm({
     trimmedDestination !== publicKey &&
     isMemoValid;
 
-  const resolveUsername = async (username: string): Promise<string> => {
+  // Username resolver injected into the unified pipeline
+  const resolveUsernameApi = async (username: string): Promise<string> => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
-    if (!/^[a-zA-Z0-9]{3,20}$/.test(cleanUsername)) {
-      throw new Error("Invalid username format");
-    }
-
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
     const response = await fetch(
       `${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`
@@ -535,9 +533,14 @@ function SendPaymentForm({
     throw new Error("Username resolution did not return a valid public key");
   };
 
+  /**
+   * Resolve the destination for submission.  Uses the same unified pipeline
+   * as the debounced preview so validation is identical.
+   */
   const resolveDestinationForPayment = async (): Promise<string> => {
     setDestinationResolutionError(null);
 
+    // Fast path: already resolved during preview — reuse it
     if (isValidDest) {
       return trimmedDestination;
     }
@@ -548,6 +551,8 @@ function SendPaymentForm({
       return snsResolvedAddress;
     }
 
+    // Slow path: resolve via the unified pipeline (should be rare —
+    // the debounced preview usually resolves first)
     setIsResolvingDestination(true);
     try {
       // If we already resolved the SNS name in the preview, reuse it
@@ -639,9 +644,9 @@ function SendPaymentForm({
       setAmount("");
       setMemo("");
       setResolvedPaymentDestination(null);
-      setSnsResolved(null);
-      setSnsError(null);
-      setSnsResolving(false);
+      setResolvedAddress(null);
+      setDestClassification(null);
+      setIsResolvingDestination(false);
     }
     setStatus("idle");
   };
