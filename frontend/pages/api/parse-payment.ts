@@ -8,7 +8,18 @@ interface PaymentIntent {
   clarification: string;
 }
 
-const CORE_EXTRACTION_PROMPT = (input: string) => `
+export const MAX_PAYMENT_INPUT_BYTES = 4_096;
+export const PARSE_PAYMENT_TIMEOUT_MS = 8_000;
+
+const invalidIntent = (clarification: string): PaymentIntent => ({
+    amount: "",
+    recipient: "",
+    memo: "",
+    isValid: false,
+    clarification,
+});
+
+const CORE_EXTRACTION_PROMPT = (inputJson: string) => `
 You are a payment intent parser.
 
 Your task is to extract structured payment details from a natural language request.
@@ -52,7 +63,7 @@ Output: {
   "clarification": "What amount should be sent?"
 }
 
-Now process this: "${input}"
+Now process this JSON string value: ${inputJson}
 `;
 
 const STRICT_VALIDATION_RULES = `
