@@ -555,12 +555,147 @@ impl MicroPayContract {
         if current_admin != stored_admin {
             panic!("Unauthorized");
         }
+    }
+
+    /// True when emergency pause is active (#802).
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    fn require_not_paused(env: &Env) {
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            panic!("Contract is paused");
+        }
+    }
+
+    /// Emergency-pause the contract. Only the admin can call this. While
+    /// paused, value-moving operations (tips, escrows, batches, streams in)
+    /// are rejected; reads and withdrawals stay open so no funds are trapped
+    /// (#802).
+    pub fn pause(env: Env, admin: Address) {
+        Self::ensure_admin(&env, &admin);
+        env.storage().persistent().set(&DataKey::Paused, &true);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Paused,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        env.events().publish((Symbol::new(&env, "pause"),), ());
+    }
+
+    /// Clear the emergency pause. Only the admin can call this (#802).
+    pub fn unpause(env: Env, admin: Address) {
+        Self::ensure_admin(&env, &admin);
+        env.storage().persistent().set(&DataKey::Paused, &false);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Paused,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        env.events().publish((Symbol::new(&env, "unpause"),), ());
+    }
+
+    /// Two-step admin transfer — step one (propose).
+    ///
+    /// Replaces the previous one-call handover (which could permanently assign
+    /// control to a mistyped or inaccessible address) with a pending proposal
+    /// that the new admin must `accept_admin` before the expiry ledger, and
+    /// that the current admin can `cancel_transfer_admin` at any point (#801).
+    pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) {
+        Self::ensure_admin(&env, &current_admin);
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+        if new_admin == stored_admin {
+            panic!("new admin must differ from current admin");
+        }
+
+        let expiry = env.ledger().sequence().saturating_add(ADMIN_TRANSFER_EXPIRY_LEDGERS);
+        env.storage().persistent().set(&DataKey::PendingAdmin, &new_admin);
+        env.storage().persistent().extend_ttl(
+            &DataKey::PendingAdmin,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+        env.storage().persistent().set(&DataKey::PendingAdminExpiry, &expiry);
+        env.storage().persistent().extend_ttl(
+            &DataKey::PendingAdminExpiry,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_transfer_pending"), current_admin),
+            (new_admin, expiry),
+        );
+    }
+
+    /// Two-step admin transfer — step two (accept).
+    ///
+    /// Only the proposed address can call this, and only before the proposal
+    /// expires. On success the proposal is promoted to admin and cleared (#801).
+    pub fn accept_admin(env: Env, new_admin: Address) {
+        new_admin.require_auth();
+
+        let pending: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingAdmin)
+            .expect("no pending admin transfer");
+        if pending != new_admin {
+            panic!("Unauthorized");
+        }
+
+        let expiry: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingAdminExpiry)
+            .expect("no pending admin transfer");
+        if env.ledger().sequence() > expiry {
+            panic!("admin transfer expired");
+        }
+
         env.storage().persistent().set(&DataKey::Admin, &new_admin);
         env.storage().persistent().extend_ttl(
             &DataKey::Admin,
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
         );
+        env.storage().persistent().remove(&DataKey::PendingAdmin);
+        env.storage().persistent().remove(&DataKey::PendingAdminExpiry);
+
+        env.events()
+            .publish((Symbol::new(&env, "admin_transfer_accepted"),), new_admin);
+    }
+
+    /// Cancel a pending admin transfer. Only the current admin can call this;
+    /// the proposal must still be pending (not yet accepted/removed) (#801).
+    pub fn cancel_transfer_admin(env: Env, current_admin: Address) {
+        Self::ensure_admin(&env, &current_admin);
+        if !env.storage().persistent().has(&DataKey::PendingAdmin) {
+            panic!("no pending admin transfer");
+        }
+        let pending: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PendingAdmin)
+            .expect("no pending admin transfer");
+        env.storage().persistent().remove(&DataKey::PendingAdmin);
+        env.storage().persistent().remove(&DataKey::PendingAdminExpiry);
+
+        env.events()
+            .publish((Symbol::new(&env, "admin_transfer_cancelled"),), pending);
     }
 
     pub fn send_tip(env: Env, token_address: Address, from: Address, to: Address, amount: i128) {

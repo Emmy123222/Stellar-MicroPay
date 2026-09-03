@@ -15,6 +15,8 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 - Time-locked escrow payments
 - Streaming payments with pause/resume, dust-stream limits, and multi-recipient weighted payouts
 - Storage schema versioning with a documented migration path
+- Emergency contract-wide pause that halts value-moving operations (tips, escrows, batches, streams) while keeping reads and withdrawals open (#802)
+- Two-step admin transfer: propose, then explicit accept (or cancel) with a time-bound expiry window (#801)
 
 ## Prerequisites
 
@@ -141,15 +143,89 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
 
 ### `transfer_admin(env: Env, current_admin: Address, new_admin: Address) -> ()`
 
+Two-step admin transfer — **step one (propose)** (#801).
+
 - **Parameters**:
   - `current_admin: Address` - expected current administrator.
-  - `new_admin: Address` - replacement administrator to store.
+  - `new_admin: Address` - proposed replacement administrator (must differ from the current admin).
 - **Return value**: none.
-- **Authorization requirements**: `current_admin.require_auth()`.
-- **Events emitted**: none.
+- **Authorization requirements**: `current_admin.require_auth()`, and the caller must match the stored admin.
+- **Events emitted**: `(admin_transfer_pending, current_admin)` with `(new_admin, expiry_ledger)`.
 - **Error conditions**:
   - Panics with `Contract not initialized` if `initialize` has not run.
   - Panics with `Unauthorized` if `current_admin` does not match the stored admin.
+  - Panics with `new admin must differ from current admin` if the proposal targets the current admin.
+
+The caller is **not** changed by this call; the admin only changes once the
+proposed address calls `accept_admin` before the expiry ledger. Re-proposing
+overwrites the pending proposal and resets its expiry.
+
+### `accept_admin(env: Env, new_admin: Address) -> ()`
+
+Two-step admin transfer — **step two (accept)** (#801).
+
+- **Parameters**:
+  - `new_admin: Address` - the address that was proposed in `transfer_admin`.
+- **Return value**: none.
+- **Authorization requirements**: `new_admin.require_auth()`, and it must match the pending proposal.
+- **Events emitted**: `(admin_transfer_accepted)` with the newly promoted admin address.
+- **Error conditions**:
+  - Panics with `no pending admin transfer` if no proposal exists.
+  - Panics with `Unauthorized` if the caller is not the proposed address.
+  - Panics with `admin transfer expired` if the current ledger is past the proposal's expiry.
+
+On success the proposed address becomes the stored admin and the pending
+proposal is cleared (a second accept fails).
+
+### `cancel_transfer_admin(env: Env, current_admin: Address) -> ()`
+
+Cancel a pending admin transfer (#801).
+
+- **Parameters**:
+  - `current_admin: Address` - the current administrator.
+- **Return value**: none.
+- **Authorization requirements**: `current_admin.require_auth()`, and the caller must match the stored admin.
+- **Events emitted**: `(admin_transfer_cancelled)` with the address that was proposed.
+- **Error conditions**:
+  - Panics with `no pending admin transfer` if no proposal exists.
+  - Panics with `Contract not initialized` if `initialize` has not run.
+  - Panics with `Unauthorized` if the caller is not the stored admin.
+
+### `is_paused(env: Env) -> bool`
+
+- **Return value**: `true` when the emergency pause is active, `false` otherwise (#802).
+
+### `pause(env: Env, admin: Address) -> ()`
+
+Emergency-pause the contract (#802).
+
+- **Parameters**:
+  - `admin: Address` - the stored contract administrator.
+- **Return value**: none.
+- **Authorization requirements**: `admin.require_auth()`, and the caller must match the stored admin.
+- **Events emitted**: `(pause)`.
+- **Error conditions**:
+  - Panics with `Contract not initialized` if `initialize` has not run.
+  - Panics with `Unauthorized` if the caller is not the stored admin.
+
+While paused, value-moving operations — `send_tip`, `create_escrow`,
+`batch_send`, `open_stream`, `top_up_stream` — are rejected with
+`Contract is paused`. Reads (`get_*`) and withdrawals (`claim_escrow`,
+`cancel_escrow`, `claim_stream`, `close_stream`) stay open so no funds are
+trapped.
+
+### `unpause(env: Env, admin: Address) -> ()`
+
+Clear the emergency pause (#802).
+
+- **Parameters**:
+  - `admin: Address` - the stored contract administrator.
+- **Return value**: none.
+- **Authorization requirements**: `admin.require_auth()`, and the caller must match the stored admin.
+- **Events emitted**: `(unpause)`.
+- **Error conditions**:
+  - Panics with `Contract not initialized` if `initialize` has not run.
+  - Panics with `Unauthorized` if the caller is not the stored admin.
 
 ### `send_tip(env: Env, token_address: Address, from: Address, to: Address, amount: i128) -> ()`
 
@@ -162,6 +238,7 @@ All amounts are `i128` stroop-denominated values unless a caller explicitly pass
 - **Authorization requirements**: `from.require_auth()`.
 - **Events emitted**: `(tip, from, to)` with `(1, amount)` as event data.
 - **Error conditions**:
+  - Panics with `Contract is paused` when the emergency pause is active (#802).
   - Panics with `Tip amount must be positive` when `amount <= 0`.
   - Propagates token contract transfer failures, including insufficient balance, missing trustline, or token authorization failures.
 
@@ -278,6 +355,7 @@ ledger sequence, not wall-clock time.
 - **Authorization requirements**: `from.require_auth()`.
 - **Events emitted**: none in the current implementation.
 - **Error conditions**:
+  - Panics with `Contract is paused` when the emergency pause is active (#802).
   - Panics with `arrays must have equal length` if `recipients.len() != amounts.len()`.
   - Panics with `amount must be positive` if any amount is `<= 0`.
   - Propagates token contract transfer failures, including insufficient balance, missing trustline, or token authorization failures.
@@ -295,6 +373,7 @@ ledger sequence, not wall-clock time.
 - **Authorization requirements**: `payer.require_auth()`.
 - **Events emitted**: `(stream_open, stream_id)` with `(1, payer, recipients, weights, rate_per_ledger, deposit)`.
 - **Error conditions**:
+  - Panics with `Contract is paused` when the emergency pause is active (#802).
   - Panics with `recipients and weights must have equal length` when the two lists differ in length.
   - Panics with `at least one recipient is required` when `recipients` is empty.
   - Panics with `weight must be positive` when any weight is `0`.
