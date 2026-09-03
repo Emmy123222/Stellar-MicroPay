@@ -4,6 +4,18 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Env, String, Symbol,
 };
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct InitEvent { pub admin: Address }
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct TipEvent { pub from: Address, pub to: Address, pub amount: i128 }
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct ReceiptEvent { pub from: Address, pub index: u32 }
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ContractError {
@@ -42,21 +54,8 @@ pub const EVENT_SCHEMA_VERSION: u32 = 1;
 /// Maximum UTF-8 byte length accepted for a receipt memo (#797).
 pub const MAX_RECEIPT_MEMO_BYTES: u32 = 256;
 
-/// Smallest deposit `open_stream` accepts, in stroops (0.001 XLM against the
-/// native SAC).
-///
-/// Anything smaller is a dust stream: the per-claim token transfer and the
-/// storage rent for the `Stream` entry cost more than the stream can ever pay
-/// out (#561).
 pub const MIN_STREAM_DEPOSIT: i128 = 10_000;
 
-/// Smallest number of ledgers a stream must be funded for — `deposit /
-/// rate_per_ledger` — which is roughly five minutes at the ~5s Stellar ledger
-/// close time (#561).
-///
-/// This rejects the other flavour of dust: a deposit large enough on its own
-/// but paired with a rate that drains it in a handful of ledgers (or in zero
-/// ledgers, when `rate_per_ledger > deposit`).
 pub const MIN_STREAM_DURATION_LEDGERS: u32 = 60;
 
 /// Maximum number of recipients permitted in a single `batch_send` call (#787).
@@ -112,13 +111,9 @@ pub enum DataKey {
     StreamCount,
     Stream(u32),
     SchemaVersion,
-    /// Number of escrows indexed for `Address` as sender (#796).
     EscrowSenderCount(Address),
-    /// Maps `(sender, index)` → global escrow id (#796).
     EscrowSenderIndex(Address, u32),
-    /// Number of escrows indexed for `Address` as recipient (#796).
     EscrowRecipientCount(Address),
-    /// Maps `(recipient, index)` → global escrow id (#796).
     EscrowRecipientIndex(Address, u32),
     /// UTF-8 receipt layout introduced in storage schema v4 (#797). Appended
     /// to preserve the encoded discriminants of every existing key variant.
@@ -145,12 +140,6 @@ pub struct Escrow {
     pub status: EscrowStatus,
 }
 
-/// One recipient's share of a stream's payout (#559).
-///
-/// `weight` is unit-less — a recipient's entitlement is
-/// `weight / sum(all weights on the stream)`. `claimed` is that recipient's
-/// own running total, which is what keeps per-recipient payouts independent
-/// of the order recipients claim in.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct StreamRecipient {
@@ -159,30 +148,18 @@ pub struct StreamRecipient {
     pub claimed: i128,
 }
 
-/// A continuous payment channel: `payer` locks `deposited` up front and the
-/// stream accrues `rate_per_ledger` for every ledger it is running, split
-/// across `recipients` by weight (#559).
-///
-/// Accrual is derived, never stored — each recipient's `claimed` is the only
-/// mutable money field, which is what keeps `sum(claimed) <= deposited`
-/// checkable at any point (#557).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Stream {
     pub payer: Address,
-    pub recipients: soroban_sdk::Vec<StreamRecipient>,
+    pub recipients: Vec<StreamRecipient>,
     pub rate_per_ledger: i128,
     pub deposited: i128,
     pub start_ledger: u32,
-    /// Token contract the deposit is denominated in.
     pub token: Address,
-    /// True while accrual is suspended by the payer (#560).
     pub paused: bool,
-    /// Ledger the current pause started at; meaningless when `paused` is false.
     pub paused_at_ledger: u32,
-    /// Ledgers spent in *completed* pauses, subtracted from the accrual window.
     pub paused_ledgers: u32,
-    /// True once `close_stream` has settled and refunded the stream.
     pub closed: bool,
 }
 
@@ -466,7 +443,7 @@ impl MicroPayContract {
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
         bump_instance_ttl(&env);
         if env.storage().persistent().has(&DataKey::Admin) {
-            return Err(ContractError::AlreadyInitialized);
+            panic!("Already initialized");
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
         env.storage().persistent().extend_ttl(
