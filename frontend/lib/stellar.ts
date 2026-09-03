@@ -97,6 +97,12 @@ export const STELLAR_MEMO_TEXT_MAX_BYTES = 28;
 /** A base Stellar account must keep two reserve units before subentries. */
 export const STELLAR_BASE_ACCOUNT_RESERVE_COUNT = 2;
 
+/** Maximum allowed number of recipients in a single batch payment. */
+export const MAX_BATCH_RECIPIENTS = 10;
+
+/** Maximum allowed aggregate payment amount in XLM for a single batch payment. */
+export const MAX_BATCH_TOTAL_XLM = 1000;
+
 /**
  * Stellar base reserve in XLM.
  *
@@ -133,11 +139,10 @@ export const SOROBAN_RPC_URL = getSorobanRpcUrl();
 
 /** Pre-configured Soroban RPC server instance. */
 let _sorobanServer: rpc.Server | null = null;
-/** Returns a cached Soroban RPC server instance, recreating it if the network URL has changed. */
+/** Returns a cached Soroban RPC server instance. */
 export function getSorobanServer(): rpc.Server {
-  const currentUrl = getSorobanRpcUrl();
-  if (!_sorobanServer || _sorobanServer.serverURL.toString() !== currentUrl) {
-    _sorobanServer = new rpc.Server(currentUrl);
+  if (!_sorobanServer) {
+    _sorobanServer = new rpc.Server(getSorobanRpcUrl());
   }
   return _sorobanServer;
 }
@@ -470,65 +475,28 @@ export async function getUSDCBalance(publicKey: string): Promise<string | null> 
 }
 
 /**
- * Build an unsigned changeTrust transaction to add or remove a trustline.
- *
- * @param params - Trustline parameters.
- * @param params.fromPublicKey - The account adding/removing the trustline.
- * @param params.assetCode - Asset code, e.g. "USDC".
- * @param params.issuer - Asset issuer public key.
- * @param params.limit - Trust limit. Use "0" to remove the trustline.
- * @returns A promise resolving to an unsigned {@link Transaction} object.
- * @throws {Error} If the source account cannot be loaded from Horizon.
+ * Validate stellar address format.
  */
-export async function buildChangeTrustTransaction({
-  fromPublicKey,
-  assetCode,
-  issuer,
-  limit = "922337203685.4775807", // Max limit for adding
-}: {
-  fromPublicKey: string;
-  assetCode: string;
-  issuer: string;
-  limit?: string;
-}): Promise<Transaction> {
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-
-  const asset = new Asset(assetCode, issuer);
-
-  const builder = new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      Operation.changeTrust({
-        asset: asset,
-        limit: limit,
-      })
-    )
-    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
-
-  return builder.build();
+export function isValidStellarAddress(address: unknown): boolean {
+  if (typeof address !== "string") return false;
+  return /^G[A-Z0-9]{55}$/.test(address);
 }
 
 /**
- * Build an unsigned XLM payment transaction ready for Freighter to sign.
- *
- * The base fee is fetched from Horizon `/fee_stats` and set to the p50
- * percentile so the transaction doesn't get stuck during network congestion.
- * Falls back to {@link STELLAR_BASE_FEE_STROOPS_STRING} when offline.
+ * Build a payment transaction.
  */
 export async function buildPaymentTransaction({
-  fromPublicKey,
-  toPublicKey,
+  sourcePublicKey,
+  destination,
   amount,
   memo,
-  asset = "XLM",
+  destinations,
 }: {
-  fromPublicKey: string;
-  toPublicKey: string;
-  amount: string;
+  sourcePublicKey: string;
+  destination?: string;
+  amount?: string;
   memo?: string;
-  asset?: "XLM" | "USDC" | { code: string; issuer: string };
+  destinations?: Array<{ destination: string; amount: string; memo?: string }>;
 }): Promise<Transaction> {
   // ── Fetch dynamic fee from Horizon fee_stats ──────────────────────────────
   let baseFeeStroops: string = STELLAR_BASE_FEE_STROOPS_STRING;
@@ -551,122 +519,34 @@ export async function buildPaymentTransaction({
     // Network unavailable — fall back to protocol minimum
   }
 
-  const sourceAccount = await server.loadAccount(fromPublicKey);
+  const payments = destinations && destinations.length > 0
+    ? destinations
+    : [{ destination: destination!, amount: amount!, memo }];
 
-  // For XLM, verify the destination account exists; if not, use create_account
-  // operation with a minimum 1 XLM deposit so the transaction doesn't fail.
-  if (asset === "XLM") {
-    let destinationExists = true;
-    try {
-      await server.loadAccount(toPublicKey);
-    } catch {
-      destinationExists = false;
-    }
+  validateBatchPayment(payments);
 
-    if (!destinationExists) {
-      const amountNum = parseFloat(amount);
-      if (amountNum < 1) {
-        throw new Error(
-          "Destination account does not exist on the Stellar network. A minimum of 1 XLM is required to create a new account."
-        );
-      }
-      // Use create_account operation to fund and activate the new account
-      const builder = new TransactionBuilder(sourceAccount, {
-        fee: baseFeeStroops,
-        networkPassphrase: NETWORK_PASSPHRASE,
-      })
-        .addOperation(
-          Operation.createAccount({
-            destination: toPublicKey,
-            startingBalance: amount,
-          })
-        )
-        .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
+  const serverInstance = getServer();
+  const sourceAccountRecord = await serverInstance.loadAccount(sourcePublicKey);
 
-      if (memo) {
-        builder.addMemo(Memo.text(truncateMemoText(memo)));
-      }
-
-      return builder.build();
-    }
-  }
-
-  // For non-native assets, verify the recipient has the required trustline
-  const isCustomAsset = typeof asset === "object";
-  const isUSDC = asset === "USDC";
-  if (isUSDC || isCustomAsset) {
-    const recipient = await server.loadAccount(toPublicKey).catch(() => null);
-    if (!recipient) {
-      throw new Error("Recipient account not found on the Stellar network.");
-    }
-    const targetCode = isUSDC ? "USDC" : (asset as { code: string; issuer: string }).code;
-    const targetIssuer = isUSDC ? USDC_ISSUER : (asset as { code: string; issuer: string }).issuer;
-    const hasTrustline = recipient.balances.some(
-      (b): b is Horizon.HorizonApi.BalanceLineAsset =>
-        b.asset_type !== "native" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_code === targetCode &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_issuer === targetIssuer
-    );
-    if (!hasTrustline) {
-      throw new Error(
-        `Recipient has no ${targetCode} trustline. They must add ${targetCode} to their Stellar wallet first.`
-      );
-    }
-  }
-
-  let stellarAsset: Asset;
-  if (asset === "XLM") {
-    stellarAsset = Asset.native();
-  } else if (asset === "USDC") {
-    stellarAsset = USDC;
-  } else {
-    stellarAsset = new Asset(asset.code, asset.issuer);
-  }
-
-  const builder = new TransactionBuilder(sourceAccount, {
-    fee: baseFeeStroops,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      Operation.payment({
-        destination: toPublicKey,
-        asset: stellarAsset,
-        amount: amount,
-      })
-    )
-    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
-
-  if (memo) {
-    builder.addMemo(Memo.text(truncateMemoText(memo)));
-  }
-
-  return builder.build();
-}
-
-/**
- * Build an unsigned Stellar account merge transaction ready for Freighter to sign.
- *
- * @param params - Merge parameters.
- * @param params.fromPublicKey - Source account public key (will be closed).
- * @param params.destinationPublicKey - Destination account public key.
- * @returns A promise resolving to an unsigned {@link Transaction} object.
- */
-export async function buildAccountMergeTransaction({
-  fromPublicKey,
-  destinationPublicKey,
-}: {
-  fromPublicKey: string;
-  destinationPublicKey: string;
-}): Promise<Transaction> {
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-
-  const builder = new TransactionBuilder(sourceAccount, {
+  let builder = new TransactionBuilder(sourceAccountRecord, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      Operation.accountMerge({
-        destination: destinationPublicKey,
+    networkPassphrase: getNetworkPassphrase(),
+  }).setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
+
+  if (payments.length === 1 && payments[0].memo) {
+    builder = builder.addMemo(Memo.text(truncateMemoText(payments[0].memo)));
+  }
+
+  for (const p of payments) {
+    if (!isValidStellarAddress(p.destination)) {
+      throw new Error(`Invalid destination address: ${p.destination}`);
+    }
+    const amtStr = String(p.amount);
+    builder = builder.addOperation(
+      Operation.payment({
+        destination: p.destination,
+        asset: Asset.native(),
+        amount: amtStr,
       })
     )
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
@@ -1862,8 +1742,7 @@ export async function resolveStellarName(name: string): Promise<string> {
 }
 
 /**
- * Returns true if the input looks like a Stellar name (not a raw G... address).
- * Matches federation addresses (contains `*`) and .xlm shorthand (ends with `.xlm`).
+ * Submit transaction to network.
  */
 export function isStellarName(value: string): boolean {
   const v = value.trim();

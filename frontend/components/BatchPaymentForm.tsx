@@ -6,11 +6,13 @@ import {
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
+  MAX_BATCH_RECIPIENTS,
+  MAX_BATCH_TOTAL_XLM,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLMPrecise, parseBatchRecipientsCSV } from "@/utils/format";
 
-const MAX_RECIPIENTS = 10;
+const MAX_RECIPIENTS = MAX_BATCH_RECIPIENTS;
 
 type RecipientStatus = "idle" | "pending" | "success" | "failed";
 
@@ -78,13 +80,14 @@ export default function BatchPaymentForm({
   const hasSuccess = recipients.some((recipient) => recipient.status === "success");
   const canSubmit =
     !isProcessing &&
+    !exceedsAggregateLimit &&
+    !exceedsBalance &&
     recipients.some(
       (recipient) =>
         isValidStellarAddress(recipient.address) &&
         parseFloat(recipient.amount) > 0 &&
         recipient.address !== publicKey
     );
-  const exceedsBalance = totalXLM > availableXLM;
 
   const updateRecipient = (id: string, update: Partial<BatchRecipient>) => {
     setRecipients((current) =>
@@ -166,9 +169,6 @@ export default function BatchPaymentForm({
     // Reset the input so re-picking the same file fires another change event.
     event.target.value = "";
     if (!file) return;
-
-    setImportMessage(null);
-
     try {
       importRecipientsFromCSV(await readFileAsText(file));
     } catch (err: unknown) {
@@ -190,9 +190,8 @@ export default function BatchPaymentForm({
     return null;
   };
 
-  const processRows = async (retryOnlyFailed = false) => {
-    setBatchMessage(null);
     setIsProcessing(true);
+    setBatchMessage(null);
 
     let nextRecipients = recipients.map((recipient) => ({ ...recipient }));
     setRecipients(nextRecipients);
@@ -248,18 +247,14 @@ export default function BatchPaymentForm({
         recipient.error = message;
         setRecipients([...nextRecipients]);
       }
-    }
 
-    setIsProcessing(false);
-    const failedRows = nextRecipients.some((recipient) => recipient.status === "failed");
-    const successRows = nextRecipients.some((recipient) => recipient.status === "success");
-
-    if (!failedRows) {
-      setBatchMessage("Batch payment complete.");
-    } else if (successRows) {
-      setBatchMessage(
-        "Batch completed with some failures. Retry individual failed payments below."
-      );
+      const result = await submitTransaction(signedXDR);
+      setBatchMessage(`Batch transaction submitted successfully! Hash: ${result.hash}`);
+      if (onBatchSuccess) onBatchSuccess();
+    } catch (err) {
+      setBatchMessage(`Batch failed: ${(err as Error).message}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -275,8 +270,8 @@ export default function BatchPaymentForm({
   const recipientCount = recipients.length;
 
   return (
-    <div className="card animate-fade-in border-stellar-400/20">
-      <div className="flex items-center justify-between mb-6 gap-3">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white max-w-2xl mx-auto shadow-xl">
+      <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="font-display text-lg font-semibold text-white">Batch Send</h2>
           <p className="text-sm text-slate-400">
@@ -284,26 +279,20 @@ export default function BatchPaymentForm({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <input
+            type="file"
+            accept=".csv"
+            ref={fileInputRef}
+            onChange={handleImportFile}
+            className="hidden"
+          />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isProcessing}
-            className="btn-secondary px-3 py-1.5 text-xs disabled:opacity-50"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-medium rounded-lg transition"
           >
             Import CSV
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={handleImportFile}
-            disabled={isProcessing}
-            aria-label="Import recipients from CSV"
-            className="hidden"
-          />
-          <div className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-300">
-            {recipientCount} / {MAX_RECIPIENTS}
-          </div>
         </div>
       </div>
 
@@ -312,7 +301,7 @@ export default function BatchPaymentForm({
       </p>
 
       {importMessage && (
-        <div className="mb-4 rounded-2xl border border-slate-700 bg-slate-800/70 px-4 py-3 text-sm text-slate-200">
+        <div className="mb-4 p-3 bg-slate-800/80 border border-slate-700 text-xs rounded-lg text-slate-300">
           {importMessage}
         </div>
       )}
@@ -415,51 +404,49 @@ export default function BatchPaymentForm({
           </div>
         ))}
 
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-center">
-          <button
-            type="button"
-            onClick={handleAddRecipient}
-            disabled={isProcessing || recipients.length >= MAX_RECIPIENTS}
-            className="btn-secondary w-full py-2.5"
-          >
-            Add recipient
-          </button>
-          <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-            Total: <span className="font-semibold text-white">{formatXLMPrecise(totalXLM)}</span>
-          </div>
-        </div>
-
-        {exceedsBalance ? (
-          <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-100">
-            Total exceeds your available XLM balance after reserve.
-          </div>
-        ) : null}
-
-        {batchMessage && (
-          <div className="rounded-2xl bg-slate-800/70 border border-slate-700 px-4 py-3 text-sm text-slate-200">
-            {batchMessage}
-          </div>
-        )}
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            type="button"
-            onClick={handleSendBatch}
-            disabled={!canSubmit || isProcessing || exceedsBalance}
-            className="btn-primary w-full sm:w-auto py-2.5"
-          >
-            {isProcessing ? "Sending batch..." : "Send batch"}
-          </button>
-          <button
-            type="button"
-            onClick={handleRetryFailed}
-            disabled={!hasFailed || isProcessing}
-            className="btn-outline w-full sm:w-auto py-2.5"
-          >
-            Retry failed payments
-          </button>
+      <div className="flex justify-between items-center mb-6">
+        <button
+          type="button"
+          onClick={handleAddRecipient}
+          disabled={recipients.length >= MAX_RECIPIENTS}
+          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold rounded-lg transition"
+        >
+          Add recipient ({recipients.length} / {MAX_RECIPIENTS})
+        </button>
+        <div className="text-right text-xs">
+          <span className="text-slate-400">Total: </span>
+          <span className={`font-bold ${exceedsAggregateLimit || exceedsBalance ? "text-red-400" : "text-white"}`}>
+            {totalXLM.toFixed(7)} XLM
+          </span>
         </div>
       </div>
+
+      {exceedsAggregateLimit && (
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-xs text-red-400 rounded-lg">
+          Aggregate payment amount exceeds the maximum limit of {MAX_BATCH_TOTAL_XLM} XLM.
+        </div>
+      )}
+
+      {exceedsBalance && !exceedsAggregateLimit && (
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-xs text-red-400 rounded-lg">
+          Total batch amount exceeds available XLM balance ({availableXLM.toFixed(7)} XLM).
+        </div>
+      )}
+
+      {batchMessage && (
+        <div className="mb-4 p-3 bg-slate-800 border border-slate-700 text-xs rounded-lg text-slate-200">
+          {batchMessage}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleProcessBatch}
+        disabled={!canSubmit}
+        className="w-full py-3 bg-stellar-600 hover:bg-stellar-500 disabled:opacity-50 text-white font-semibold rounded-xl transition"
+      >
+        {isProcessing ? "Processing Batch..." : "Send batch"}
+      </button>
     </div>
   );
 }
