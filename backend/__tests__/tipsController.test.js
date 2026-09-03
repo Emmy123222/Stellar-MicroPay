@@ -160,7 +160,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTipsReceived).toHaveBeenCalledWith(
         req.params.creatorPublicKey,
-        { limit: 10, offset: 20 }
+        { limit: 10, offset: 20, cursor: undefined }
       );
 
       expect(res.json).toHaveBeenCalledWith({
@@ -194,7 +194,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTipsSent).toHaveBeenCalledWith(
         req.params.senderPublicKey,
-        { limit: 15, offset: 5 }
+        { limit: 15, offset: 5, cursor: undefined }
       );
 
       expect(res.json).toHaveBeenCalledWith({
@@ -216,7 +216,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTipsReceived).toHaveBeenCalledWith(
         req.params.creatorPublicKey,
-        { limit: undefined, offset: undefined }
+        { limit: undefined, offset: undefined, cursor: undefined }
       );
     });
 
@@ -235,7 +235,40 @@ describe("tipsController", () => {
 
       expect(tipsService.getTipsSent).toHaveBeenCalledWith(
         req.params.senderPublicKey,
-        { limit: 25, offset: 50 }
+        { limit: 25, offset: 50, cursor: undefined }
+      );
+    });
+
+    it("passes a cursor query param through to tipsService.getTipsReceived", async () => {
+      req.params = {
+        creatorPublicKey: "GDEF456789012345678901234567890123456789012345678901",
+      };
+      req.query = { cursor: "eyJpZCI6NX0" };
+
+      tipsService.getTipsReceived.mockReturnValue({ tips: [], total: 0, nextCursor: null });
+      tipsService.getTipsStats.mockReturnValue({});
+
+      await tipsController.getTipsReceived(req, res, next);
+
+      expect(tipsService.getTipsReceived).toHaveBeenCalledWith(
+        req.params.creatorPublicKey,
+        { limit: undefined, offset: undefined, cursor: "eyJpZCI6NX0" }
+      );
+    });
+
+    it("passes a cursor query param through to tipsService.getTipsSent", async () => {
+      req.params = {
+        senderPublicKey: "GABC123456789012345678901234567890123456789012345678",
+      };
+      req.query = { cursor: "eyJpZCI6NX0" };
+
+      tipsService.getTipsSent.mockReturnValue({ tips: [], total: 0, nextCursor: null });
+
+      await tipsController.getTipsSent(req, res, next);
+
+      expect(tipsService.getTipsSent).toHaveBeenCalledWith(
+        req.params.senderPublicKey,
+        { limit: undefined, offset: undefined, cursor: "eyJpZCI6NX0" }
       );
     });
 

@@ -79,20 +79,22 @@ async function recordTip(req, res, next) {
  * @param {string} req.params.creatorPublicKey - Creator's Stellar public key (G...)
  * @param {object} req.query
  * @param {string} [req.query.limit] - Max tips to return
- * @param {string} [req.query.offset] - Number of tips to skip
+ * @param {string} [req.query.offset] - Number of tips to skip (ignored if `cursor` is given)
+ * @param {string} [req.query.cursor] - Opaque cursor from a previous page's `nextCursor`
  * @param {object} res - Express response
  * @param {function} next - Express error-handling callback
  * @returns {Promise<void>} JSON: `{ success: true, data: { tips: TipRecord[], total: number,
- *   limit: number, offset: number, stats: TipsStats } }`
+ *   limit: number, offset: number, nextCursor: string|null, stats: TipsStats } }`
  */
 async function getTipsReceived(req, res, next) {
   try {
     const { creatorPublicKey } = req.params;
-    const { limit, offset } = req.query;
+    const { limit, offset, cursor } = req.query;
 
     const result = tipsService.getTipsReceived(creatorPublicKey, {
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
+      cursor: cursor || undefined,
     });
 
     // Also get stats
@@ -143,20 +145,22 @@ async function getTipsStats(req, res, next) {
  * @param {string} req.params.senderPublicKey - Sender's Stellar public key (G...)
  * @param {object} req.query
  * @param {string} [req.query.limit] - Max tips to return
- * @param {string} [req.query.offset] - Number of tips to skip
+ * @param {string} [req.query.offset] - Number of tips to skip (ignored if `cursor` is given)
+ * @param {string} [req.query.cursor] - Opaque cursor from a previous page's `nextCursor`
  * @param {object} res - Express response
  * @param {function} next - Express error-handling callback
  * @returns {Promise<void>} JSON: `{ success: true, data: { tips: TipRecord[], total: number,
- *   limit: number, offset: number } }`
+ *   limit: number, offset: number, nextCursor: string|null } }`
  */
 async function getTipsSent(req, res, next) {
   try {
     const { senderPublicKey } = req.params;
-    const { limit, offset } = req.query;
+    const { limit, offset, cursor } = req.query;
 
     const result = tipsService.getTipsSent(senderPublicKey, {
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
+      cursor: cursor || undefined,
     });
 
     res.json({

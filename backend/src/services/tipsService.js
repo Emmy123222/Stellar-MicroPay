@@ -1,14 +1,14 @@
 /**
  * src/services/tipsService.js
  * Business logic for tracking tips received by creators.
- * Uses in-memory storage for v1 (can be migrated to database later).
+ * Storage is delegated to tipsStore.js: a durable, file-backed store with
+ * sender/creator indexes so lookups don't need to scan every tip ever
+ * recorded (see tipsStore.js for the persistence and indexing details).
  */
 
 "use strict";
 
-// In-memory storage for tips
-// Structure: Map<creatorPublicKey, TipRecord[]>
-const tipsByCreator = new Map();
+const tipsStore = require("./tipsStore");
 
 // Tip record structure:
 // { id, senderPublicKey, creatorPublicKey, amount, asset, memo, timestamp, txHash }
@@ -16,7 +16,9 @@ const tipsByCreator = new Map();
 let tipIdCounter = 1;
 
 /**
- * Record a tip sent to a creator.
+ * Record a tip sent to a creator. Persisted transactionally: the record is
+ * written to durable storage and indexed by sender and creator before this
+ * function returns (see tipsStore.insert).
  * @param {string} senderPublicKey - The Stellar public key of the sender
  * @param {string} creatorPublicKey - The Stellar public key of the creator
  * @param {string} amount - The amount sent
@@ -40,7 +42,7 @@ function recordTip({
   }
 
   const tip = {
-    id: tipIdCounter++,
+    id: tipsStore.nextTipId(),
     senderPublicKey,
     creatorPublicKey,
     amount: String(amount),
@@ -50,13 +52,7 @@ function recordTip({
     timestamp: new Date().toISOString(),
   };
 
-  if (!tipsByCreator.has(creatorPublicKey)) {
-    tipsByCreator.set(creatorPublicKey, []);
-  }
-
-  tipsByCreator.get(creatorPublicKey).unshift(tip); // Add to beginning (most recent first)
-
-  return tip;
+  return tipsStore.insert(tip);
 }
 
 /**
@@ -64,8 +60,9 @@ function recordTip({
  * @param {string} creatorPublicKey - The Stellar public key of the creator
  * @param {object} [options] - Optional filters
  * @param {number} [options.limit] - Maximum number of tips to return
- * @param {number} [options.offset] - Number of tips to skip (for pagination)
- * @returns {object} Object with tips array and total count
+ * @param {number} [options.offset] - Number of tips to skip (offset pagination; ignored if `cursor` is given)
+ * @param {string} [options.cursor] - Opaque cursor from a previous page's `nextCursor`
+ * @returns {object} Object with tips array, total count, and pagination cursor
  */
 function getTipsReceived(creatorPublicKey, options = {}) {
   if (!creatorPublicKey) {
@@ -74,17 +71,15 @@ function getTipsReceived(creatorPublicKey, options = {}) {
     throw error;
   }
 
-  const { limit = 50, offset = 0 } = options;
-
-  const tips = tipsByCreator.get(creatorPublicKey) || [];
-  const total = tips.length;
-  const paginatedTips = tips.slice(offset, offset + limit);
+  const { limit = 50, offset = 0, cursor } = options;
+  const { tips, total, nextCursor } = tipsStore.listByCreator(creatorPublicKey, { limit, offset, cursor });
 
   return {
-    tips: paginatedTips,
+    tips,
     total,
     limit,
     offset,
+    nextCursor,
   };
 }
 
@@ -100,7 +95,7 @@ function getTipsStats(creatorPublicKey) {
     throw error;
   }
 
-  const tips = tipsByCreator.get(creatorPublicKey) || [];
+  const tips = tipsStore.getAllByCreator(creatorPublicKey);
 
   const stats = {
     totalTips: tips.length,
@@ -139,10 +134,14 @@ function getTipsStats(creatorPublicKey) {
 }
 
 /**
- * Get all tips sent by a user (for sender's history).
+ * Get all tips sent by a user (for sender's history). Backed by the sender
+ * index in tipsStore, so this no longer scans every creator's tip list.
  * @param {string} senderPublicKey - The Stellar public key of the sender
  * @param {object} [options] - Optional filters
- * @returns {object} Object with tips array and total count
+ * @param {number} [options.limit] - Maximum number of tips to return
+ * @param {number} [options.offset] - Number of tips to skip (offset pagination; ignored if `cursor` is given)
+ * @param {string} [options.cursor] - Opaque cursor from a previous page's `nextCursor`
+ * @returns {object} Object with tips array, total count, and pagination cursor
  */
 function getTipsSent(senderPublicKey, options = {}) {
   if (!senderPublicKey) {
@@ -151,29 +150,15 @@ function getTipsSent(senderPublicKey, options = {}) {
     throw error;
   }
 
-  const { limit = 50, offset = 0 } = options;
-
-  // Search all tips to find ones sent by this user
-  const allTips = [];
-  for (const tips of tipsByCreator.values()) {
-    for (const tip of tips) {
-      if (tip.senderPublicKey === senderPublicKey) {
-        allTips.push(tip);
-      }
-    }
-  }
-
-  // Sort by timestamp descending
-  allTips.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-  const total = allTips.length;
-  const paginatedTips = allTips.slice(offset, offset + limit);
+  const { limit = 50, offset = 0, cursor } = options;
+  const { tips, total, nextCursor } = tipsStore.listBySender(senderPublicKey, { limit, offset, cursor });
 
   return {
-    tips: paginatedTips,
+    tips,
     total,
     limit,
     offset,
+    nextCursor,
   };
 }
 

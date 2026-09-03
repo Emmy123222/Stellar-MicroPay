@@ -54,5 +54,10 @@
   },
   "engines": {
     "node": "20.19.5"
+  },
+  "jest": {
+    "setupFiles": [
+      "<rootDir>/jest.setup.js"
+    ]
   }
 }

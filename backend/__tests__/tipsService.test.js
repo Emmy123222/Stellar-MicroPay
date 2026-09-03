@@ -3,9 +3,21 @@
  * Unit tests for tipsService (issue #531).
  *
  * Tests aggregation logic (totals, per-recipient stats) isolated from controller layer.
+ * Storage is backed by tipsStore.js, pointed at an isolated temp file for this
+ * test file so runs never touch the real backend/data/tips.json (see tipsStore.test.js
+ * for storage-engine-level coverage: migration, quarantine, atomic writes).
  */
 
 "use strict";
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const tipsStore = require("../src/services/tipsStore");
+
+const TEST_STORE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "tips-service-test-"));
+tipsStore.setStorePathForTests(path.join(TEST_STORE_DIR, "tips.json"));
 
 const tipsService = require("../src/services/tipsService");
 
@@ -24,10 +36,11 @@ const KEY_E = createDeterministicPublicKey(5);
 
 describe("tipsService", () => {
   beforeEach(() => {
-    // Clear in-memory storage before each test
-    tipsService.tipsByCreator?.clear?.();
-    // Reset tip ID counter
-    tipsService.tipIdCounter = 1;
+    tipsService.resetStore();
+  });
+
+  afterAll(() => {
+    fs.rmSync(TEST_STORE_DIR, { recursive: true, force: true });
   });
 
   describe("recordTip", () => {
@@ -111,6 +124,26 @@ describe("tipsService", () => {
     it("throws error when creatorPublicKey is missing", () => {
       expect(() => tipsService.getTipsReceived()).toThrow("creatorPublicKey is required");
     });
+
+    it("supports cursor pagination and walks every page without gaps or repeats", () => {
+      const firstPage = tipsService.getTipsReceived(KEY_B, { limit: 1 });
+      expect(firstPage.tips).toHaveLength(1);
+      expect(firstPage.nextCursor).toEqual(expect.any(String));
+
+      const secondPage = tipsService.getTipsReceived(KEY_B, { limit: 1, cursor: firstPage.nextCursor });
+      expect(secondPage.tips).toHaveLength(1);
+      expect(secondPage.nextCursor).toBeNull();
+
+      const seenIds = [firstPage.tips[0].id, secondPage.tips[0].id];
+      expect(new Set(seenIds).size).toBe(2); // no repeats across pages
+      expect(seenIds.sort()).toEqual([1, 2]); // no gaps: both recorded tips seen
+    });
+
+    it("rejects a malformed cursor", () => {
+      expect(() => tipsService.getTipsReceived(KEY_B, { cursor: "not-a-valid-cursor" })).toThrow(
+        "Invalid pagination cursor"
+      );
+    });
   });
 
   describe("getTipsStats", () => {
@@ -183,7 +216,7 @@ describe("tipsService", () => {
     });
 
     it("handles fractional stroop boundaries without rounding errors", () => {
-      tipsService.tipsByCreator.clear();
+      tipsService.resetStore();
       tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000001", asset: "XLM" });
       tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000002", asset: "XLM" });
 
@@ -195,7 +228,7 @@ describe("tipsService", () => {
     });
 
     it("handles large totals without floating-point loss", () => {
-      tipsService.tipsByCreator.clear();
+      tipsService.resetStore();
       tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "999999999.9999999", asset: "XLM" });
       tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "0.0000001", asset: "XLM" });
 
@@ -242,6 +275,27 @@ describe("tipsService", () => {
 
     it("throws error when senderPublicKey is missing", () => {
       expect(() => tipsService.getTipsSent()).toThrow("senderPublicKey is required");
+    });
+
+    it("does not require scanning every creator's tips (sender index)", () => {
+      // KEY_A tipped two different creators (KEY_B and KEY_C); the sender
+      // index should surface both without iterating every creator's list.
+      const result = tipsService.getTipsSent(KEY_A);
+
+      expect(result.tips.map((t) => t.creatorPublicKey).sort()).toEqual([KEY_B, KEY_C].sort());
+    });
+
+    it("supports cursor pagination", () => {
+      const firstPage = tipsService.getTipsSent(KEY_A, { limit: 1 });
+      expect(firstPage.tips).toHaveLength(1);
+      expect(firstPage.nextCursor).toEqual(expect.any(String));
+
+      const secondPage = tipsService.getTipsSent(KEY_A, { limit: 1, cursor: firstPage.nextCursor });
+      expect(secondPage.tips).toHaveLength(1);
+      expect(secondPage.nextCursor).toBeNull();
+
+      const seenIds = [firstPage.tips[0].id, secondPage.tips[0].id];
+      expect(new Set(seenIds).size).toBe(2);
     });
   });
 
@@ -375,6 +429,25 @@ describe("tipsService", () => {
       };
 
       expect(() => tipsService.validateTipInput(data)).toThrow("amount must be a positive number");
+    });
+  });
+
+  describe("durable storage", () => {
+    it("survives a reload from disk (simulated restart)", () => {
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "10.0" });
+      tipsService.recordTip({ senderPublicKey: KEY_C, creatorPublicKey: KEY_B, amount: "5.0" });
+
+      // Re-point the store at the same file it's already using and reload,
+      // simulating a process restart against the same durable file.
+      tipsStore.setStorePathForTests(tipsStore.getStorePath());
+
+      const result = tipsService.getTipsReceived(KEY_B);
+      expect(result.total).toBe(2);
+      expect(result.tips.map((t) => t.senderPublicKey).sort()).toEqual([KEY_A, KEY_C].sort());
+    });
+
+    it("exposes quarantined records instead of silently dropping malformed data", () => {
+      expect(tipsService.getQuarantinedTips()).toEqual([]);
     });
   });
 });
