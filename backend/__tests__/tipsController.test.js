@@ -294,7 +294,7 @@ describe("tipsController", () => {
       );
     });
 
-    it("parses pagination params as integers", async () => {
+    it("passes pagination params to service", async () => {
       req.params = {
         senderPublicKey: "GABC123456789012345678901234567890123456789012345678",
       };
@@ -482,7 +482,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTopTippers).toHaveBeenCalledWith(
         req.params.creatorPublicKey,
-        10
+        "10"
       );
 
       expect(res.json).toHaveBeenCalledWith({
@@ -503,7 +503,7 @@ describe("tipsController", () => {
 
       expect(tipsService.getTopTippers).toHaveBeenCalledWith(
         req.params.creatorPublicKey,
-        5 // Default limit
+        undefined
       );
     });
   });

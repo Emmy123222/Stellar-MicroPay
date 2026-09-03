@@ -18,6 +18,7 @@ import {
   buildCancelOfferTransaction,
   submitTransaction,
   NETWORK_PASSPHRASE,
+  NETWORK,
   USDC,
   Orderbook,
   TradeAggregation,
