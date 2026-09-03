@@ -102,6 +102,8 @@ interface BarcodeDetectorLike {
   detect(source: ImageBitmapSource): Promise<BarcodeDetectorResult[]>;
 }
 
+type QrDecoder = (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null;
+
 const RECENT_RECIPIENTS_KEY = "stellar-micropay:recent-recipients";
 const MAX_RECENT = 3;
 const DESTINATION_VALIDATION_DEBOUNCE_MS = 400;
@@ -175,6 +177,8 @@ function SendPaymentForm({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
+  const qrDecoderRef = useRef<QrDecoder | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
@@ -209,9 +213,7 @@ function SendPaymentForm({
 
   useEffect(() => {
     const checkSupport = async () => {
-      if (typeof window !== "undefined" && "BarcodeDetector" in window) {
-        setIsScannerSupported(true);
-      }
+      setIsScannerSupported(typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia);
     };
     checkSupport();
   }, []);
@@ -226,6 +228,10 @@ function SendPaymentForm({
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+      }
+      if (!("BarcodeDetector" in window)) {
+        const module = await import("jsqr");
+        qrDecoderRef.current = module.default as QrDecoder;
       }
       startDetection();
     } catch (err) {
@@ -247,9 +253,11 @@ function SendPaymentForm({
   };
 
   const startDetection = () => {
-    if (typeof window === "undefined" || !("BarcodeDetector" in window)) return;
+    if (typeof window === "undefined") return;
 
-    const detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+    const detector = "BarcodeDetector" in window
+      ? new (window as any).BarcodeDetector({ formats: ["qr_code"] }) as BarcodeDetectorLike
+      : null;
     detectorRef.current = detector;
     isDetectingRef.current = true;
 
@@ -257,9 +265,24 @@ function SendPaymentForm({
       if (!isDetectingRef.current || !videoRef.current) return;
 
       try {
-        const barcodes = await detector.detect(videoRef.current);
-        if (barcodes.length > 0 && barcodes[0].rawValue) {
-          const result = barcodes[0].rawValue;
+        let result: string | undefined;
+        if (detector) {
+          const barcodes = await detector.detect(videoRef.current);
+          result = barcodes[0]?.rawValue;
+        } else if (qrDecoderRef.current) {
+          const video = videoRef.current;
+          const canvas = canvasRef.current ?? document.createElement("canvas");
+          canvasRef.current = canvas;
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          if (canvas.width && canvas.height) {
+            const context = canvas.getContext("2d", { willReadFrequently: true });
+            context?.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const image = context?.getImageData(0, 0, canvas.width, canvas.height);
+            result = image ? qrDecoderRef.current(image.data, image.width, image.height)?.data : undefined;
+          }
+        }
+        if (result) {
           if (isValidStellarAddress(result)) {
             setDestination(result);
             setDestinationResolutionError(null);
@@ -1313,6 +1336,20 @@ function SendPaymentForm({
         timeoutSeconds={60}
         onClose={closeStatusModal}
       />
+
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="scan-qr-title">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 id="scan-qr-title" className="text-lg font-bold text-white">Scan QR code</h3>
+              <button type="button" onClick={closeScanner} className="text-slate-400 hover:text-white" aria-label="Close QR scanner">×</button>
+            </div>
+            <video ref={videoRef} autoPlay playsInline muted className="aspect-square w-full rounded-xl bg-black object-cover" />
+            {scannerError && <p className="mt-3 text-sm text-red-400" role="alert">{scannerError}</p>}
+            <p className="mt-3 text-xs text-slate-400">Point your camera at a Stellar address QR code.</p>
+          </div>
+        </div>
+      )}
     </>
   );
 }
