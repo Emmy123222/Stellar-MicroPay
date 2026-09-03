@@ -5,7 +5,12 @@
 
 "use strict";
 
-const { collectErrors, parseAllowedOrigins } = require("../src/config/validateEnv");
+const { Keypair } = require("@stellar/stellar-sdk");
+const {
+  collectErrors,
+  parseAllowedOrigins,
+  getConfigurationSummary,
+} = require("../src/config/validateEnv");
 
 // ─── collectErrors ────────────────────────────────────────────────────────────
 
@@ -48,6 +53,58 @@ describe("validateEnv.collectErrors", () => {
     });
     expect(errors).toEqual(
       expect.arrayContaining([expect.stringContaining("HORIZON_URL must be a valid URL")])
+    );
+  });
+
+  it("rejects a mainnet network with the testnet Horizon host", () => {
+    const errors = collectErrors({
+      STELLAR_NETWORK: "mainnet",
+      HORIZON_URL: "https://horizon-testnet.stellar.org",
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("is for testnet")])
+    );
+  });
+
+  it("rejects a testnet network with the mainnet Horizon host", () => {
+    const errors = collectErrors({
+      STELLAR_NETWORK: "testnet",
+      HORIZON_URL: "https://horizon.stellar.org",
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("is for mainnet")])
+    );
+  });
+
+  it("rejects an invalid home domain", () => {
+    const errors = collectErrors({
+      STELLAR_NETWORK: "testnet",
+      HORIZON_URL: "https://horizon-testnet.stellar.org",
+      HOME_DOMAIN: "https://example.com/path",
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("HOME_DOMAIN")])
+    );
+  });
+
+  it("validates the configured server key and matching public key", () => {
+    const keypair = Keypair.random();
+    const valid = {
+      STELLAR_NETWORK: "testnet",
+      HORIZON_URL: "https://horizon-testnet.stellar.org",
+      SERVER_PRIVATE_KEY: keypair.secret(),
+      SERVER_PUBLIC_KEY: keypair.publicKey(),
+    };
+    expect(collectErrors(valid)).toEqual([]);
+    expect(
+      collectErrors({ ...valid, SERVER_PUBLIC_KEY: Keypair.random().publicKey() })
+    ).toEqual(
+      expect.arrayContaining([expect.stringContaining("does not match")])
+    );
+    expect(
+      collectErrors({ ...valid, SERVER_PRIVATE_KEY: "not-a-secret" })
+    ).toEqual(
+      expect.arrayContaining([expect.stringContaining("valid Stellar secret key")])
     );
   });
 
@@ -208,5 +265,27 @@ describe("parseAllowedOrigins", () => {
     expect(origins).toEqual(["https://example.com"]);
     // A subdomain should NOT match the base domain
     expect(origins).not.toContain("https://sub.example.com");
+  });
+});
+
+describe("getConfigurationSummary", () => {
+  it("reports configuration metadata without exposing the server secret", () => {
+    const keypair = Keypair.random();
+    const summary = getConfigurationSummary({
+      STELLAR_NETWORK: "mainnet",
+      HORIZON_URL: "https://horizon.stellar.org",
+      HOME_DOMAIN: "auth.example.com",
+      SERVER_PRIVATE_KEY: keypair.secret(),
+    });
+
+    expect(summary).toEqual({
+      network: "mainnet",
+      networkPassphrase: "Public Global Stellar Network ; September 2015",
+      horizonUrl: "https://horizon.stellar.org",
+      homeDomain: "auth.example.com",
+      serverKeyConfigured: true,
+      serverPublicKey: keypair.publicKey(),
+    });
+    expect(JSON.stringify(summary)).not.toContain(keypair.secret());
   });
 });

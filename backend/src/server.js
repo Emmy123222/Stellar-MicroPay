@@ -296,6 +296,7 @@ app.use((err, req, res, next) => {
 
 if (require.main === module) {
   validateEnv();
+  logConfigurationSummary();
   app.listen(PORT, () => {
     console.log(`
   ✨ Stellar MicroPay API
