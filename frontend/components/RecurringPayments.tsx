@@ -1,17 +1,33 @@
 import { useEffect, useState } from "react";
 import { formatXLM } from "@/utils/format";
 
-export interface RecurringSchedule {
+export const CURRENT_RECURRING_SCHEMA_VERSION = 2;
+
+export interface RecurringScheduleV1 {
   id: string;
   recipient: string;
   amount: string;
   memo: string;
   frequency: "weekly" | "monthly";
-  startDate: string; // ISO date string YYYY-MM-DD
-  nextDueDate: string; // ISO date string YYYY-MM-DD
+  startDate: string;
+  nextDueDate: string;
   createdAt: number;
-  paused?: boolean; // New: pause state
-  pausedAt?: number; // New: timestamp when paused
+  paused?: boolean;
+  pausedAt?: number;
+}
+
+export interface RecurringScheduleV2 {
+  schemaVersion: 2;
+  id: string;
+  recipient: string;
+  amount: string;
+  memo: string;
+  frequency: "weekly" | "monthly";
+  startDate: string;
+  nextDueDate: string;
+  createdAt: number;
+  paused: boolean;
+  pausedAt: number | null;
 }
 
 const STORAGE_KEY = "stellar-micropay:recurring-schedules";
@@ -181,7 +197,11 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
     }
     const amt = parseFloat(form.amount);
     if (!form.amount || isNaN(amt) || amt <= 0) {
-      setFormError("Enter a valid amount.");
+      setFormError("Enter a valid amount greater than 0.");
+      return;
+    }
+    if (form.frequency !== "weekly" && form.frequency !== "monthly") {
+      setFormError("Select a valid frequency cadence.");
       return;
     }
     if (!form.startDate) {
@@ -209,6 +229,7 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
       persist(updated);
     } else {
       const newSchedule: RecurringSchedule = {
+        schemaVersion: CURRENT_RECURRING_SCHEMA_VERSION,
         id: generateId(),
         recipient: form.recipient.trim(),
         amount: form.amount,
@@ -217,6 +238,8 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
         startDate: form.startDate,
         nextDueDate: form.startDate,
         createdAt: Date.now(),
+        paused: false,
+        pausedAt: null,
       };
       persist([...schedules, newSchedule]);
     }
@@ -237,6 +260,7 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
   };
 
   const handlePause = (id: string) => {
+    const now = Date.now();
     const updated = schedules.map((s) =>
       s.id === id ? { ...s, paused: true, pausedAt: Date.now() } : s
     );
@@ -255,7 +279,6 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
   };
 
   const handlePayNow = (s: RecurringSchedule) => {
-    // Don't allow payment for paused schedules
     if (s.paused) return;
 
     // Advance the next due date after triggering pay
@@ -273,7 +296,7 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
           <CalendarIcon className="w-5 h-5 text-stellar-400" />
-          Recurring Payments
+          Recurring Payment Schedules
         </h2>
         {!showForm && (
           <button
@@ -289,25 +312,26 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
         )}
       </div>
 
-      {/* Due-today banner */}
       {dueSchedules.length > 0 && (
-        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-          <p className="text-xs font-semibold text-amber-300 uppercase tracking-wider mb-2">
-            Due today — {dueSchedules.length} payment{dueSchedules.length > 1 ? "s" : ""}
+        <div className="mb-6 p-4 rounded-xl bg-stellar-500/10 border border-stellar-500/20">
+          <p className="text-xs font-semibold text-stellar-300 uppercase tracking-wider mb-3">
+            Due Today ({dueSchedules.length})
           </p>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {dueSchedules.map((s) => (
-              <div key={s.id} className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="text-sm text-slate-200">
-                  <span className="font-mono text-xs text-slate-400 mr-1">
-                    {s.recipient.slice(0, 6)}…{s.recipient.slice(-4)}
-                  </span>
-                  <span className="font-semibold text-white">{formatXLM(s.amount)}</span>
-                  {s.memo && <span className="text-slate-400 text-xs ml-1">· {s.memo}</span>}
+              <div
+                key={s.id}
+                className="flex items-center justify-between bg-slate-900/60 p-3 rounded-lg border border-slate-800"
+              >
+                <div>
+                  <p className="text-sm text-white font-medium">
+                    {formatXLM(s.amount)} to <span className="font-mono">{s.recipient.slice(0, 8)}...</span>
+                  </p>
+                  <p className="text-xs text-slate-400">Due: {s.nextDueDate} ({s.frequency})</p>
                 </div>
                 <button
                   onClick={() => handlePayNow(s)}
-                  className="text-xs font-semibold bg-stellar-500/20 hover:bg-stellar-500/30 text-stellar-300 border border-stellar-500/30 rounded-lg px-3 py-1 transition-colors cursor-pointer"
+                  className="bg-stellar-500 hover:bg-stellar-600 text-white text-xs px-3 py-1.5 rounded-md font-medium transition-colors"
                 >
                   Pay Now
                 </button>
@@ -317,97 +341,103 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
         </div>
       )}
 
-      {/* Add / Edit form */}
       {showForm && (
-        <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-white">
-            {editingId ? "Edit schedule" : "New recurring payment"}
+        <div className="mb-6 p-4 rounded-xl bg-slate-900/80 border border-slate-700 animate-slide-up">
+          <h3 className="text-sm font-semibold text-white mb-4">
+            {editingId ? "Edit recurring payment" : "New recurring payment"}
           </h3>
-
-          <div>
-            <label className="label text-xs mb-1">Recipient (Stellar address)</label>
-            <input
-              type="text"
-              value={form.recipient}
-              onChange={(e) => setForm((f) => ({ ...f, recipient: e.target.value }))}
-              placeholder="G..."
-              className="input-field font-mono text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          {formError && (
+            <p className="mb-3 text-xs text-red-400 bg-red-500/10 border border-red-500/20 p-2 rounded">
+              {formError}
+            </p>
+          )}
+          <div className="space-y-3">
             <div>
-              <label className="label text-xs mb-1">Amount (XLM)</label>
+              <label className="label">Recipient Address</label>
               <input
-                type="number"
-                value={form.amount}
-                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                placeholder="0.0000000"
-                className="input-field"
-                min="0"
+                type="text"
+                className="input-field text-sm"
+                placeholder="G..."
+                value={form.recipient}
+                onChange={(e) => setForm({ ...form, recipient: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Amount (XLM)</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="input-field text-sm"
+                  placeholder="0.0000000"
+                  value={form.amount}
+                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Frequency</label>
+                <select
+                  className="input-field text-sm"
+                  value={form.frequency}
+                  onChange={(e) => setForm({ ...form, frequency: e.target.value as "weekly" | "monthly" })}
+                >
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="label">Start Date</label>
+              <input
+                type="date"
+                className="input-field text-sm"
+                value={form.startDate}
+                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
               />
             </div>
             <div>
-              <label className="label text-xs mb-1">Frequency</label>
-              <select
-                value={form.frequency}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, frequency: e.target.value as "weekly" | "monthly" }))
-                }
-                className="input-field"
-              >
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
+              <label className="label">Memo (Optional)</label>
+              <input
+                type="text"
+                className="input-field text-sm"
+                placeholder="Optional memo"
+                value={form.memo}
+                onChange={(e) => setForm({ ...form, memo: e.target.value })}
+              />
             </div>
-          </div>
-
-          <div>
-            <label className="label text-xs mb-1">Memo (optional)</label>
-            <input
-              type="text"
-              value={form.memo}
-              onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value }))}
-              placeholder="Rent, Salary..."
-              className="input-field"
-            />
-          </div>
-
-          <div>
-            <label className="label text-xs mb-1">Start date</label>
-            <input
-              type="date"
-              value={form.startDate}
-              onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
-              className="input-field"
-            />
-          </div>
-
-          {formError && <p className="text-xs text-red-400">{formError}</p>}
-
-          <div className="flex gap-2 pt-1">
-            <button onClick={handleSubmit} className="btn-primary text-sm py-1.5 px-4">
-              {editingId ? "Save" : "Create"}
-            </button>
-            <button
-              onClick={resetForm}
-              className="text-sm text-slate-400 hover:text-white transition-colors"
-            >
-              Cancel
-            </button>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={resetForm}
+                className="btn-secondary text-xs px-3 py-1.5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                className="btn-primary text-xs px-3 py-1.5"
+              >
+                {editingId ? "Save Changes" : "Create"}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Schedule list */}
-      {schedules.length === 0 && !showForm ? (
-        <p className="text-sm text-slate-400">No recurring schedules yet.</p>
+      {schedules.length === 0 ? (
+        <div className="text-center py-8 text-slate-400">
+          <p className="text-sm">No recurring schedules yet.</p>
+          <p className="text-xs text-slate-500 mt-1">Create a schedule to automate regular XLM transfers.</p>
+        </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {schedules.map((s) => (
             <div
               key={s.id}
-              className="flex items-start justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3"
+              className={`p-4 rounded-xl border flex items-center justify-between transition-colors ${
+                s.paused
+                  ? "bg-slate-900/40 border-slate-800 opacity-75"
+                  : "bg-slate-900/70 border-slate-800"
+              }`}
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -420,43 +450,46 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-400 font-mono truncate">
-                  {s.recipient.slice(0, 8)}…{s.recipient.slice(-6)}
+                <p className="text-xs font-mono text-slate-400 truncate">
+                  To: {s.recipient}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Next: <span className="text-slate-300">{formatDate(s.nextDueDate)}</span>
                 </p>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
+
+              <div className="flex items-center gap-1.5 shrink-0">
                 {s.paused ? (
                   <button
                     onClick={() => handleResume(s.id)}
-                    className="text-xs text-green-400 hover:text-green-300 transition-colors cursor-pointer"
-                    aria-label="Resume schedule"
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 transition-colors"
                     title="Resume schedule"
+                    aria-label="Resume schedule"
                   >
-                    <PlayIcon className="w-4 h-4" />
+                    <PlayIcon className="w-4 h-4 text-emerald-400" />
                   </button>
                 ) : (
                   <button
                     onClick={() => handlePause(s.id)}
-                    className="text-xs text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
-                    aria-label="Pause schedule"
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 transition-colors"
                     title="Pause schedule"
+                    aria-label="Pause schedule"
                   >
-                    <PauseIcon className="w-4 h-4" />
+                    <PauseIcon className="w-4 h-4 text-amber-400" />
                   </button>
                 )}
                 <button
                   onClick={() => handleEdit(s)}
-                  className="text-xs text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 transition-colors"
+                  title="Edit schedule"
                   aria-label="Edit schedule"
                 >
                   <EditIcon className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleDelete(s.id)}
-                  className="text-xs text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+                  className="p-2 rounded-lg bg-white/5 hover:bg-red-500/10 text-slate-400 hover:text-red-400 transition-colors"
+                  title="Delete schedule"
                   aria-label="Delete schedule"
                 >
                   <TrashIcon className="w-4 h-4" />
@@ -470,82 +503,43 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
   );
 }
 
-function formatDate(iso: string): string {
-  const [year, month, day] = iso.split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
+// Icons
 function CalendarIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-      />
-    </svg>
-  );
-}
-
-function EditIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-      />
-    </svg>
-  );
-}
-
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-      />
-    </svg>
-  );
-}
-
-function PauseIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
-      />
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   );
 }
 
 function PlayIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-      />
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function PauseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+    </svg>
+  );
+}
+
+function EditIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
     </svg>
   );
 }
