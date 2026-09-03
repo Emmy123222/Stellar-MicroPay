@@ -29,6 +29,7 @@ const {
   webhookDeliveryErrorsTotal,
 } = require("../metrics/registry");
 const logger = require("../utils/logger");
+const { correlationHeaders } = require("../utils/logger");
 const { generateWebhookSignature } = require("../utils/webhookSignature");
 
 const BLOCKED_IPV4 = [

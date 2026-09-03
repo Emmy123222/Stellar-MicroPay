@@ -20,6 +20,7 @@ const {
   turretsActiveDeployments,
 } = require("../metrics/registry");
 const logger = require("../utils/logger");
+const { correlationHeaders } = require("../utils/logger");
 
 const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
