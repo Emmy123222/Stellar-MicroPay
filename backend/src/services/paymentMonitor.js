@@ -8,6 +8,8 @@ const {
 } = require("../metrics/registry");
 const logger = require("../utils/logger");
 
+const { enqueueDelivery } = require("./webhookQueue");
+
 const cursorStore = require("./cursorStore");
 const { deliverWebhook } = require("./webhookDelivery");
 const { getWebhooksByPublicKey, getAllWebhooks } = require("./webhookStore");
@@ -20,9 +22,34 @@ const {
 
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
+/**
+ * Explicit network state (#770): the monitor streams from whichever Horizon
+ * instance HORIZON_URL points at. STELLAR_NETWORK must match it — this is
+ * validated at startup by config/validateEnv.js — and is logged so operators
+ * can tell testnet and mainnet traffic apart.
+ */
+const STELLAR_NETWORK = process.env.STELLAR_NETWORK || "testnet";
+
 const horizonServer = new Horizon.Server(HORIZON_URL);
 
 const activeStreams = new Map();
+
+/**
+ * Hand a payment record off to the delivery queue for every registered
+ * webhook. Synchronous and non-blocking — safe to call from the SSE
+ * onmessage handler.
+ *
+ * @param {string} publicKey
+ * @param {import('./webhookDelivery').PaymentPayload} payload
+ */
+function dispatchPaymentEvent(publicKey, payload) {
+  const hooks = getWebhooksByPublicKey(publicKey);
+  if (hooks.length === 0) return;
+
+  for (const hook of hooks) {
+    enqueueDelivery(hook, payload);
+  }
+}
 
 /**
  * Recently-handled paging tokens per public key, used to de-duplicate rows
@@ -179,6 +206,10 @@ function ensureMonitored(publicKey) {
 }
 
 function resumeAllMonitors() {
+  logger.info(
+    { network: STELLAR_NETWORK, horizonUrl: HORIZON_URL },
+    `[monitor] resuming monitors on ${STELLAR_NETWORK}`
+  );
   const allWebhooks = getAllWebhooks();
   const seen = new Set();
   for (const webhook of allWebhooks) {

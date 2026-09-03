@@ -580,6 +580,64 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "lastDelivery": {
+            "$ref": "WebhookDeliveryStatus"
+          }
+        }
+      },
+      "WebhookDeliveryStatus": {
+        "type": "object",
+        "description": "Status of the most recent webhook delivery attempt. Null until the first delivery has been enqueued (#770).",
+        "properties": {
+          "webhookId": {
+            "type": "string"
+          },
+          "transactionHash": {
+            "type": "string",
+            "description": "Stellar transaction hash of the latest delivery"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_flight",
+              "retrying",
+              "delivered",
+              "dead_letter",
+              "dropped"
+            ],
+            "description": "delivered = receiver answered 2xx; dead_letter = retries exhausted; pending/in_flight/retrying = awaiting (re)delivery; dropped = webhook deleted before delivery"
+          },
+          "attempts": {
+            "type": "integer",
+            "description": "Delivery attempts made for the latest delivery"
+          },
+          "lastHttpStatus": {
+            "type": "integer",
+            "nullable": true,
+            "description": "HTTP status of the last attempt (null on network errors)"
+          },
+          "lastError": {
+            "type": "string",
+            "nullable": true,
+            "description": "Failure reason of the last attempt"
+          },
+          "lastAttemptAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "nextAttemptAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Scheduled retry time (retrying state only)"
+          },
+          "deliveredAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
@@ -2807,6 +2865,61 @@
                         "createdAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "lastDelivery": {
+                          "type": "object",
+                          "description": "Status of the most recent webhook delivery attempt. Null until the first delivery has been enqueued (#770).",
+                          "properties": {
+                            "webhookId": {
+                              "type": "string"
+                            },
+                            "transactionHash": {
+                              "type": "string",
+                              "description": "Stellar transaction hash of the latest delivery"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "pending",
+                                "in_flight",
+                                "retrying",
+                                "delivered",
+                                "dead_letter",
+                                "dropped"
+                              ],
+                              "description": "delivered = receiver answered 2xx; dead_letter = retries exhausted; pending/in_flight/retrying = awaiting (re)delivery; dropped = webhook deleted before delivery"
+                            },
+                            "attempts": {
+                              "type": "integer",
+                              "description": "Delivery attempts made for the latest delivery"
+                            },
+                            "lastHttpStatus": {
+                              "type": "integer",
+                              "nullable": true,
+                              "description": "HTTP status of the last attempt (null on network errors)"
+                            },
+                            "lastError": {
+                              "type": "string",
+                              "nullable": true,
+                              "description": "Failure reason of the last attempt"
+                            },
+                            "lastAttemptAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "nextAttemptAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true,
+                              "description": "Scheduled retry time (retrying state only)"
+                            },
+                            "deliveredAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
                         }
                       }
                     }
@@ -2868,6 +2981,61 @@
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
+                          },
+                          "lastDelivery": {
+                            "type": "object",
+                            "description": "Status of the most recent webhook delivery attempt. Null until the first delivery has been enqueued (#770).",
+                            "properties": {
+                              "webhookId": {
+                                "type": "string"
+                              },
+                              "transactionHash": {
+                                "type": "string",
+                                "description": "Stellar transaction hash of the latest delivery"
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "in_flight",
+                                  "retrying",
+                                  "delivered",
+                                  "dead_letter",
+                                  "dropped"
+                                ],
+                                "description": "delivered = receiver answered 2xx; dead_letter = retries exhausted; pending/in_flight/retrying = awaiting (re)delivery; dropped = webhook deleted before delivery"
+                              },
+                              "attempts": {
+                                "type": "integer",
+                                "description": "Delivery attempts made for the latest delivery"
+                              },
+                              "lastHttpStatus": {
+                                "type": "integer",
+                                "nullable": true,
+                                "description": "HTTP status of the last attempt (null on network errors)"
+                              },
+                              "lastError": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Failure reason of the last attempt"
+                              },
+                              "lastAttemptAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true
+                              },
+                              "nextAttemptAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true,
+                                "description": "Scheduled retry time (retrying state only)"
+                              },
+                              "deliveredAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true
+                              }
+                            }
                           }
                         }
                       }

@@ -93,19 +93,26 @@ class WebhookResourceLimitError extends Error {
 }
 
 /**
- * @typedef {Object} PaymentPayload
- * @property {string} eventId
- * @property {number} attempt
- * @property {string} createdAt
- * @property {string} network
- * @property {'payment_received'} event
- * @property {string} publicKey
- * @property {string} amount
- * @property {string} asset          - 'native' or 'CODE:ISSUER'
- * @property {string} from           - sender's public key
- * @property {string} transactionHash
- * @property {number} ledger
- * @property {string} timestamp
+ * Per-attempt HTTP timeout. Bounds how long a slow receiver can occupy a
+ * queue worker slot (#770).
+ */
+const DELIVERY_TIMEOUT_MS = parseTimeoutMs(process.env.WEBHOOK_DELIVERY_TIMEOUT_MS);
+
+/**
+ * @param {string|undefined} raw
+ * @returns {number}
+ */
+function parseTimeoutMs(raw) {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 10_000;
+  return parsed;
+}
+
+/**
+ * @typedef {Object} DeliveryResult
+ * @property {boolean} ok              - true when the receiver answered 2xx
+ * @property {number|null} httpStatus  - receiver HTTP status, null on network errors
+ * @property {string|null} error       - failure reason, null on success
  */
 function resolveLimits(overrides = {}) {
   return {
@@ -248,6 +255,7 @@ async function deliverWebhook(webhook, payload, options = {}) {
           "X-Webhook-ID": webhook.id,
         },
         body,
+      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
       });
       if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
         if (redirects === 3) throw new Error("Webhook redirect limit exceeded");
@@ -266,7 +274,14 @@ async function deliverWebhook(webhook, payload, options = {}) {
         );
       }
       break;
+      return { ok: false, httpStatus: res.status, error: `HTTP ${res.status}` };
     }
+
+    logger.debug(
+      { webhookId: webhook.id, url: webhook.url, status: res.status },
+      `[webhook] delivered for ${webhook.id}: HTTP ${res.status}`
+    );
+    return { ok: true, httpStatus: res.status, error: null };
   } catch (err) {
     const code = err && err.code;
     logger.error(

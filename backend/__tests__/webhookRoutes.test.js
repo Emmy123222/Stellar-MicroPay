@@ -22,6 +22,7 @@ jest.mock("../src/services/webhookService", () => {
     getWebhooksByPublicKey: jest.fn((publicKey) =>
       Array.from(store.values()).filter((w) => w.publicKey === publicKey)
     ),
+    getDeliveryStatus: jest.fn(() => null),
     deleteWebhook: jest.fn((id) => store.delete(id)),
   };
 });
@@ -86,6 +87,39 @@ describe("GET /api/webhooks/:publicKey", () => {
     const res = await request(app()).get(`/api/webhooks/${ME}`);
     expect(res.status).toBe(200);
     expect(res.body.webhooks).toHaveLength(1);
+  });
+
+  it("exposes the last delivery status and strips secrets (#770)", async () => {
+    webhookService.getWebhooksByPublicKey.mockReturnValue([
+      { id: "1", publicKey: ME, url: "https://x.test/hook", secret: "supersecret" },
+    ]);
+    webhookService.getDeliveryStatus.mockReturnValue({
+      webhookId: "1",
+      transactionHash: "abc123",
+      state: "delivered",
+      attempts: 1,
+      lastHttpStatus: 200,
+    });
+
+    const res = await request(app()).get(`/api/webhooks/${ME}`);
+    expect(res.status).toBe(200);
+    expect(res.body.webhooks[0].lastDelivery).toMatchObject({
+      state: "delivered",
+      attempts: 1,
+      lastHttpStatus: 200,
+    });
+    expect(res.body.webhooks[0].secret).toBeUndefined();
+  });
+
+  it("returns null as lastDelivery when nothing was delivered yet", async () => {
+    webhookService.getWebhooksByPublicKey.mockReturnValue([
+      { id: "2", publicKey: ME, url: "https://x.test/hook", secret: "supersecret" },
+    ]);
+    webhookService.getDeliveryStatus.mockReturnValue(null);
+
+    const res = await request(app()).get(`/api/webhooks/${ME}`);
+    expect(res.status).toBe(200);
+    expect(res.body.webhooks[0].lastDelivery).toBeNull();
   });
 });
 
