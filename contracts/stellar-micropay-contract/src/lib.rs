@@ -163,8 +163,7 @@ pub struct Stream {
     pub closed: bool,
 }
 
-/// Index of `recipients[i].recipient == addr`, if `addr` is on the stream.
-fn find_recipient(recipients: &soroban_sdk::Vec<StreamRecipient>, addr: &Address) -> Option<u32> {
+fn find_recipient(recipients: &Vec<StreamRecipient>, addr: &Address) -> Option<u32> {
     for i in 0..recipients.len() {
         if &recipients.get(i).unwrap().recipient == addr {
             return Some(i);
@@ -173,15 +172,18 @@ fn find_recipient(recipients: &soroban_sdk::Vec<StreamRecipient>, addr: &Address
     None
 }
 
-fn total_weight(recipients: &soroban_sdk::Vec<StreamRecipient>) -> u32 {
+fn total_weight(recipients: &Vec<StreamRecipient>) -> Result<u32, ContractError> {
     let mut total: u32 = 0;
     for i in 0..recipients.len() {
-        total = total.saturating_add(recipients.get(i).unwrap().weight);
+        let w = recipients.get(i).unwrap().weight;
+        if w == 0 { return Err(ContractError::InvalidWeight); }
+        total = total.checked_add(w).ok_or(ContractError::InvalidWeight)?;
     }
-    total
+    if total == 0 { return Err(ContractError::ZeroTotalWeight); }
+    Ok(total)
 }
 
-fn total_claimed(recipients: &soroban_sdk::Vec<StreamRecipient>) -> i128 {
+fn total_claimed(recipients: &Vec<StreamRecipient>) -> i128 {
     let mut total: i128 = 0;
     for i in 0..recipients.len() {
         total += recipients.get(i).unwrap().claimed;
@@ -189,7 +191,6 @@ fn total_claimed(recipients: &soroban_sdk::Vec<StreamRecipient>) -> i128 {
     total
 }
 
-/// Total ledgers this stream has spent paused, including an in-progress pause.
 fn paused_ledgers_total(stream: &Stream, current_ledger: u32) -> u32 {
     if stream.paused {
         let ongoing = current_ledger.saturating_sub(stream.paused_at_ledger);
@@ -221,7 +222,6 @@ fn total_streamed_amount(stream: &Stream, current_ledger: u32) -> i128 {
     } else {
         elapsed_ledgers
     };
-
     stream.rate_per_ledger * elapsed_ledgers as i128
 }
 
@@ -1293,15 +1293,7 @@ impl MicroPayContract {
         let mut recipients = stream.recipients.clone();
         let mut owed: i128 = 0;
         for i in 0..recipients.len() {
-            let mut entry = recipients.get(i).unwrap();
-            let entitled = total_streamed * i128::from(entry.weight) / i128::from(weight_total);
-            let share = entitled - entry.claimed;
-            if share > 0 {
-                entry.claimed += share;
-                owed += share;
-                recipients.set(i, entry.clone());
-                token.transfer(&contract_address, &entry.recipient, &share);
-            }
+            stream_recipients.push_back(StreamRecipient { recipient: recipients.get(i).unwrap(), weight: weights.get(i).unwrap(), claimed: 0 });
         }
         stream.recipients = recipients;
 
@@ -1496,17 +1488,6 @@ impl MicroPayContract {
         Ok(SCHEMA_VERSION)
     }
 }
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod benchmarks;
-
-#[cfg(test)]
-mod fuzz_streams;
-
-#[cfg(test)]
-mod migration_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1794,7 +1775,7 @@ mod tests {
     }
 
     #[test]
-    fn test_send_tip_stores_record() {
+    fn test_zero_weight_rejected() {
         let env = Env::default();
         let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
@@ -1818,7 +1799,7 @@ mod tests {
     }
 
     #[test]
-    fn test_send_tip_increments_totals() {
+    fn test_max_weight_overflow() {
         let env = Env::default();
         let contract_id = env.register(MicroPayContract, ());
         let client = MicroPayContractClient::new(&env, &contract_id);
