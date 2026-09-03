@@ -50,6 +50,7 @@ import {
 import clsx from "clsx";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToastContext } from "@/lib/ToastContext";
 import { useTranslation } from "@/contexts/I18nContext";
 
@@ -146,6 +147,7 @@ function SendPaymentForm({
   const [snsResolving, setSnsResolving] = useState(false);
   const [snsResolved, setSnsResolved] = useState<string | null>(null);
   const [snsError, setSnsError] = useState<string | null>(null);
+  const [snsResolvedAddress, setSnsResolvedAddress] = useState<string | null>(null);
   const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
   const [showCustomAssetForm, setShowCustomAssetForm] = useState(false);
@@ -175,6 +177,14 @@ function SendPaymentForm({
   const frameRequestRef = useRef<number | null>(null);
   const isDetectingRef = useRef(false);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destinationValidationRequestRef = useRef(0);
+
+  // Destination validation refs (#709)
+  const destinationValidationRequestRef = useRef(0);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destinationValidationRequestRef = useRef<number>(0);
 
   // Power-user shortcut: press "S" (when not already typing in a field and no
   // modal is open) to jump focus to the destination input (#264).
@@ -412,12 +422,30 @@ function SendPaymentForm({
   }, [destination]);
 
   // Pre-validate destination account existence on the Stellar network (#294)
+  const validateDestinationAccount = useCallback(async (dest: string) => {
+    const requestId = destinationValidationRequestRef.current;
+    if (!isValidStellarAddress(dest)) return;
+  const destinationValidationRequestRef = useRef(0);
+  const destinationValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const validateDestinationAccount = useCallback((rawAddress: string) => {
+    const trimmedAddress = rawAddress.trim();
+    if (!isValidStellarAddress(trimmedAddress)) {
+  // Uses a monotonic request ID to ignore stale async responses.
+  const validateDestinationAccount = useCallback(
+    (dest: string) => {
+      const trimmed = dest.trim();
+      if (!isValidStellarAddress(trimmed)) {
+        setDestAccountWarning(null);
+        setIsCheckingDest(false);
+        return;
+      }
+
+      const thisRequest = ++destinationValidationRequestRef.current;
+      setIsCheckingDest(true);
   useEffect(() => {
     if (!isValidStellarAddress(destination)) {
       setDestAccountWarning(null);
-      setIsCheckingDest(false);
-      return;
-    }
 
     setIsCheckingDest(true);
     setDestAccountWarning(null);

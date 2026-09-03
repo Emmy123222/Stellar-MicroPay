@@ -16,6 +16,34 @@ import userEvent from "@testing-library/user-event";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
+jest.mock("@/lib/i18n", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => {
+      const map: Record<string, string> = {
+        send_button: `Send ${opts?.amount || ""} ${opts?.asset || ""}`,
+        confirm_title: "Confirm Payment",
+        confirm_sign: "Confirm & Sign",
+        cancel: "Cancel",
+        destination: "Destination",
+        amount: "Amount",
+        memo_optional: "Memo (optional)",
+        processing: "Processing...",
+        checking_account: "Checking account...",
+        contacts: "Contacts",
+        close: "Close",
+        scan_qr: "Scan QR Code",
+        save_contact: "Save Contact",
+        remove_contact: "Remove Contact",
+        memo_limit: "Memo exceeds 28 bytes",
+        max: `Max ${opts?.amount || ""}`,
+        amount_placeholder: "0.0000000",
+        high_value_warning: "Consider using Multi-Signature for high-value payments.",
+      };
+      return map[key] ?? (opts ? `${key}:${JSON.stringify(opts)}` : key);
+    },
+  }),
+}));
+
 const mockResolveStellarName = jest.fn();
 const mockIsStellarName = jest.fn();
 
@@ -72,6 +100,41 @@ jest.mock("@/components/PaymentStatusModal", () => ({
 
 jest.mock("@/components/MultiSigFlow", () => ({
   MULTISIG_THRESHOLD_XLM: 1000,
+}));
+
+jest.mock("@/components/ErrorBoundary", () => ({
+  withErrorBoundary: (Component: React.FC) => Component,
+}));
+
+jest.mock("@/lib/addressBook", () => ({
+  loadAddressBookContacts: () => [],
+  saveAddressBookContacts: jest.fn(),
+  subscribeToAddressBookContacts: () => () => {},
+  upsertAddressBookContact: (c: unknown) => c,
+}));
+
+jest.mock("@/components/icons", () => {
+  const Icon = () => null;
+  return {
+    SendIcon: Icon,
+    CheckIcon: Icon,
+    CopyIcon: Icon,
+    ExternalLinkIcon: Icon,
+    StarIcon: Icon,
+    QrCodeIcon: Icon,
+    ReceiptIcon: Icon,
+  };
+});
+
+jest.mock("@/lib/ToastContext", () => ({
+  useToastContext: () => ({ addToast: jest.fn() }),
+}));
+
+jest.mock("@/lib/i18n", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) =>
+      opts ? `${key}:${JSON.stringify(opts)}` : key,
+  }),
 }));
 
 import SendPaymentForm from "../components/SendPaymentForm";
@@ -380,6 +443,7 @@ describe("SendPaymentForm — SNS integration", () => {
 
       await user.click(screen.getByRole("button", { name: /Send/i }));
 
+      const confirmButton = await screen.findByRole("button", { name: /confirm_sign/i });
       const confirmButton = await screen.findByRole("button", { name: /confirm_sign|Confirm & Sign/i });
       await user.click(confirmButton);
 

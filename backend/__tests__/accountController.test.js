@@ -13,6 +13,15 @@ function setupApp() {
   const app = express();
   app.use(express.json());
   
+  // Fake auth middleware that mirrors what the real auth layer does:
+  // it sets req.user.publicKey from the JWT-verified session.
+  app.use((req, _res, next) => {
+    // For register tests the caller passes publicKey in the body;
+    // use that so the wallet-ownership check passes.
+    req.user = { publicKey: req.body?.publicKey || req.params?.publicKey };
+    next();
+  });
+
   app.get("/api/accounts/resolve/:username", accountController.resolveUsername);
   app.get("/api/accounts/:publicKey/balance", accountController.getBalance);
   app.get("/api/accounts/:publicKey", accountController.getAccount);
@@ -150,14 +159,14 @@ describe("accountController", () => {
     it("resolves a username to its associated public key", async () => {
       usernameService.resolveUsername.mockReturnValue({ publicKey: "G_VALID" });
 
-      const res = await request(app).get("/api/accounts/resolve/bob");
+      const res = await request(app).get("/api/accounts/resolve/bob456");
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         success: true,
         data: { publicKey: "G_VALID" }
       });
-      expect(usernameService.resolveUsername).toHaveBeenCalledWith("bob");
+      expect(usernameService.resolveUsername).toHaveBeenCalledWith("bob456");
     });
 
     it("propagates errors when username cannot be resolved", async () => {

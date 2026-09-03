@@ -26,6 +26,16 @@ jest.mock("../src/services/webhookService", () => {
   };
 });
 
+jest.mock("../src/middleware/rateLimit", () => ({
+  strictLimiter: (req, res, next) => next(),
+}));
+
+jest.mock("@stellar/stellar-sdk", () => ({
+  StrKey: {
+    isValidEd25519PublicKey: () => true,
+  },
+}));
+
 const express = require("express");
 const request = require("supertest");
 const webhookRoutes = require("../src/routes/webhooks");

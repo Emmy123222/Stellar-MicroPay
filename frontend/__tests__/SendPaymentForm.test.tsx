@@ -3,6 +3,45 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // Define mocks before importing the component
+jest.mock("@/lib/i18n", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => {
+      const map: Record<string, string> = {
+        memo_optional: "Memo (optional)",
+        send_button: `Send ${opts?.amount || ""} ${opts?.asset || ""}`,
+        processing: "Processing...",
+        confirm_title: "Confirm Payment",
+        confirm_sign: "Confirm & Sign",
+        cancel: "Cancel",
+        destination: "Destination",
+        amount: "Amount",
+        to: "To",
+        estimated_fee: "Estimated Fee",
+        memo: "Memo",
+        send_another: "Send Another",
+        success_title: "Payment Sent!",
+        success_message: "Your payment has been processed successfully.",
+        transaction_hash: "Transaction Hash",
+        view_explorer: "View on Explorer",
+        mint_receipt: "Mint NFT Receipt",
+        minting_receipt: "Minting Receipt...",
+        mint_success: "Receipt minted successfully!",
+        max: `Max ${opts?.amount || ""}`,
+        amount_placeholder: "0.0000000",
+        contacts: "Contacts",
+        close: "Close",
+        checking_account: "Checking account...",
+        scan_qr: "Scan QR Code",
+        save_contact: "Save Contact",
+        remove_contact: "Remove Contact",
+        high_value_warning: "Consider using Multi-Signature for high-value payments.",
+        memo_limit: "Memo exceeds 28 bytes",
+      };
+      return map[key] ?? (opts ? `${key}:${JSON.stringify(opts)}` : key);
+    },
+  }),
+}));
+
 jest.mock("@/lib/stellar", () => ({
   buildPaymentTransaction: jest.fn(),
   buildSorobanTipTransaction: jest.fn(),
@@ -14,6 +53,7 @@ jest.mock("@/lib/stellar", () => ({
   isStellarName: jest.fn((name: string) => name.endsWith(".xlm") || name.includes("*")),
   resolveStellarName: jest.fn(() => Promise.resolve("GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZZZ")),
   resolveFederationAddress: jest.fn(),
+  resolveStellarName: jest.fn(),
   submitTransaction: jest.fn(),
   fetchNetworkFeeStats: jest.fn(() => Promise.resolve({ baseFeeXlm: 0.00001, feeLevel: "normal" })),
   truncateMemoText: jest.fn((text: string) => text),
@@ -54,6 +94,43 @@ jest.mock("@/components/MultiSigFlow", () => ({
   MULTISIG_THRESHOLD_XLM: 1000,
 }));
 
+jest.mock("@/components/ErrorBoundary", () => ({
+  withErrorBoundary: (Component: React.FC) => Component,
+}));
+
+jest.mock("@/lib/addressBook", () => ({
+  loadAddressBookContacts: () => [],
+  saveAddressBookContacts: jest.fn(),
+  subscribeToAddressBookContacts: () => () => {},
+  upsertAddressBookContact: (c: unknown) => c,
+}));
+
+jest.mock("@/components/icons", () => {
+  const Icon = () => null;
+  return {
+    SendIcon: Icon,
+    CheckIcon: Icon,
+    CopyIcon: Icon,
+    ExternalLinkIcon: Icon,
+    StarIcon: Icon,
+    QrCodeIcon: Icon,
+    ReceiptIcon: Icon,
+  };
+});
+
+jest.mock("@/lib/ToastContext", () => ({
+  useToastContext: () => ({ addToast: jest.fn() }),
+}));
+
+jest.mock("@/lib/i18n", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) =>
+      opts ? `${key}:${JSON.stringify(opts)}` : key,
+  }),
+  withErrorBoundary: (Comp: React.ComponentType) => Comp,
+}));
+
+// Now import the component and get mock references
 import SendPaymentForm from "../components/SendPaymentForm";
 import * as stellarModule from "@/lib/stellar";
 import * as walletModule from "@/lib/wallet";
@@ -90,15 +167,15 @@ describe("SendPaymentForm", () => {
   it("renders the form with memo field and send button", () => {
     render(<SendPaymentForm {...defaultProps} />);
 
-    expect(screen.getByText("Memo (optional)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Send/i })).toBeInTheDocument();
+    expect(screen.getByText("memo_optional")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /send_button/i })).toBeInTheDocument();
   });
 
   describe("Submit button disabled state", () => {
     it("disables submit button when destination is empty", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
-      const sendButton = screen.getByRole("button", { name: /Send/i });
+      const sendButton = screen.getByRole("button", { name: /send_button/i });
       expect(sendButton).toBeDisabled();
     });
 
@@ -109,13 +186,13 @@ describe("SendPaymentForm", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
       const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(destinationInput, validDestination);
       await user.type(amountInput, "50");
 
       await waitFor(() => {
-        const sendButton = screen.getByRole("button", { name: /Send/i });
+        const sendButton = screen.getByRole("button", { name: /send_button/i });
         expect(sendButton).toBeEnabled();
       });
     });
@@ -127,7 +204,7 @@ describe("SendPaymentForm", () => {
       render(<SendPaymentForm {...defaultProps} xlmBalance="10.0000000" />);
 
       const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(destinationInput, validDestination);
       // Balance is 10, minus 1 XLM reserve = 9 XLM max sendable
@@ -135,7 +212,7 @@ describe("SendPaymentForm", () => {
       await user.type(amountInput, "9.5");
 
       await waitFor(() => {
-        const sendButton = screen.getByRole("button", { name: /Send/i });
+        const sendButton = screen.getByRole("button", { name: /send_button/i });
         expect(sendButton).toBeDisabled();
       });
     });
@@ -147,14 +224,14 @@ describe("SendPaymentForm", () => {
       render(<SendPaymentForm {...defaultProps} xlmBalance="10.0000000" />);
 
       const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(destinationInput, validDestination);
       // Balance is 10, minus 1 XLM reserve = 9 XLM max sendable
       await user.type(amountInput, "8.5");
 
       await waitFor(() => {
-        const sendButton = screen.getByRole("button", { name: /Send/i });
+        const sendButton = screen.getByRole("button", { name: /send_button/i });
         expect(sendButton).toBeEnabled();
       });
     });
@@ -169,12 +246,12 @@ describe("SendPaymentForm", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
       const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(destinationInput, validDestination);
       await user.type(amountInput, "50");
 
-      const sendButton = screen.getByRole("button", { name: /Send/i });
+      const sendButton = screen.getByRole("button", { name: /send_button/i });
 
       await waitFor(() => {
         expect(sendButton).toBeEnabled();
@@ -183,7 +260,7 @@ describe("SendPaymentForm", () => {
       await user.click(sendButton);
 
       // Click confirm on the confirmation modal
-      const confirmButton = await screen.findByRole("button", { name: /Confirm & Sign/i });
+      const confirmButton = await screen.findByRole("button", { name: /confirm_sign/i });
       await user.click(confirmButton);
 
       // Wait for error to appear in modal
@@ -211,12 +288,12 @@ describe("SendPaymentForm", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
       const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(destinationInput, validDestination);
       await user.type(amountInput, "50");
 
-      const sendButton = screen.getByRole("button", { name: /Send/i });
+      const sendButton = screen.getByRole("button", { name: /send_button/i });
 
       await waitFor(() => {
         expect(sendButton).toBeEnabled();
@@ -225,7 +302,7 @@ describe("SendPaymentForm", () => {
       await user.click(sendButton);
 
       // Click confirm on the confirmation modal
-      const confirmButton = await screen.findByRole("button", { name: /Confirm & Sign/i });
+      const confirmButton = await screen.findByRole("button", { name: /confirm_sign/i });
       await user.click(confirmButton);
 
       // In the modal, tx hash should be displayed
@@ -250,12 +327,12 @@ describe("SendPaymentForm", () => {
       render(<SendPaymentForm {...defaultProps} />);
 
       const destinationInput = screen.getByPlaceholderText(/G\.\.\./);
-      const amountInput = screen.getByPlaceholderText("0.0000000");
+      const amountInput = screen.getByPlaceholderText("amount_placeholder");
 
       await user.type(destinationInput, validDestination);
       await user.type(amountInput, "50");
 
-      const sendButton = screen.getByRole("button", { name: /Send/i });
+      const sendButton = screen.getByRole("button", { name: /send_button/i });
 
       await waitFor(() => {
         expect(sendButton).toBeEnabled();
@@ -263,7 +340,7 @@ describe("SendPaymentForm", () => {
 
       await user.click(sendButton);
 
-      const confirmButton = await screen.findByRole("button", { name: /Confirm & Sign/i });
+      const confirmButton = await screen.findByRole("button", { name: /confirm_sign/i });
       await user.click(confirmButton);
 
       // Verify the tx hash appears in the modal

@@ -33,6 +33,13 @@ export default function Navbar() {
     { href: "/network", label: t("network") },
     { href: "/settings", label: t("settings") },
   ];
+    { href: "/", label: t("home") },
+    { href: "/dashboard", label: t("dashboard") },
+    { href: "/trade", label: t("trade") },
+    { href: "/transactions", label: t("transactions") },
+    { href: "/network", label: t("network") },
+    { href: "/settings", label: t("settings") },
+  ];
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
@@ -234,7 +241,7 @@ export default function Navbar() {
           {publicKey ? (
             <div className="flex items-center gap-2">
               <kbd
-                title={t("quick_send")}
+                title="Quick send (Ctrl+K)"
                 className="hidden select-none items-center gap-1 rounded-md border border-stellar-500/20 bg-stellar-500/5 px-2 py-1 font-mono text-xs text-stellar-400 md:inline-flex"
               >
                 Ctrl+K
@@ -246,7 +253,7 @@ export default function Navbar() {
               </div>
               <button
                 onClick={() => setShowDisconnectConfirm(true)}
-                aria-label={t("disconnect_confirm")}
+                aria-label="Disconnect wallet"
                 className="px-2 py-1 text-xs text-slate-400 transition-colors hover:text-slate-300"
               >
                 {t.nav.disconnect}

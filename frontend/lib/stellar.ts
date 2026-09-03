@@ -1870,6 +1870,14 @@ export function isStellarName(value: string): boolean {
   return v.endsWith(".xlm") || v.includes("*");
 }
 
+/**
+ * Clear the SNS resolved-name cache.  Useful in tests or after a
+ * user logs out / switches accounts.
+ */
+export function clearNameCache(): void {
+  resolvedNameCache.clear();
+}
+
 // ─── Escrow (issue #213) ──────────────────────────────────────────────────────
 //
 // Thin wrappers around the contract's create_escrow / claim_escrow /

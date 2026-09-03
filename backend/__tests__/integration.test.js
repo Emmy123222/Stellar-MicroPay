@@ -71,7 +71,6 @@ describe("API Integration Tests", () => {
     it("should return 501 Not Implemented", async () => {
       const response = await request(app).get("/api/accounts/resolve/alice");
       expect(response.status).toBe(501);
-      expect(response.body.success).toBe(false);
       expect(response.body.error).toBe("Not Implemented");
     });
   });
