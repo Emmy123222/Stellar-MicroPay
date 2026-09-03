@@ -106,3 +106,46 @@ test("tag filter narrows the visible contacts", async ({ page }) => {
   await expect(page.locator(".card-hover").filter({ hasText: "Bob" })).toBeVisible();
   await expect(page.getByText("2 contacts")).toBeVisible();
 });
+
+test('contact tag and favourite toggles expose state to keyboard users', async ({ page }) => {
+  await page.goto('/contacts');
+  await addContact(page, 'Alice', ALICE_ADDRESS, 'family');
+
+  const card = page.locator('.card-hover').filter({ hasText: 'Alice' });
+  const favouriteToggle = card.getByRole('button', { name: 'Add Alice to favourites' });
+  await expect(favouriteToggle).toHaveAttribute('aria-pressed', 'false');
+  await favouriteToggle.focus();
+  await page.keyboard.press('Enter');
+
+  const selectedFavourite = page.getByRole('button', { name: 'Remove Alice from favourites' });
+  await expect(selectedFavourite).toHaveAttribute('aria-pressed', 'true');
+
+  const familyFilter = page.getByRole('button', { name: 'family' }).first();
+  await expect(familyFilter).toHaveAttribute('aria-pressed', 'false');
+  await familyFilter.focus();
+  await page.keyboard.press('Space');
+  await expect(familyFilter).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Escape closes tag and contact editors and restores trigger focus', async ({ page }) => {
+  await page.goto('/contacts');
+  await addContact(page, 'Alice', ALICE_ADDRESS);
+
+  const tagToggle = page.getByRole('button', { name: 'Edit tags for Alice' });
+  await tagToggle.focus();
+  await page.keyboard.press('Enter');
+  const inlineTagInput = page.getByPlaceholder('New tag…');
+  await expect(inlineTagInput).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(inlineTagInput).not.toBeVisible();
+  await expect(tagToggle).toBeFocused();
+
+  const editToggle = page.getByRole('button', { name: 'Edit Alice' });
+  await editToggle.focus();
+  await page.keyboard.press('Enter');
+  const nameInput = page.getByPlaceholder('e.g., Alice, Daily Coffee');
+  await expect(nameInput).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Add Contact' })).toBeVisible();
+  await expect(editToggle).toBeFocused();
+});
