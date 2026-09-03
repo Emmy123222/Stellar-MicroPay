@@ -14,6 +14,7 @@ import {
   explorerUrl,
   PaymentRecord,
   PaymentHistoryResponse,
+  TransactionCategory,
 } from "@/lib/stellar";
 import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
 import { loadAddressBookContacts, upsertAddressBookContact } from "@/lib/addressBook";
@@ -30,6 +31,52 @@ import clsx from "clsx";
 export let __transactionRowRenderCount = 0;
 export function __resetTransactionRowRenderCount() {
   __transactionRowRenderCount = 0;
+}
+
+/**
+ * Human-readable status for a completed payment-history record.
+ *
+ * History records come from settled on-chain operations, so the status is
+ * always "Completed" unless the record represents a special category such as
+ * an account merge.
+ */
+export function getTransactionStatus(tx: PaymentRecord): string {
+  if (tx.category === TransactionCategory.Merge) {
+    return "Account merged";
+  }
+  return "Completed";
+}
+
+/** Column order for the responsive transaction table (issue #826). */
+export const TRANSACTION_COLUMNS = [
+  "Direction",
+  "Counterparty",
+  "Date & Memo",
+  "Amount",
+  "Status",
+  "Actions",
+] as const;
+
+/**
+ * Header row for the transaction table.
+ *
+ * Every cell uses `role="columnheader"` so assistive technology keeps the
+ * header association when the table collapses to labelled cards on narrow
+ * viewports (see `.tx-table-header` / `.tx-cell[data-label]` in globals.css).
+ */
+export function TransactionTableHeader() {
+  return (
+    <div
+      role="row"
+      className="tx-row tx-table-header px-3 pb-2 text-[0.6875rem] uppercase tracking-wider text-slate-500"
+    >
+      {TRANSACTION_COLUMNS.map((column) => (
+        <div key={column} role="columnheader" className="tx-cell">
+          {column}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export interface TransactionRowProps {
@@ -62,10 +109,13 @@ export const TransactionRow = memo(function TransactionRow({
   }
 
   const counterparty = tx.type === "sent" ? tx.to : tx.from;
+  const directionLabel =
+    tx.type === "sent" ? "Sent" : tx.type === "merge" ? "Merged" : "Received";
+  const statusLabel = getTransactionStatus(tx);
 
   return (
     <div
-      role="listitem"
+      role="row"
       tabIndex={isFocused ? 0 : -1}
       onKeyDown={(e) => {
         if (e.key === "ArrowDown") {
@@ -82,19 +132,22 @@ export const TransactionRow = memo(function TransactionRow({
       onBlur={onBlurRow}
       onFocus={() => onFocusRow(index)}
       className={clsx(
-        "flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors group relative",
+        "tx-row group relative rounded-xl bg-white/3 hover:bg-white/5 transition-colors",
         isFocused && "outline-none ring-2 ring-stellar-500 ring-offset-2"
       )}
-      aria-label={`${tx.type === "sent" ? "Sent" : "Received"} ${formatAsset(tx.amount, tx.asset)} ${tx.type === "sent" ? "to" : "from"} ${counterparty}`}
+      aria-label={`${directionLabel} ${formatAsset(tx.amount, tx.asset)} ${tx.type === "sent" ? "to" : "from"} ${counterparty}`}
     >
       <div
+        role="cell"
+        data-label="Direction"
         className={clsx(
-          "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+          "tx-cell tx-cell-direction w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
           tx.type === "sent"
             ? "bg-red-500/10 border border-red-500/20"
             : "bg-emerald-500/10 border border-emerald-500/20"
         )}
       >
+        <span className="sr-only">{directionLabel}</span>
         {tx.type === "sent" ? (
           <ArrowUpIcon className="w-4 h-4 text-red-400" />
         ) : (
@@ -102,30 +155,41 @@ export const TransactionRow = memo(function TransactionRow({
         )}
       </div>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-200 capitalize">
-            {tx.type === "sent" ? "Sent to" : "Received from"}
-          </span>
-          <button
-            onClick={() => onCopy(counterparty, tx.id)}
-            aria-label={`Copy ${tx.type === "sent" ? "recipient" : "sender"} address`}
-            className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
-          >
-            {isCopied ? "Copied!" : shortenAddress(counterparty, 5)}
-          </button>
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-xs text-slate-400">{timeAgo(tx.createdAt)}</span>
-          {tx.memo && (
-            <span className="text-xs text-slate-600 truncate max-w-32">
-              · &ldquo;{tx.memo}&rdquo;
-            </span>
-          )}
-        </div>
+      <div
+        role="cell"
+        data-label="Counterparty"
+        className="tx-cell flex items-center gap-2 min-w-0"
+      >
+        <span className="text-sm font-medium text-slate-200 capitalize">
+          {tx.type === "sent" ? "Sent to" : "Received from"}
+        </span>
+        <button
+          onClick={() => onCopy(counterparty, tx.id)}
+          aria-label={`Copy ${tx.type === "sent" ? "recipient" : "sender"} address`}
+          className="address-pill hover:border-stellar-500/40 transition-colors text-xs"
+        >
+          {isCopied ? "Copied!" : shortenAddress(counterparty, 5)}
+        </button>
       </div>
 
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div
+        role="cell"
+        data-label="Date & Memo"
+        className="tx-cell flex items-center gap-2 mt-0.5 min-w-0"
+      >
+        <span className="text-xs text-slate-400">{timeAgo(tx.createdAt)}</span>
+        {tx.memo && (
+          <span className="text-xs text-slate-600 truncate max-w-32">
+            · &ldquo;{tx.memo}&rdquo;
+          </span>
+        )}
+      </div>
+
+      <div
+        role="cell"
+        data-label="Amount"
+        className="tx-cell flex items-center gap-2 flex-shrink-0"
+      >
         <span
           className={clsx(
             "text-sm font-mono font-medium",
@@ -135,7 +199,21 @@ export const TransactionRow = memo(function TransactionRow({
           {tx.type === "sent" ? "-" : "+"}
           {formatAsset(tx.amount, tx.asset)}
         </span>
+      </div>
 
+      <div
+        role="cell"
+        data-label="Status"
+        className="tx-cell flex items-center flex-shrink-0"
+      >
+        <span className="text-xs font-medium text-slate-300">{statusLabel}</span>
+      </div>
+
+      <div
+        role="cell"
+        data-label="Actions"
+        className="tx-cell flex items-center gap-2 flex-shrink-0"
+      >
         <button
           onClick={() => onSaveContact(counterparty)}
           className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-400 hover:text-stellar-300 font-medium whitespace-nowrap"

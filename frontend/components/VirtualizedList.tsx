@@ -21,6 +21,14 @@ interface VirtualizedListProps<T> {
   threshold?: number;
   className?: string;
   listClassName?: string;
+  /**
+   * ARIA role for the list container. Use `"table"` (with a `header` row of
+   * `role="columnheader"` cells) when the items are transaction rows so
+   * assistive technology keeps the column-header association.
+   */
+  role?: "list" | "table";
+  /** Optional header row rendered inside the container (e.g. table headers). */
+  header?: ReactNode;
   onItemsRendered?: (props: ListOnItemsRenderedProps) => void;
   ariaLabel?: string;
   /** Ref to the underlying react-window list, only populated once virtualized. */
@@ -36,13 +44,16 @@ function VirtualizedList<T>({
   threshold = 100,
   className,
   listClassName,
+  role = "list",
+  header,
   onItemsRendered,
   ariaLabel,
   listRef,
 }: VirtualizedListProps<T>) {
   if (items.length <= threshold) {
     return (
-      <div role="list" aria-label={ariaLabel} className={className}>
+      <div role={role} aria-label={ariaLabel} className={className}>
+        {header}
         {items.map((item, index) => (
           <Fragment key={itemKey(item, index)}>{renderItem(item, index)}</Fragment>
         ))}
@@ -51,7 +62,8 @@ function VirtualizedList<T>({
   }
 
   return (
-    <div role="list" aria-label={ariaLabel} className={listClassName}>
+    <div role={role} aria-label={ariaLabel} className={listClassName}>
+      {header}
       <FixedSizeList
         ref={listRef}
         height={height}
