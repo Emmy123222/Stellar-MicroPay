@@ -119,12 +119,10 @@ function startMonitoring(publicKey) {
       onmessage: async (record) => {
         if (record.type !== "payment" || record.to !== publicKey) return;
 
-        // Deduplicate rows replayed by an inclusive resume.
+        // Deduplicate rows replayed by an inclusive resume — either the exact
+        // row we resumed from after a restart, or one already seen this session.
         let seen = seenTokens.get(publicKey) || new Set();
-        if (
-          seen.has(record.paging_token) ||
-          record.paging_token === cursorStore.get(publicKey)
-        ) {
+        if (record.paging_token === resumeCursor || seen.has(record.paging_token)) {
           return;
         }
         if (seen.size > 500) seen = new Set([record.paging_token]);

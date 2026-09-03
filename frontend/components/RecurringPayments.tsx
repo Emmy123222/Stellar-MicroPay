@@ -178,6 +178,10 @@ export default function RecurringPayments({ onPayNow }: RecurringPaymentsProps) 
     setSchedules(loadSchedules());
   }, []);
 
+  const announce = (message: string) => {
+    setAnnouncement(message);
+  };
+
   const persist = (updated: RecurringSchedule[]) => {
     setSchedules(updated);
     saveSchedules(updated);

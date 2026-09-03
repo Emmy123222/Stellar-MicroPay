@@ -61,6 +61,7 @@ const AIPaymentAssistantLoading = () => {
   );
 };
 
+const ExternalPaymentBanner = dynamic(() => import("../components/ExternalPaymentBanner"), { ssr: false });
 const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), {
   ssr: false,
   loading: AIPaymentAssistantLoading,

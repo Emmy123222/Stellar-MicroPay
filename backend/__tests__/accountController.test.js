@@ -150,8 +150,9 @@ describe("accountController", () => {
 
       const res = await request(app)
         .post("/api/accounts/register")
+        .set("x-test-authed-public-key", "G_VALID")
         .send({ username: "alice", publicKey: "G_VALID" });
-        
+
       expect(res.status).toBe(201);
       expect(res.body).toEqual({
         success: true,
@@ -170,8 +171,9 @@ describe("accountController", () => {
 
       const res = await request(app)
         .post("/api/accounts/register")
+        .set("x-test-authed-public-key", "G_VALID")
         .send({ username: "bob", publicKey: "G_VALID" });
-        
+
       expect(res.status).toBe(409);
       expect(res.body).toEqual({ error: "Username already taken" });
     });

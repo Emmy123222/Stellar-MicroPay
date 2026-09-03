@@ -26,6 +26,8 @@ function app() {
   return server;
 }
 
+// Tokens must carry a real fam/jti pair — refresh rejects legacy tokens
+// without one regardless of the CSRF check this suite is testing.
 function makeToken() {
   const { familyId, jti } = tokenFamilyStore.createFamily(PUBLIC_KEY);
   return jwt.sign({ publicKey: PUBLIC_KEY, fam: familyId }, JWT_SECRET, {

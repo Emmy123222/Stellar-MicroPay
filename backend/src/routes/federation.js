@@ -7,9 +7,10 @@
 
 const express = require("express");
 
-const router = express.Router();
 const federationController = require("../controllers/federationController");
 const { strictLimiter } = require("../middleware/rateLimit");
+
+const router = express.Router();
 
 /**
  * GET /federation?q=<query>&type=<type>
