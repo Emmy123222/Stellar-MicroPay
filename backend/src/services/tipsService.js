@@ -15,6 +15,11 @@ const tipsStore = require("./tipsStore");
 // the record that was already created instead of inserting a duplicate.
 const tipsByTxHash = new Map();
 
+// Guards against the same verified on-chain transaction being recorded as
+// more than one tip (e.g. a duplicate/replayed request for a hash that was
+// already accepted).
+const seenTxHashes = new Set();
+
 // Tip record structure:
 // { id, senderPublicKey, creatorPublicKey, amount, asset, memo, timestamp, txHash, operationIndex }
 
@@ -189,7 +194,8 @@ function getTipsSent(senderPublicKey, options = {}) {
 }
 
 /**
- * Validate tip record input.
+ * Validate tip record input shape (format only — does not check the claim
+ * against the chain; that's stellarService.verifyTipTransaction's job).
  */
 function validateTipInput(data) {
   const errors = [];
@@ -210,6 +216,12 @@ function validateTipInput(data) {
     errors.push("amount is required");
   } else if (isNaN(parseFloat(data.amount)) || parseFloat(data.amount) <= 0) {
     errors.push("amount must be a positive number");
+  }
+
+  if (!data.txHash) {
+    errors.push("txHash is required");
+  } else if (!/^[0-9a-fA-F]{64}$/.test(data.txHash)) {
+    errors.push("Invalid transaction hash format");
   }
 
   if (errors.length > 0) {
