@@ -17,10 +17,7 @@ router.post("/", (req, res, next) => {
       return res.status(400).json({ error: "Missing signedXDR or submitAt" });
     }
 
-    const scheduledTx = scheduledTransactionService.scheduleTransaction(
-      signedXDR,
-      submitAt
-    );
+    const scheduledTx = scheduledTransactionService.scheduleTransaction(signedXDR, submitAt);
     res.status(201).json({
       message: "Transaction scheduled successfully",
       id: scheduledTx.id,
@@ -39,9 +36,7 @@ router.post("/", (req, res, next) => {
 router.get("/:publicKey", (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    const transactions = scheduledTransactionService.getScheduledTransactions(
-      publicKey
-    );
+    const transactions = scheduledTransactionService.getScheduledTransactions(publicKey);
     res.json(transactions);
   } catch (error) {
     next(error);

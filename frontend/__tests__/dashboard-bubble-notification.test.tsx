@@ -10,7 +10,9 @@ describe("BubbleNotification", () => {
   });
 
   it("does not render message when not visible", () => {
-    const { container } = render(<BubbleNotification message="Payment received!" visible={false} />);
+    const { container } = render(
+      <BubbleNotification message="Payment received!" visible={false} />
+    );
     expect(container.querySelector(".opacity-0")).toBeInTheDocument();
   });
 });

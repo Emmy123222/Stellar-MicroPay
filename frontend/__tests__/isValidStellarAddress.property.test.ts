@@ -91,9 +91,7 @@ describe("isValidStellarAddress — property-based tests", () => {
         })
         .filter((s) => !s.startsWith("G")),
       // Contains lowercase letters
-      fc
-        .string({ minLength: 56, maxLength: 56 })
-        .filter((s) => /[a-z]/.test(s))
+      fc.string({ minLength: 56, maxLength: 56 }).filter((s) => /[a-z]/.test(s))
     );
 
     fc.assert(
@@ -150,24 +148,36 @@ describe("isValidStellarAddress — property-based tests", () => {
    */
   it("handles known edge cases correctly", () => {
     // Valid — real-looking testnet key (all uppercase base32, 56 chars)
-    expect(isValidStellarAddress("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNN")).toBe(true);
+    expect(isValidStellarAddress("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNN")).toBe(
+      true
+    );
 
     // Invalid — empty string
     expect(isValidStellarAddress("")).toBe(false);
 
     // Invalid — starts with S (secret key prefix)
-    expect(isValidStellarAddress("SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")).toBe(false);
+    expect(isValidStellarAddress("SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")).toBe(
+      false
+    );
 
     // Invalid — 55 chars (one short)
-    expect(isValidStellarAddress("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH")).toBe(false);
+    expect(isValidStellarAddress("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH")).toBe(
+      false
+    );
 
     // Invalid — 57 chars (one long)
-    expect(isValidStellarAddress("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHFF")).toBe(false);
+    expect(isValidStellarAddress("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHFF")).toBe(
+      false
+    );
 
     // Invalid — contains lowercase
-    expect(isValidStellarAddress("Gaazi4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")).toBe(false);
+    expect(isValidStellarAddress("Gaazi4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")).toBe(
+      false
+    );
 
     // Invalid — contains special characters
-    expect(isValidStellarAddress("G!AZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")).toBe(false);
+    expect(isValidStellarAddress("G!AZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")).toBe(
+      false
+    );
   });
 });

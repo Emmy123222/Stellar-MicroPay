@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from "react";
 import clsx from "clsx";
 import { QRCodeSVG } from "qrcode.react"; // Ensure this is installed
-import { buildPaymentLinkUrl, rememberPaymentLink, listPaymentLinks, PaymentLinkRecord } from "@/lib/paymentLinks";
+import {
+  buildPaymentLinkUrl,
+  rememberPaymentLink,
+  listPaymentLinks,
+  PaymentLinkRecord,
+} from "@/lib/paymentLinks";
 
 /**
  * Live "time remaining" badge for a link's expiry (#614). Returns null when
@@ -38,13 +43,7 @@ function formatExpiryCountdown(
   return { label, expired: false, urgent: totalSeconds < 3600 };
 }
 
-function ExpiryBadge({
-  validUntil,
-  now,
-}: {
-  validUntil: number | null | undefined;
-  now: number;
-}) {
+function ExpiryBadge({ validUntil, now }: { validUntil: number | null | undefined; now: number }) {
   const countdown = formatExpiryCountdown(validUntil, now);
   if (!countdown) return null;
 
@@ -156,10 +155,14 @@ export default function PaymentLinkGenerator() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "pending": return "text-amber-400";
-      case "redeemed": return "text-green-400";
-      case "expired": return "text-red-400";
-      default: return "text-slate-400";
+      case "pending":
+        return "text-amber-400";
+      case "redeemed":
+        return "text-green-400";
+      case "expired":
+        return "text-red-400";
+      default:
+        return "text-slate-400";
     }
   };
 
@@ -169,7 +172,7 @@ export default function PaymentLinkGenerator() {
       day: "numeric",
       year: "numeric",
       hour: "2-digit",
-      minute: "2-digit"
+      minute: "2-digit",
     });
   };
 
@@ -267,7 +270,7 @@ export default function PaymentLinkGenerator() {
                   "px-3 rounded font-medium text-xs transition-all shrink-0",
                   copied
                     ? "bg-emerald-500 text-white"
-                    : "bg-stellar-400 text-black hover:bg-stellar-300",
+                    : "bg-stellar-400 text-black hover:bg-stellar-300"
                 )}
               >
                 {copied ? "Copied!" : "Copy"}
@@ -278,9 +281,7 @@ export default function PaymentLinkGenerator() {
             {showQR && (
               <div className="mt-4 flex flex-col items-center bg-white p-3 rounded-lg mx-auto w-fit">
                 <QRCodeSVG value={generatedLink} size={140} />
-                <p className="text-[10px] text-black font-bold mt-2">
-                  Scan to Pay
-                </p>
+                <p className="text-[10px] text-black font-bold mt-2">Scan to Pay</p>
               </div>
             )}
           </div>
@@ -344,7 +345,12 @@ export default function PaymentLinkGenerator() {
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className={clsx("text-xs font-semibold uppercase", getStatusColor(link.status))}>
+                          <span
+                            className={clsx(
+                              "text-xs font-semibold uppercase",
+                              getStatusColor(link.status)
+                            )}
+                          >
                             {link.status}
                           </span>
                           <span className="text-xs text-slate-500">
@@ -361,12 +367,11 @@ export default function PaymentLinkGenerator() {
                           {link.payload.amount} XLM
                         </p>
                         <p className="text-xs text-slate-400 font-mono truncate">
-                          {link.payload.destination.slice(0, 8)}…{link.payload.destination.slice(-6)}
+                          {link.payload.destination.slice(0, 8)}…
+                          {link.payload.destination.slice(-6)}
                         </p>
                         {link.payload.memo && (
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            Memo: {link.payload.memo}
-                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">Memo: {link.payload.memo}</p>
                         )}
                       </div>
                       <button

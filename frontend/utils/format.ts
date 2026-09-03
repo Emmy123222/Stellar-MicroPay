@@ -45,7 +45,7 @@ export function shortenAddress(address: string, chars = 4): string {
  * @param amount - The amount to format
  * @param locale - The locale for formatting (defaults to 'en-US')
  */
-export function formatXLM(amount: string | number, locale = 'en-US'): string {
+export function formatXLM(amount: string | number, locale = "en-US"): string {
   return formatAsset(amount, "XLM", locale);
 }
 
@@ -58,7 +58,7 @@ export function formatXLM(amount: string | number, locale = 'en-US'): string {
 export function formatAsset(
   amount: string | number,
   assetCode = DEFAULT_ASSET_CODE,
-  locale = 'en-US'
+  locale = "en-US"
 ): string {
   const normalizedAssetCode = normalizeAssetCode(assetCode);
   const rule = getAssetFormatRule(normalizedAssetCode);
@@ -66,9 +66,7 @@ export function formatAsset(
 
   if (amount == null || Number.isNaN(num)) {
     const zeroValue =
-      rule.minimumFractionDigits > 0
-        ? (0).toFixed(rule.minimumFractionDigits)
-        : "0";
+      rule.minimumFractionDigits > 0 ? (0).toFixed(rule.minimumFractionDigits) : "0";
     return `${zeroValue} ${normalizedAssetCode}`;
   }
 
@@ -216,14 +214,14 @@ export function parseCSV(csv: string): string[][] {
       continue;
     }
 
-    if (!inQuotes && char === ',') {
+    if (!inQuotes && char === ",") {
       pushCell();
       continue;
     }
 
-    if (!inQuotes && (char === '\n' || char === '\r')) {
+    if (!inQuotes && (char === "\n" || char === "\r")) {
       pushRow();
-      if (char === '\r' && csv[i + 1] === '\n') {
+      if (char === "\r" && csv[i + 1] === "\n") {
         i += 1;
       }
       continue;
@@ -357,7 +355,7 @@ export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
  * @param usdValue - The USD value to format
  * @param locale - The locale for formatting (defaults to 'en-US')
  */
-export function formatUSD(usdValue: number, locale = 'en-US'): string {
+export function formatUSD(usdValue: number, locale = "en-US"): string {
   return `≈ $${usdValue.toLocaleString(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -372,7 +370,6 @@ export function clampAmount(value: string, min = 0.0000001, max = 999999): numbe
   if (isNaN(num)) return min;
   return Math.max(min, Math.min(max, num));
 }
-
 
 /** Wrap a cell value in quotes and escape any internal quotes. */
 function csvCell(value: string | number | undefined | null): string {
@@ -395,7 +392,7 @@ function triggerDownload(contents: string, filename: string, type: string): void
   document.body.removeChild(link);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
- 
+
 /**
  * Convert an array of PaymentRecords to a CSV string and trigger a browser
  * file download. No server required — uses a Blob URL.
@@ -403,17 +400,8 @@ function triggerDownload(contents: string, filename: string, type: string): void
  * Columns: Date, Type, Amount, Asset, From, To, Memo, Transaction Hash
  */
 export function exportToCSV(payments: PaymentRecord[]): void {
-  const HEADERS = [
-    "Date",
-    "Type",
-    "Amount",
-    "Asset",
-    "From",
-    "To",
-    "Memo",
-    "Transaction Hash",
-  ];
- 
+  const HEADERS = ["Date", "Type", "Amount", "Asset", "From", "To", "Memo", "Transaction Hash"];
+
   const rows = payments.map((tx) => [
     csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
     csvCell(tx.type === "sent" ? "Sent" : "Received"),
@@ -424,12 +412,9 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     csvCell(tx.memo ?? ""),
     csvCell(tx.transactionHash),
   ]);
- 
-  const csv = [
-    HEADERS.map(csvCell).join(","),
-    ...rows.map((r) => r.join(",")),
-  ].join("\r\n");
- 
+
+  const csv = [HEADERS.map(csvCell).join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+
   const dateStamp = format(new Date(), "yyyy-MM-dd");
   const filename = `stellar-micropay-transactions-${dateStamp}.csv`;
   triggerDownload(csv, filename, "text/csv;charset=utf-8;");
@@ -459,10 +444,7 @@ export function exportTipsToCSV(tips: TipCSVRecord[]): void {
     csvCell(tip.memo ?? ""),
   ]);
 
-  const csv = [
-    HEADERS.map(csvCell).join(","),
-    ...rows.map((r) => r.join(",")),
-  ].join("\r\n");
+  const csv = [HEADERS.map(csvCell).join(","), ...rows.map((r) => r.join(","))].join("\r\n");
 
   const dateStamp = format(new Date(), "yyyy-MM-dd");
   const filename = `stellar-micropay-tips-${dateStamp}.csv`;

@@ -211,10 +211,7 @@ function getPaymentHistoryCacheKey(publicKey: string, limit: number) {
   return `${PAYMENT_HISTORY_CACHE_PREFIX}${publicKey}:${limit}`;
 }
 
-function loadCachedPaymentHistory(
-  publicKey: string,
-  limit: number
-): CachedPaymentHistory | null {
+function loadCachedPaymentHistory(publicKey: string, limit: number): CachedPaymentHistory | null {
   if (typeof window === "undefined") return null;
 
   try {
@@ -256,20 +253,16 @@ export function filterPayments(
   payments: PaymentRecord[],
   filters: TransactionFilters
 ): PaymentRecord[] {
-  const minimumAmount =
-    filters.minAmount.trim() === "" ? null : Number(filters.minAmount);
+  const minimumAmount = filters.minAmount.trim() === "" ? null : Number(filters.minAmount);
   const hasMinimumAmount =
     minimumAmount !== null && Number.isFinite(minimumAmount) && minimumAmount >= 0;
   const memoQuery = filters.memoSearch.trim().toLowerCase();
 
   return payments.filter((payment) => {
-    const matchesDirection =
-      filters.direction === "all" || payment.type === filters.direction;
-    const matchesAmount =
-      !hasMinimumAmount || Number(payment.amount) >= (minimumAmount ?? 0);
+    const matchesDirection = filters.direction === "all" || payment.type === filters.direction;
+    const matchesAmount = !hasMinimumAmount || Number(payment.amount) >= (minimumAmount ?? 0);
     const matchesMemo =
-      !memoQuery ||
-      (payment.memo && payment.memo.toLowerCase().includes(memoQuery));
+      !memoQuery || (payment.memo && payment.memo.toLowerCase().includes(memoQuery));
 
     return matchesDirection && matchesAmount && matchesMemo;
   });
@@ -346,11 +339,7 @@ function TransactionList({
       setError(null);
       try {
         const cursorToUse = isLoadMore ? lastPagingTokenRef.current : undefined;
-        const data: PaymentHistoryResponse = await getPaymentHistory(
-          publicKey,
-          limit,
-          cursorToUse
-        );
+        const data: PaymentHistoryResponse = await getPaymentHistory(publicKey, limit, cursorToUse);
 
         if (isLoadMore) {
           setPayments((prev) => {
@@ -377,9 +366,7 @@ function TransactionList({
         lastPagingTokenRef.current = nextToken;
         setStalePaymentsAt(null);
       } catch (err) {
-        const cached = !isLoadMore
-          ? loadCachedPaymentHistory(publicKey, limit)
-          : null;
+        const cached = !isLoadMore ? loadCachedPaymentHistory(publicKey, limit) : null;
         if (cached) {
           updatePayments(cached.records);
           setHasMore(cached.hasMore);
@@ -444,9 +431,7 @@ function TransactionList({
 
   const handleSendAgain = useCallback(
     (to: string, amount: string) => {
-      router.push(
-        `/dashboard?to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`
-      );
+      router.push(`/dashboard?to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`);
     },
     [router]
   );
@@ -506,7 +491,9 @@ function TransactionList({
   }, [incomingPayment, onPaymentsChange]);
 
   const hasActiveFilters =
-    filters.direction !== "all" || filters.minAmount.trim() !== "" || filters.memoSearch.trim() !== "";
+    filters.direction !== "all" ||
+    filters.minAmount.trim() !== "" ||
+    filters.memoSearch.trim() !== "";
 
   const renderPaymentRow = useCallback(
     (tx: PaymentRecord, index: number) => (
@@ -546,10 +533,7 @@ function TransactionList({
         )}
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 p-3 rounded-xl bg-cosmos-800"
-            >
+            <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-cosmos-800">
               <div className="w-10 h-10 rounded-full bg-cosmos-700 animate-pulse flex-shrink-0" />
               <div className="flex-1 min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
@@ -571,10 +555,7 @@ function TransactionList({
       <div ref={containerRef} className={compact ? "" : "card"}>
         <div className="text-center py-8">
           <p className="text-red-400 text-sm mb-3">{error}</p>
-          <button
-            onClick={() => fetchPayments()}
-            className="btn-secondary text-sm py-2 px-4"
-          >
+          <button onClick={() => fetchPayments()} className="btn-secondary text-sm py-2 px-4">
             Try again
           </button>
         </div>
@@ -591,9 +572,7 @@ function TransactionList({
             <HistoryIcon className="w-6 h-6 text-slate-400" />
           </div>
           <p className="text-slate-400 text-sm">No transactions yet</p>
-          <p className="text-slate-600 text-xs mt-1">
-            Send your first payment to get started
-          </p>
+          <p className="text-slate-600 text-xs mt-1">Send your first payment to get started</p>
           {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
             <p className="text-xs mt-3">
               Need test XLM?{" "}
@@ -614,105 +593,117 @@ function TransactionList({
 
   return (
     <div ref={containerRef} className={compact ? "" : "card"}>
-          {!compact && (
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
-                <HistoryIcon className="w-5 h-5 text-stellar-400" />
-                Recent Payments
-              </h2>
-              <div className="flex items-center gap-4">
-                {/* Premium Infinite Scroll Toggle */}
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-400 select-none">
-                  <span className={clsx("transition-colors", infiniteScroll ? "text-stellar-400 font-medium" : "")}>
-                    Infinite Scroll
-                  </span>
-                  <div className="relative">
-                    <input
-                      type="checkbox"
-                      className="sr-only"
-                      checked={infiniteScroll}
-                      onChange={(e) => setInfiniteScroll(e.target.checked)}
-                      aria-label="Toggle infinite scroll"
-                    />
-                    <div className={clsx(
-                      "w-8 h-4 rounded-full transition-colors duration-200 ease-in-out",
-                      infiniteScroll ? "bg-stellar-500/30 border border-stellar-400/40" : "bg-white/10 border border-white/5"
-                    )} />
-                    <div className={clsx(
-                      "absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-200 ease-in-out shadow-sm",
-                      infiniteScroll ? "transform translate-x-4 bg-stellar-300" : "bg-slate-400"
-                    )} />
-                  </div>
-                </label>
-                <button
-                  onClick={() => fetchPayments()}
-                  className="text-xs text-slate-400 hover:text-stellar-400 transition-colors flex items-center gap-1"
-                >
-                  <RefreshIcon className="w-3.5 h-3.5" />
-                  Refresh
-                </button>
+      {!compact && (
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
+            <HistoryIcon className="w-5 h-5 text-stellar-400" />
+            Recent Payments
+          </h2>
+          <div className="flex items-center gap-4">
+            {/* Premium Infinite Scroll Toggle */}
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-400 select-none">
+              <span
+                className={clsx(
+                  "transition-colors",
+                  infiniteScroll ? "text-stellar-400 font-medium" : ""
+                )}
+              >
+                Infinite Scroll
+              </span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={infiniteScroll}
+                  onChange={(e) => setInfiniteScroll(e.target.checked)}
+                  aria-label="Toggle infinite scroll"
+                />
+                <div
+                  className={clsx(
+                    "w-8 h-4 rounded-full transition-colors duration-200 ease-in-out",
+                    infiniteScroll
+                      ? "bg-stellar-500/30 border border-stellar-400/40"
+                      : "bg-white/10 border border-white/5"
+                  )}
+                />
+                <div
+                  className={clsx(
+                    "absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-200 ease-in-out shadow-sm",
+                    infiniteScroll ? "transform translate-x-4 bg-stellar-300" : "bg-slate-400"
+                  )}
+                />
               </div>
-            </div>
-          )}
-
-          {stalePaymentsAt && (
-            <div className="mb-4 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200">
-              Offline history snapshot from {formatSnapshotTime(stalePaymentsAt)}
-            </div>
-          )}
-          
-          <div className="mb-4 flex items-center gap-3 text-xs text-stellar-400">
-            <span className="w-1 h-1 rounded-full bg-stellar-400 flex-shrink-0" />
-            <span>Keyboard navigation: ↑ ↓ to navigate, Enter to copy address</span>
-          </div>
-          
-          <VirtualizedList
-            items={visiblePayments}
-            itemKey={(tx) => tx.id}
-            renderItem={renderPaymentRow}
-            itemHeight={ROW_HEIGHT_PX}
-            height={VIRTUAL_VIEWPORT_HEIGHT_PX}
-            threshold={VIRTUALIZE_THRESHOLD}
-            ariaLabel="Payment history"
-            className="space-y-2"
-            listRef={virtualListRef}
-            onItemsRendered={handleVirtualItemsRendered}
-          />
-
-        {/* Infinite Scroll Sentinel / Loading Indicator */}
-        {infiniteScroll && (
-          <div ref={loadMoreRef} className="flex justify-center mt-4 py-2">
-            {loadingMore && (
-              <div className="flex items-center gap-2 text-slate-400">
-                <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm">Loading more...</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Load more button (only when NOT using infinite scroll) */}
-        {!infiniteScroll && hasMore && payments.length > 0 && (
-          <div className="flex justify-center mt-4">
+            </label>
             <button
-              onClick={handleLoadMore}
-              disabled={loadingMore}
-              className="btn-secondary text-sm py-2 px-6 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => fetchPayments()}
+              className="text-xs text-slate-400 hover:text-stellar-400 transition-colors flex items-center gap-1"
             >
-              {loadingMore ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                  Loading...
-                </>
-              ) : (
-                hasActiveFilters ? "Load more results" : "Load more"
-              )}
+              <RefreshIcon className="w-3.5 h-3.5" />
+              Refresh
             </button>
           </div>
-        )}
+        </div>
+      )}
+
+      {stalePaymentsAt && (
+        <div className="mb-4 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200">
+          Offline history snapshot from {formatSnapshotTime(stalePaymentsAt)}
+        </div>
+      )}
+
+      <div className="mb-4 flex items-center gap-3 text-xs text-stellar-400">
+        <span className="w-1 h-1 rounded-full bg-stellar-400 flex-shrink-0" />
+        <span>Keyboard navigation: ↑ ↓ to navigate, Enter to copy address</span>
+      </div>
+
+      <VirtualizedList
+        items={visiblePayments}
+        itemKey={(tx) => tx.id}
+        renderItem={renderPaymentRow}
+        itemHeight={ROW_HEIGHT_PX}
+        height={VIRTUAL_VIEWPORT_HEIGHT_PX}
+        threshold={VIRTUALIZE_THRESHOLD}
+        ariaLabel="Payment history"
+        className="space-y-2"
+        listRef={virtualListRef}
+        onItemsRendered={handleVirtualItemsRendered}
+      />
+
+      {/* Infinite Scroll Sentinel / Loading Indicator */}
+      {infiniteScroll && (
+        <div ref={loadMoreRef} className="flex justify-center mt-4 py-2">
+          {loadingMore && (
+            <div className="flex items-center gap-2 text-slate-400">
+              <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm">Loading more...</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Load more button (only when NOT using infinite scroll) */}
+      {!infiniteScroll && hasMore && payments.length > 0 && (
+        <div className="flex justify-center mt-4">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="btn-secondary text-sm py-2 px-6 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loadingMore ? (
+              <>
+                <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                Loading...
+              </>
+            ) : hasActiveFilters ? (
+              "Load more results"
+            ) : (
+              "Load more"
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 export default withErrorBoundary(TransactionList, "TransactionList");
-

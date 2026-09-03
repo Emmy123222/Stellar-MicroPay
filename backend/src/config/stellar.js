@@ -8,8 +8,7 @@
 const { Horizon } = require("@stellar/stellar-sdk");
 require("dotenv").config();
 
-const HORIZON_URL =
-  process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
 const server = new Horizon.Server(HORIZON_URL);
 

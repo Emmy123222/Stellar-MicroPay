@@ -79,7 +79,9 @@ describe("SendPaymentForm", () => {
     jest.clearAllMocks();
     // Reset mocks to return expected values
     mockFetchNetworkFeeStats.mockResolvedValue({ baseFeeXlm: 0.00001, feeLevel: "normal" });
-    mockIsValidStellarAddress.mockImplementation((addr) => addr.startsWith("G") && addr.length === 56);
+    mockIsValidStellarAddress.mockImplementation(
+      (addr) => addr.startsWith("G") && addr.length === 56
+    );
     mockBuildPaymentTransaction.mockResolvedValue({ toXDR: () => "mock-xdr" });
     mockSubmitTransaction.mockResolvedValue({ hash: "tx123456" });
     mockSignTransactionWithWallet.mockResolvedValue({ signedXDR: "mock-signed-xdr" });

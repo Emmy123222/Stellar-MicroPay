@@ -53,9 +53,7 @@ function getQueryString(value: QueryValue): string | undefined {
 
 function decodeBase64Json(value: string): unknown {
   const json =
-    typeof atob === "function"
-      ? atob(value)
-      : Buffer.from(value, "base64").toString("utf8");
+    typeof atob === "function" ? atob(value) : Buffer.from(value, "base64").toString("utf8");
   return JSON.parse(json);
 }
 
@@ -63,11 +61,7 @@ function normalizeExpiry(value: unknown): number | null {
   if (value == null || value === "") return null;
 
   const numeric =
-    typeof value === "number"
-      ? value
-      : typeof value === "string"
-        ? Number(value.trim())
-        : NaN;
+    typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : NaN;
 
   if (Number.isFinite(numeric)) {
     // Accept Unix seconds for easier manual link creation, but store ms.
@@ -85,8 +79,7 @@ function normalizeExpiry(value: unknown): number | null {
 }
 
 function coercePayload(raw: unknown): ParsedPaymentLinkQuery {
-  if (!raw || typeof raw !== "object")
-    return { ok: false, reason: "malformed" };
+  if (!raw || typeof raw !== "object") return { ok: false, reason: "malformed" };
   const source = raw as Record<string, unknown>;
   const destination =
     typeof source.destination === "string"
@@ -122,10 +115,7 @@ function coercePayload(raw: unknown): ParsedPaymentLinkQuery {
  * Build the public payment request URL required by roadmap v1.5:
  * `/pay?to=G...&amount=10&memo=coffee`, with optional `expires=<unix-ms>`.
  */
-export function buildPaymentLinkUrl(
-  origin: string,
-  payload: PaymentLinkPayload,
-): string {
+export function buildPaymentLinkUrl(origin: string, payload: PaymentLinkPayload): string {
   const url = new URL("/pay", origin);
   url.searchParams.set("to", payload.destination.trim());
   url.searchParams.set("amount", String(payload.amount).trim());
@@ -138,9 +128,7 @@ export function buildPaymentLinkUrl(
 }
 
 /** Parse both the new explicit query-param links and legacy `?data=` links. */
-export function parsePaymentLinkQuery(
-  query: PaymentLinkQuery,
-): ParsedPaymentLinkQuery {
+export function parsePaymentLinkQuery(query: PaymentLinkQuery): ParsedPaymentLinkQuery {
   const encodedData = getQueryString(query.data);
   if (encodedData) {
     try {
@@ -207,10 +195,7 @@ function writeAll(records: Record<string, PaymentLinkRecord>): void {
  * Record a newly-generated link as `pending`. Idempotent: if the same payload
  * was already stored, the existing record is returned untouched.
  */
-export function rememberPaymentLink(
-  payload: PaymentLinkPayload,
-  url: string,
-): PaymentLinkRecord {
+export function rememberPaymentLink(payload: PaymentLinkPayload, url: string): PaymentLinkRecord {
   const id = paymentLinkId(payload);
   const all = readAll();
   if (all[id]) return all[id];
@@ -232,17 +217,14 @@ export function rememberPaymentLink(
  * don't have a local record (e.g. payer on a different device) should still
  * honour the on-link `validUntil`.
  */
-export function getPaymentLinkRecord(
-  payload: PaymentLinkPayload,
-): PaymentLinkRecord | null {
+export function getPaymentLinkRecord(payload: PaymentLinkPayload): PaymentLinkRecord | null {
   const id = paymentLinkId(payload);
   const all = readAll();
   const existing = all[id];
   if (!existing) return null;
 
   if (existing.status === "pending") {
-    const expired =
-      payload.validUntil != null && Date.now() > payload.validUntil;
+    const expired = payload.validUntil != null && Date.now() > payload.validUntil;
     if (expired) {
       existing.status = "expired";
       all[id] = existing;
@@ -257,10 +239,7 @@ export function getPaymentLinkRecord(
  * Returns true if the link transitioned to `redeemed`, false if it was
  * already redeemed or expired (and therefore cannot be reused).
  */
-export function markPaymentLinkRedeemed(
-  payload: PaymentLinkPayload,
-  txHash: string,
-): boolean {
+export function markPaymentLinkRedeemed(payload: PaymentLinkPayload, txHash: string): boolean {
   const id = paymentLinkId(payload);
   const all = readAll();
   const existing = all[id];
@@ -298,7 +277,7 @@ export function listPaymentLinks(): PaymentLinkRecord[] {
  * paid. Used by pay.tsx to block reuse after redemption.
  */
 export function canRedeemPaymentLink(
-  payload: PaymentLinkPayload,
+  payload: PaymentLinkPayload
 ): { ok: true } | { ok: false; reason: "expired" | "redeemed" } {
   if (payload.validUntil != null && Date.now() > payload.validUntil) {
     return { ok: false, reason: "expired" };

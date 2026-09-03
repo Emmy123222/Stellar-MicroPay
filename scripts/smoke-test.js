@@ -24,19 +24,15 @@ function logFail(msg) {
 function makeRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith("https") ? https : http;
-    const req = client.get(
-      url,
-      { timeout: TIMEOUT_MS, ...options },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => {
-          data += chunk;
-        });
-        res.on("end", () => {
-          resolve({ status: res.statusCode, headers: res.headers, body: data });
-        });
-      }
-    );
+    const req = client.get(url, { timeout: TIMEOUT_MS, ...options }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => {
+        data += chunk;
+      });
+      res.on("end", () => {
+        resolve({ status: res.statusCode, headers: res.headers, body: data });
+      });
+    });
     req.on("error", reject);
     req.on("timeout", () => {
       req.destroy();
@@ -177,11 +173,7 @@ async function testSecurityHeaders() {
     const res = await withRetry(() => makeRequest(url));
     const headers = res.headers;
 
-    const requiredHeaders = [
-      "x-frame-options",
-      "x-content-type-options",
-      "referrer-policy",
-    ];
+    const requiredHeaders = ["x-frame-options", "x-content-type-options", "referrer-policy"];
 
     for (const header of requiredHeaders) {
       if (headers[header]) {

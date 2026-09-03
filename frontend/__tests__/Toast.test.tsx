@@ -6,8 +6,12 @@ import Toast, { ToastContainer } from "@/components/Toast";
 import { ToastProvider, useToastContext } from "@/lib/ToastContext";
 
 jest.mock("@/components/icons", () => ({
-  CheckIcon: ({ className }: { className?: string }) => <svg data-testid="check-icon" className={className} />,
-  AlertCircleIcon: ({ className }: { className?: string }) => <svg data-testid="alert-icon" className={className} />,
+  CheckIcon: ({ className }: { className?: string }) => (
+    <svg data-testid="check-icon" className={className} />
+  ),
+  AlertCircleIcon: ({ className }: { className?: string }) => (
+    <svg data-testid="alert-icon" className={className} />
+  ),
 }));
 
 // ─── Individual <Toast /> unit tests ─────────────────────────────────────────
@@ -92,10 +96,7 @@ describe("Toast component", () => {
 function AddToastButton() {
   const { addToast } = useToastContext();
   return (
-    <button
-      type="button"
-      onClick={() => addToast("Toast A", "success")}
-    >
+    <button type="button" onClick={() => addToast("Toast A", "success")}>
       Add toast
     </button>
   );
@@ -104,10 +105,7 @@ function AddToastButton() {
 function ErrorToastButton() {
   const { addToast } = useToastContext();
   return (
-    <button
-      type="button"
-      onClick={() => addToast("Toast Error", "error")}
-    >
+    <button type="button" onClick={() => addToast("Toast Error", "error")}>
       Add error toast
     </button>
   );
@@ -117,8 +115,12 @@ function MultiToastButton() {
   const { addToast } = useToastContext();
   return (
     <>
-      <button type="button" onClick={() => addToast("First", "info")}>Add first</button>
-      <button type="button" onClick={() => addToast("Second", "success")}>Add second</button>
+      <button type="button" onClick={() => addToast("First", "info")}>
+        Add first
+      </button>
+      <button type="button" onClick={() => addToast("Second", "success")}>
+        Add second
+      </button>
     </>
   );
 }

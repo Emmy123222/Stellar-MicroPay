@@ -35,7 +35,10 @@ Object.defineProperty(navigator, "clipboard", {
 const VALID_DESTINATION = "GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234";
 const FAKE_URL = "https://example.com/pay?to=GABC&amount=10";
 
-function fillForm(user: ReturnType<typeof userEvent.setup>, opts: { destination?: string; amount?: string; memo?: string } = {}) {
+function fillForm(
+  user: ReturnType<typeof userEvent.setup>,
+  opts: { destination?: string; amount?: string; memo?: string } = {}
+) {
   const destination = opts.destination ?? VALID_DESTINATION;
   const amount = opts.amount ?? "10";
   return async () => {

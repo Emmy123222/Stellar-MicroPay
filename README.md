@@ -47,7 +47,7 @@ flowchart LR
 ```rust
 pub struct Stream {
     pub payer: Address,           // Address of the payer
-    pub recipient: Address,       // Address of the recipient  
+    pub recipient: Address,       // Address of the recipient
     pub rate_per_ledger: i128,    // Amount streamed per ledger (in stroops)
     pub deposited: i128,          // Total amount deposited (in stroops)
     pub claimed: i128,            // Total amount claimed (in stroops)
@@ -58,29 +58,35 @@ pub struct Stream {
 ### Core Functions
 
 #### `open_stream(payer, recipient, rate_per_ledger, deposit) -> u32`
+
 - Creates a new payment stream
 - Returns the stream ID
 - Transfers initial deposit from payer to contract
 
 #### `claim_stream(stream_id, recipient) -> i128`
+
 - Claims all unclaimed streamed XLM up to current ledger
 - Only the designated recipient can claim
 - Returns the amount claimed
 
 #### `top_up_stream(stream_id, payer, amount)`
+
 - Adds more funds to an existing stream
 - Only the original payer can top up
 - Extends the stream duration
 
 #### `close_stream(stream_id, payer) -> i128`
+
 - Stops the stream and refunds unstreamed portion
 - Only the original payer can close
 - Returns the refund amount
 
 #### `get_stream(stream_id) -> Stream`
+
 - Returns stream information for querying
 
 #### `get_claimable(stream_id) -> i128`
+
 - Calculates claimable amount without claiming
 
 ## Security Features
@@ -94,6 +100,7 @@ pub struct Stream {
 ## Mathematical Calculations
 
 ### Claimable Amount Calculation
+
 ```
 elapsed_ledgers = current_ledger - start_ledger
 total_streamed = rate_per_ledger * elapsed_ledgers
@@ -102,6 +109,7 @@ actual_claim = min(claimable, deposited - claimed)
 ```
 
 ### Refund Calculation
+
 ```
 elapsed_ledgers = current_ledger - start_ledger
 total_streamed = rate_per_ledger * elapsed_ledgers
@@ -111,6 +119,7 @@ refundable = deposited - max(total_streamed, claimed)
 ## Usage Examples
 
 ### Opening a Stream
+
 ```rust
 let stream_id = StellarMicroPay::open_stream(
     &env,
@@ -122,6 +131,7 @@ let stream_id = StellarMicroPay::open_stream(
 ```
 
 ### Claiming Funds
+
 ```rust
 let claimed = StellarMicroPay::claim_stream(
     &env,
@@ -131,6 +141,7 @@ let claimed = StellarMicroPay::claim_stream(
 ```
 
 ### Topping Up a Stream
+
 ```rust
 StellarMicroPay::top_up_stream(
     &env,
@@ -141,6 +152,7 @@ StellarMicroPay::top_up_stream(
 ```
 
 ### Closing a Stream
+
 ```rust
 let refund = StellarMicroPay::close_stream(
     &env,
@@ -152,6 +164,7 @@ let refund = StellarMicroPay::close_stream(
 ## Testing
 
 The contract includes comprehensive tests covering:
+
 - Stream creation and basic operations
 - Claim calculations at various ledger offsets
 - Multiple claims over time
@@ -174,6 +187,7 @@ The contract includes comprehensive tests covering:
 Common development tasks can be run using `make` or `npm`:
 
 ### Make targets
+
 ```bash
 make dev                 # Start frontend + backend concurrently (hot-reload)
 make test                # Run all tests (frontend + backend unit tests)
@@ -184,6 +198,7 @@ make contracts-test      # Run Soroban contract tests
 ```
 
 ### NPM scripts
+
 ```bash
 npm run clean            # Remove build artifacts (.next, dist, target)
 npm run load-test        # Run load tests
@@ -197,6 +212,7 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/) e
 Acceptable types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `revert`
 
 Example:
+
 ```bash
 git commit -m "feat: add streaming payment support"
 git commit -m "fix: correct claim amount calculation"
@@ -243,25 +259,24 @@ This project is open source and available under the MIT License.
 
 ## Contributing Guide
 
+How to Contribute
 
-How to Contribute 
+• Fork the repository.
 
-• Fork the repository. 
+• Clone your fork to your local machine.
 
-• Clone your fork to your local machine. 
+• Create a new branch for your task.
 
-• Create a new branch for your task. 
+git checkout -b feature/your-task-name
 
-git checkout -b feature/your-task-name 
+• Make your changes.
 
-• Make your changes. 
+• Commit clearly.
 
-• Commit clearly. 
+git commit -m "Add: short description"
 
-git commit -m "Add: short description" 
+• Push your branch.
 
-• Push your branch. 
-
-git push origin feature/your-task-name 
+git push origin feature/your-task-name
 
 • Open a Pull Request.

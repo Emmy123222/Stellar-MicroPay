@@ -93,7 +93,9 @@ function validateSecretsFile(environment) {
     const stats = fs.statSync(secretFile);
     const mode = stats.mode & parseInt("777", 8);
     if (mode & parseInt("044", 8)) {
-      logWarning(`Secret file has overly permissive mode: secrets/${secret}.txt (${mode.toString(8)})`);
+      logWarning(
+        `Secret file has overly permissive mode: secrets/${secret}.txt (${mode.toString(8)})`
+      );
     }
 
     logOk(`Secret file exists: secrets/${secret}.txt`);
@@ -142,7 +144,9 @@ function validateNetworkIsolation(environment) {
   if (content.includes("internal: true")) {
     logOk("Internal network isolation configured for backend network");
   } else if (environment !== "development") {
-    logWarning("No internal network isolation found (backend should be isolated in staging/production)");
+    logWarning(
+      "No internal network isolation found (backend should be isolated in staging/production)"
+    );
   }
 }
 
@@ -172,10 +176,10 @@ function validateComposeSyntax(environment) {
   console.log(`\nValidating compose syntax for ${environment}...`);
 
   try {
-    const result = execSync(
-      `docker compose -f ${COMPOSE_FILES[environment]} config --quiet 2>&1`,
-      { encoding: "utf8", cwd: process.cwd() }
-    );
+    const result = execSync(`docker compose -f ${COMPOSE_FILES[environment]} config --quiet 2>&1`, {
+      encoding: "utf8",
+      cwd: process.cwd(),
+    });
     logOk(`Compose file syntax valid: ${COMPOSE_FILES[environment]}`);
   } catch (err) {
     logError(`Compose file syntax error in ${COMPOSE_FILES[environment]}: ${err.message}`);

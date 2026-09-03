@@ -31,7 +31,7 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
   // Download QR code as PNG
   const downloadQRCode = () => {
     if (!canvasRef.current) return;
-    
+
     const canvas = canvasRef.current;
     const url = canvas.toDataURL("image/png");
     const link = document.createElement("a");
@@ -76,21 +76,17 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
             ref={canvasRef}
           />
         </div>
-        
+
         {/* Address Display */}
         <div className="text-center mb-4">
           <p className="text-xs text-slate-400 mb-1">Your Stellar Address</p>
-          <p className="font-mono text-sm text-slate-300 break-all">
-            {publicKey}
-          </p>
+          <p className="font-mono text-sm text-slate-300 break-all">{publicKey}</p>
         </div>
 
         {/* URI Display */}
         <div className="text-center mb-6">
           <p className="text-xs text-slate-400 mb-1">Payment URI</p>
-          <p className="font-mono text-xs text-slate-400 break-all max-w-full">
-            {stellarURI}
-          </p>
+          <p className="font-mono text-xs text-slate-400 break-all max-w-full">{stellarURI}</p>
         </div>
       </div>
 
@@ -121,12 +117,17 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
   );
 }
 
-
 // ─── Icons ─────────────────────────────────────────────────────────────────────
 
 function CloseIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
@@ -134,8 +135,18 @@ function CloseIcon({ className }: { className?: string }) {
 
 function DownloadIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+      />
     </svg>
   );
 }

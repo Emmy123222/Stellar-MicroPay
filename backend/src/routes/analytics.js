@@ -16,12 +16,7 @@ const { sanitizePublicKey } = require("../middleware/sanitization");
  * GET /api/analytics/:publicKey/summary
  * Returns: total sent, received, unique counterparties, avg transaction size.
  */
-router.get(
-  "/:publicKey/summary",
-  strictLimiter,
-  sanitizePublicKey,
-  analyticsController.getSummary
-);
+router.get("/:publicKey/summary", strictLimiter, sanitizePublicKey, analyticsController.getSummary);
 
 /**
  * GET /api/analytics/:publicKey/top-recipients

@@ -194,10 +194,7 @@ async function getTopRecipients(publicKey) {
         const recipient = payment.to;
 
         if (recipientTotals.has(recipient)) {
-          recipientTotals.set(
-            recipient,
-            recipientTotals.get(recipient) + amount
-          );
+          recipientTotals.set(recipient, recipientTotals.get(recipient) + amount);
         } else {
           recipientTotals.set(recipient, amount);
         }
@@ -475,7 +472,9 @@ async function getCohortBreakdown(publicKey, { period = "month", periods = 6 } =
       periods: normalizedCount,
       range: {
         start: oldestBucketStart ? oldestBucketStart.toISOString() : null,
-        end: newestBucketStart ? getCohortBucketEnd(newestBucketStart, normalizedPeriod).toISOString() : null,
+        end: newestBucketStart
+          ? getCohortBucketEnd(newestBucketStart, normalizedPeriod).toISOString()
+          : null,
       },
       cohorts,
     };
@@ -558,12 +557,12 @@ async function triggerEmailExport(publicKey) {
 
     <h2>Top Recipients</h2>
     <ol>
-      ${topRecipients.topRecipients.map(r => `<li><code>${r.address}</code>: ${r.totalXLMSent} XLM</li>`).join("")}
+      ${topRecipients.topRecipients.map((r) => `<li><code>${r.address}</code>: ${r.totalXLMSent} XLM</li>`).join("")}
     </ol>
 
     <h2>Weekly Activity</h2>
     <ul>
-      ${activity.activityByDay.map(d => `<li>${d.day}: ${d.transactionCount} payments</li>`).join("")}
+      ${activity.activityByDay.map((d) => `<li>${d.day}: ${d.transactionCount} payments</li>`).join("")}
     </ul>
   `;
 

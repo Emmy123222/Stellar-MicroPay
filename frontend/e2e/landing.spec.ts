@@ -1,51 +1,51 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from "@playwright/test";
 
 // Mock Freighter so no browser extension is needed
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).freighter = {
       isConnected: async () => ({ isConnected: false }),
-      getAddress: async () => ({ address: '' }),
-      getPublicKey: async () => ({ publicKey: '' }),
-      signTransaction: async () => ({ signedTxXdr: '' }),
+      getAddress: async () => ({ address: "" }),
+      getPublicKey: async () => ({ publicKey: "" }),
+      signTransaction: async () => ({ signedTxXdr: "" }),
       requestAccess: async () => ({}),
       isAllowed: async () => ({ isAllowed: false }),
     };
   });
 });
 
-test('landing page loads with correct title', async ({ page }) => {
-  await page.goto('/');
-  await expect(page).toHaveTitle('Home | Stellar-MicroPay');
+test("landing page loads with correct title", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveTitle("Home | Stellar-MicroPay");
 });
 
-test('landing page shows hero heading', async ({ page }) => {
-  await page.goto('/');
-  const heading = page.locator('h1');
-  await expect(heading).toContainText('Money moves at the');
-  await expect(heading).toContainText('speed of light');
+test("landing page shows hero heading", async ({ page }) => {
+  await page.goto("/");
+  const heading = page.locator("h1");
+  await expect(heading).toContainText("Money moves at the");
+  await expect(heading).toContainText("speed of light");
 });
 
-test('Connect Wallet & Start button is visible on landing page', async ({ page }) => {
-  await page.goto('/');
-  const btn = page.getByRole('button', { name: 'Connect wallet to start sending payments' });
+test("Connect Wallet & Start button is visible on landing page", async ({ page }) => {
+  await page.goto("/");
+  const btn = page.getByRole("button", { name: "Connect wallet to start sending payments" });
   await expect(btn).toBeVisible();
 });
 
-test('clicking Connect Wallet & Start opens the WalletConnect modal', async ({ page }) => {
-  await page.goto('/');
-  const btn = page.getByRole('button', { name: 'Connect wallet to start sending payments' });
+test("clicking Connect Wallet & Start opens the WalletConnect modal", async ({ page }) => {
+  await page.goto("/");
+  const btn = page.getByRole("button", { name: "Connect wallet to start sending payments" });
   await btn.click();
 
-  const walletHeading = page.getByRole('heading', { name: 'Connect your wallet' });
+  const walletHeading = page.getByRole("heading", { name: "Connect your wallet" });
   await expect(walletHeading).toBeVisible();
 });
 
-test('Cancel button closes the WalletConnect modal', async ({ page }) => {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Connect wallet to start sending payments' }).click();
-  await expect(page.getByRole('heading', { name: 'Connect your wallet' })).toBeVisible();
+test("Cancel button closes the WalletConnect modal", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Connect wallet to start sending payments" }).click();
+  await expect(page.getByRole("heading", { name: "Connect your wallet" })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page.getByRole('heading', { name: 'Connect your wallet' })).not.toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("heading", { name: "Connect your wallet" })).not.toBeVisible();
 });

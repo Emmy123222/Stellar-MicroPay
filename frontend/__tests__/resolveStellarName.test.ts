@@ -6,7 +6,12 @@
  * hit and miss), error propagation, and the raw-address bypass path.
  */
 
-import { resolveStellarName, isStellarName, clearNameCache, isValidStellarAddress } from "@/lib/stellar";
+import {
+  resolveStellarName,
+  isStellarName,
+  clearNameCache,
+  isValidStellarAddress,
+} from "@/lib/stellar";
 
 // ─── Mock stellar-sdk Federation ─────────────────────────────────────────────
 // We mock only the Federation.Server.resolve call so the rest of the module
@@ -169,9 +174,7 @@ describe("resolveStellarName", () => {
     });
 
     it("throws for input that is not a name or a valid address", async () => {
-      await expect(resolveStellarName("notaname")).rejects.toThrow(
-        /Could not resolve "notaname"/
-      );
+      await expect(resolveStellarName("notaname")).rejects.toThrow(/Could not resolve "notaname"/);
       expect(mockResolve).not.toHaveBeenCalled();
     });
 

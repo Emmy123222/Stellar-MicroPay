@@ -27,7 +27,7 @@ const options = {
         "| `RateLimit-Limit` | Maximum requests allowed in the current window |\n" +
         "| `RateLimit-Remaining` | Requests remaining before the limit is reached |\n" +
         "| `RateLimit-Reset` | Seconds until the window resets |\n\n" +
-        "When the limit is exceeded the server returns **HTTP 429** with `{ \"error\": \"Too many requests, please try again later.\" }`. " +
+        'When the limit is exceeded the server returns **HTTP 429** with `{ "error": "Too many requests, please try again later." }`. ' +
         "Clients should read `RateLimit-Remaining` on each response and add exponential back-off when the value approaches 0.",
       contact: {
         name: "Stellar MicroPay",
@@ -237,7 +237,8 @@ const options = {
             },
             config: {
               type: "object",
-              description: "Type-specific configuration — see DcaConfig, StopLossConfig, or EscrowReleaseConfig",
+              description:
+                "Type-specific configuration — see DcaConfig, StopLossConfig, or EscrowReleaseConfig",
             },
           },
         },
@@ -499,7 +500,9 @@ const options = {
               },
             },
             404: { description: "Account not found" },
-            429: { description: "Rate limit exceeded — back off and retry after RateLimit-Reset seconds" },
+            429: {
+              description: "Rate limit exceeded — back off and retry after RateLimit-Reset seconds",
+            },
           },
         },
       },
@@ -978,7 +981,8 @@ const options = {
         get: {
           tags: ["Turrets"],
           summary: "List txFunction deployments",
-          description: "Returns all deployments. Filter by owner using `ownerPublicKey` query parameter.",
+          description:
+            "Returns all deployments. Filter by owner using `ownerPublicKey` query parameter.",
           parameters: [
             {
               name: "ownerPublicKey",
@@ -1035,7 +1039,8 @@ const options = {
         post: {
           tags: ["Turrets"],
           summary: "Create a txFunction signing challenge",
-          description: "Returns a ManageData transaction XDR that the user must sign with their Stellar keypair to prove ownership. The signed XDR is then passed to `POST /api/turrets/deploy`.",
+          description:
+            "Returns a ManageData transaction XDR that the user must sign with their Stellar keypair to prove ownership. The signed XDR is then passed to `POST /api/turrets/deploy`.",
           requestBody: {
             required: true,
             content: {
@@ -1064,7 +1069,9 @@ const options = {
                 },
               },
             },
-            400: { description: "Invalid request body (bad public key, unknown type, invalid config)" },
+            400: {
+              description: "Invalid request body (bad public key, unknown type, invalid config)",
+            },
             429: { description: "Rate limit exceeded" },
           },
         },
@@ -1073,7 +1080,8 @@ const options = {
         post: {
           tags: ["Turrets"],
           summary: "Deploy a signed txFunction",
-          description: "Verifies the signed challenge and registers the txFunction. The runner begins evaluating the deployment immediately.",
+          description:
+            "Verifies the signed challenge and registers the txFunction. The runner begins evaluating the deployment immediately.",
           requestBody: {
             required: true,
             content: {
@@ -1442,7 +1450,8 @@ const options = {
         post: {
           tags: ["Webhooks"],
           summary: "Register a new webhook",
-          description: "Register a webhook to receive notifications when payments occur for a specific Stellar public key.",
+          description:
+            "Register a webhook to receive notifications when payments occur for a specific Stellar public key.",
           requestBody: {
             required: true,
             content: {
@@ -1550,7 +1559,8 @@ const options = {
               in: "query",
               required: true,
               schema: { type: "string" },
-              description: "Federation query. Use user*domain for type=name or a public key for type=id.",
+              description:
+                "Federation query. Use user*domain for type=name or a public key for type=id.",
             },
             {
               name: "type",

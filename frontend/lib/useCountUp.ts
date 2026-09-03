@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from "react";
 
 /** React hook that animates a number counting up to `target` over `duration` ms, optionally starting only once the element scrolls into view. */
 export function useCountUp(target: number, duration: number = 2000, startOnView: boolean = true) {
@@ -8,8 +8,7 @@ export function useCountUp(target: number, duration: number = 2000, startOnView:
   const elementRef = useRef<HTMLDivElement>(null);
 
   const prefersReducedMotion =
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   useEffect(() => {
     if (!startOnView) {

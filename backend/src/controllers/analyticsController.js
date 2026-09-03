@@ -216,7 +216,9 @@ async function scheduleExport(req, res, next) {
     const { publicKey } = req.params;
     const { email, frequency } = req.body;
     const data = analyticsService.scheduleExport(publicKey, email, frequency);
-    res.status(201).json({ success: true, data, message: "Recurring export scheduled successfully" });
+    res
+      .status(201)
+      .json({ success: true, data, message: "Recurring export scheduled successfully" });
   } catch (err) {
     next(err);
   }

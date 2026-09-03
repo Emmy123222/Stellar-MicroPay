@@ -43,7 +43,9 @@ export function DraggableWidget({
       onDrop={onDrop}
       data-widget-id={id}
       className={`relative group rounded-2xl transition-opacity ${isDragging ? "opacity-40" : ""} ${
-        isDragOver ? "ring-2 ring-stellar-400/60 ring-offset-2 ring-offset-cosmos-950 rounded-2xl" : ""
+        isDragOver
+          ? "ring-2 ring-stellar-400/60 ring-offset-2 ring-offset-cosmos-950 rounded-2xl"
+          : ""
       }`}
     >
       <button

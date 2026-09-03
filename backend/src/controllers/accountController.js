@@ -83,7 +83,10 @@ async function registerUsername(req, res, next) {
     const { username, publicKey } = req.body;
 
     if (!username || !publicKey) {
-      logger.warn({ event: "username_registration_rejected", reason: "missing_fields" }, "Username registration rejected");
+      logger.warn(
+        { event: "username_registration_rejected", reason: "missing_fields" },
+        "Username registration rejected"
+      );
       return res.status(400).json({
         success: false,
         error: "Username and public key are required",
@@ -92,16 +95,22 @@ async function registerUsername(req, res, next) {
 
     if (!req.user?.publicKey || req.user.publicKey !== publicKey) {
       logger.warn(
-        { event: "username_registration_rejected", subject: req.user?.publicKey, requestedKey: publicKey },
-        "Username registration rejected: wallet ownership mismatch",
+        {
+          event: "username_registration_rejected",
+          subject: req.user?.publicKey,
+          requestedKey: publicKey,
+        },
+        "Username registration rejected: wallet ownership mismatch"
       );
-      return res.status(403).json({ error: "Forbidden: wallet ownership proof does not match public key" });
+      return res
+        .status(403)
+        .json({ error: "Forbidden: wallet ownership proof does not match public key" });
     }
 
     const result = usernameService.registerUsername(username, publicKey);
     logger.info(
-      { event: "username_registered", username: result.username, publicKey: req.user.publicKey },
-      "Username registered",
+      { event: "username_registered", username, publicKey: req.user.publicKey },
+      "Username registered"
     );
     res.status(201).json({
       success: true,
@@ -129,7 +138,7 @@ async function resolveUsername(req, res, next) {
   try {
     const { username } = req.params;
 
-    if (username.toLowerCase() === 'alice') {
+    if (username.toLowerCase() === "alice") {
       return res.status(501).json({
         success: false,
         error: "Not Implemented",

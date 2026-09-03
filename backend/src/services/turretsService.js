@@ -56,13 +56,16 @@ function addAuditLog(action, actor, deploymentId, details = {}) {
   }
 
   // Also log to structured logger for persistence
-  logger.info({
-    audit: true,
-    action,
-    actor,
-    deploymentId,
-    details,
-  }, `Turrets audit: ${action} by ${actor}`);
+  logger.info(
+    {
+      audit: true,
+      action,
+      actor,
+      deploymentId,
+      details,
+    },
+    `Turrets audit: ${action} by ${actor}`
+  );
 }
 
 function validatePublicKey(publicKey) {
@@ -74,10 +77,7 @@ function validatePublicKey(publicKey) {
 }
 
 function getConfigHash(type, config) {
-  return crypto
-    .createHash("sha256")
-    .update(JSON.stringify({ type, config }))
-    .digest("hex");
+  return crypto.createHash("sha256").update(JSON.stringify({ type, config })).digest("hex");
 }
 
 function normalizeDcaConfig(config = {}) {
@@ -174,7 +174,9 @@ function normalizeEscrowReleaseConfig(config = {}) {
   }
 
   if (releaseCondition === "time" && (!Number.isFinite(releaseAfterMs) || releaseAfterMs <= 0)) {
-    const err = new Error("escrow_release: releaseAfterMs must be greater than 0 for time-based release");
+    const err = new Error(
+      "escrow_release: releaseAfterMs must be greater than 0 for time-based release"
+    );
     err.status = 400;
     throw err;
   }
@@ -194,7 +196,9 @@ function normalizeConfig(type, config) {
   if (type === "dca") return normalizeDcaConfig(config);
   if (type === "stop_loss") return normalizeStopLossConfig(config);
   if (type === "escrow_release") return normalizeEscrowReleaseConfig(config);
-  const err = new Error("Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'.");
+  const err = new Error(
+    "Unsupported txFunction type. Use 'dca', 'stop_loss', or 'escrow_release'."
+  );
   err.status = 400;
   throw err;
 }
@@ -348,7 +352,9 @@ const PRICE_MIN_VALID = 0.0001;
 const PRICE_MAX_VALID = 10.0;
 
 async function fetchCoinGeckoPrice() {
-  const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd&include_last_updated_at=true");
+  const res = await fetch(
+    "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd&include_last_updated_at=true"
+  );
   if (!res.ok) throw new Error(`CoinGecko failed (${res.status})`);
   const data = await res.json();
   const value = Number(data?.stellar?.usd);
@@ -370,9 +376,11 @@ function validatePriceData(data, now) {
     throw new Error("Malformed price data: missing or invalid value/timestamp");
   }
   if (data.value < PRICE_MIN_VALID || data.value > PRICE_MAX_VALID) {
-    throw new Error(`Price out of sanity range (${PRICE_MIN_VALID} - ${PRICE_MAX_VALID}): ${data.value}`);
+    throw new Error(
+      `Price out of sanity range (${PRICE_MIN_VALID} - ${PRICE_MAX_VALID}): ${data.value}`
+    );
   }
-  
+
   const age = now - data.updatedAt;
   if (age < -60_000) {
     throw new Error(`Price timestamp is in the future: ${data.updatedAt}`);
@@ -386,11 +394,11 @@ let priceCache = { value: null, fetchedAt: 0, updatedAt: 0 };
 
 async function getXlmUsdPrice() {
   const now = Date.now();
-  
+
   if (
-    priceCache.value !== null && 
-    (now - priceCache.fetchedAt < 30_000) && 
-    (now - priceCache.updatedAt < PRICE_MAX_AGE_MS)
+    priceCache.value !== null &&
+    now - priceCache.fetchedAt < 30_000 &&
+    now - priceCache.updatedAt < PRICE_MAX_AGE_MS
   ) {
     return priceCache.value;
   }
@@ -468,7 +476,12 @@ async function evaluateDeployment(deployment) {
         const result = escrowReleaseTxFunction(deployment.config);
         deployment.lastExecutedAt = new Date().toISOString();
         deployment.status = "completed";
-        addExecutionLog(deployment.id, "executed", "Escrow time-lock expired, release triggered", result);
+        addExecutionLog(
+          deployment.id,
+          "executed",
+          "Escrow time-lock expired, release triggered",
+          result
+        );
       }
     }
   } catch (err) {

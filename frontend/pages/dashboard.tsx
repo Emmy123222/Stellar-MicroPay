@@ -21,7 +21,9 @@ import FloatingAssistantButton from "../components/FloatingAssistantButton";
 import { useTranslation } from "@/contexts/I18nContext";
 
 // Dynamic imports for large components to improve initial load (Lighthouse Performance)
-const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), { ssr: false });
+const PaymentLinkGenerator = dynamic(() => import("../components/PaymentLinkGenerator"), {
+  ssr: false,
+});
 const WalletConnect = dynamic(() => import("../components/WalletConnect"), { ssr: false });
 const SendPaymentForm = dynamic(() => import("../components/SendPaymentForm"), { ssr: false });
 const TransactionList = dynamic(() => import("../components/TransactionList"), { ssr: false });
@@ -39,7 +41,9 @@ const MultiSigFlow = dynamic(() => import("../components/MultiSigFlow"), {
 const OnboardingTour = dynamic(() => import("../components/OnboardingTour"), { ssr: false });
 const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"), { ssr: false });
 const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
-const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
+const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), {
+  ssr: false,
+});
 const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
 
 // The assistant panel (and its dependencies) should not ship in the initial
@@ -88,7 +92,13 @@ import {
   fetchAllPayments,
   PaymentRecord,
 } from "@/lib/stellar";
-import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
+import {
+  formatAsset,
+  formatUSD,
+  copyToClipboard,
+  exportToCSV,
+  shortenAddress,
+} from "@/utils/format";
 import { useToastContext } from "@/lib/ToastContext";
 import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
@@ -108,18 +118,15 @@ interface CachedBalanceSnapshot {
 
 const BALANCE_CACHE_KEY_PREFIX = "stellar-micropay:offline-balance:";
 
-function getBalanceCacheKey(publicKey: string, network: string = "testnet") {
-  return `${BALANCE_CACHE_KEY_PREFIX}${publicKey}:${network}`;
+function getBalanceCacheKey(publicKey: string) {
+  return `${BALANCE_CACHE_KEY_PREFIX}${publicKey}`;
 }
 
-function loadBalanceSnapshot(
-  publicKey: string,
-  network: string = "testnet"
-): CachedBalanceSnapshot | null {
+function loadBalanceSnapshot(publicKey: string): CachedBalanceSnapshot | null {
   if (typeof window === "undefined") return null;
 
   try {
-    const raw = window.localStorage.getItem(getBalanceCacheKey(publicKey, network));
+    const raw = window.localStorage.getItem(getBalanceCacheKey(publicKey));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedBalanceSnapshot;
     if (!parsed?.xlmBalance || typeof parsed.savedAt !== "number") return null;
@@ -129,15 +136,11 @@ function loadBalanceSnapshot(
   }
 }
 
-function saveBalanceSnapshot(
-  publicKey: string,
-  network: string = "testnet",
-  snapshot: Omit<CachedBalanceSnapshot, "savedAt">
-) {
+function saveBalanceSnapshot(publicKey: string, snapshot: Omit<CachedBalanceSnapshot, "savedAt">) {
   if (typeof window === "undefined") return;
 
   window.localStorage.setItem(
-    getBalanceCacheKey(publicKey, network),
+    getBalanceCacheKey(publicKey),
     JSON.stringify({ ...snapshot, savedAt: Date.now() })
   );
 }
@@ -149,22 +152,6 @@ function formatSnapshotTime(savedAt: number) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function getRealtimePaymentKey(payment: PaymentRecord): string {
-  const candidate = payment as PaymentRecord & {
-    pagingToken?: string;
-    transactionId?: string;
-    transactionHash?: string;
-    id?: string;
-  };
-  return (
-    candidate.pagingToken ??
-    candidate.transactionId ??
-    candidate.transactionHash ??
-    candidate.id ??
-    `${payment.createdAt}:${payment.amount}:${payment.type}`
-  );
 }
 
 // ─── Dashboard widget drag-to-reorder (#622) ────────────────────────────────
@@ -197,12 +184,7 @@ function saveWidgetOrder(order: DashboardWidgetId[]) {
 
 export default function Dashboard({ stellarURI }: DashboardProps) {
   const { t } = useTranslation("dashboard");
-  const { publicKey, network } = useWallet();
-  const activeContextKeyRef = useRef<string>("");
-  const currentContextKey = `${publicKey ?? ""}:${network ?? "testnet"}`;
-  useEffect(() => {
-    activeContextKeyRef.current = currentContextKey;
-  }, [currentContextKey]);
+  const { publicKey } = useWallet();
   const AUTO_REFRESH_SECONDS = 30;
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
@@ -213,10 +195,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       dashboardHeadingRef.current?.focus();
     }
   }, [publicKey]);
-  const [xlmBalance, setXlmBalance]   = useState<string | null>(null);
+  const [xlmBalance, setXlmBalance] = useState<string | null>(null);
   const [reserveInfo, setReserveInfo] = useState<AccountReserveInfo | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
-  const [otherBalances, setOtherBalances] = useState<Array<{ code: string; issuer: string; balance: string }>>([]);
+  const [otherBalances, setOtherBalances] = useState<
+    Array<{ code: string; issuer: string; balance: string }>
+  >([]);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [staleBalanceAt, setStaleBalanceAt] = useState<number | null>(null);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
@@ -229,8 +213,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const { addToast } = useToastContext();
   const showToast = (msg: string) => addToast(msg, "info");
   const [showQRModal, setShowQRModal] = useState(false);
-  const { showTour: showOnboardingTour, completeTour: handleTourComplete, skipTour: handleTourSkip } =
-    useOnboarding(!!publicKey);
+  const {
+    showTour: showOnboardingTour,
+    completeTour: handleTourComplete,
+    skipTour: handleTourSkip,
+  } = useOnboarding(!!publicKey);
 
   // Dashboard widget order — draggable and persisted across sessions (#622)
   const [widgetOrder, setWidgetOrder] = useState<DashboardWidgetId[]>([...DASHBOARD_WIDGET_IDS]);
@@ -299,10 +286,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Supports legacy ?prefillDestination= (contacts page) and
   // new ?to=&amount= (Send Again from transaction history).
   const { prefillDestination, to, amount: queryAmount } = router.query;
-  const prefill =
-    prefillDestination
-      ? { destination: prefillDestination as string, amount: "", memo: "" }
-      : to
+  const prefill = prefillDestination
+    ? { destination: prefillDestination as string, amount: "", memo: "" }
+    : to
       ? {
           destination: to as string,
           amount: typeof queryAmount === "string" ? queryAmount : "",
@@ -334,7 +320,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     setShowAIAssistant(true);
   };
 
-  const handleAIAssistantConfirm = (intent: { amount: string; recipient: string; memo: string }) => {
+  const handleAIAssistantConfirm = (intent: {
+    amount: string;
+    recipient: string;
+    memo: string;
+  }) => {
     setAiPrefillData({
       destination: intent.recipient,
       amount: intent.amount,
@@ -368,31 +358,26 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Analytics state
   const [thirtyDayData, setThirtyDayData] = useState<any[]>([]);
   const [thirtyDayLoading, setThirtyDayLoading] = useState(false);
-  const [topRecipients, setTopRecipients] = useState<Array<{ address: string; totalXLMSent: string }>>([]);
+  const [topRecipients, setTopRecipients] = useState<
+    Array<{ address: string; totalXLMSent: string }>
+  >([]);
   const [topRecipientsLoading, setTopRecipientsLoading] = useState(false);
   const [csvExporting, setCsvExporting] = useState(false);
 
   // Notification state
   const [notificationEnabled, setNotificationEnabled] = useState(false);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermission>("default");
   const [showBubble, setShowBubble] = useState(false);
   const [bubbleMessage, setBubbleMessage] = useState("");
   const realtimeSourceRef = useRef<EventSource | null>(null);
   const realtimePollRef = useRef<number | null>(null);
   const latestPaymentIdRef = useRef<string | null>(null);
-  const seenRealtimePaymentIdsRef = useRef<Set<string>>(new Set());
-  const notificationEnabledRef = useRef(notificationEnabled);
-  const bubbleTimeoutRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    notificationEnabledRef.current = notificationEnabled;
-  }, [notificationEnabled]);
-
 
   // Fetch username for connected wallet
   const fetchUsername = useCallback(async () => {
     if (!publicKey) return;
-    
+
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
     try {
       const response = await fetch(
@@ -415,7 +400,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchBalance = useCallback(async () => {
     if (!publicKey) return;
-    const requestKey = `${publicKey}:${network}`;
 
     setBalanceLoading(true);
     setAccountNotFound(false);
@@ -425,8 +409,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         getBalances(publicKey),
         getAccountReserveInfo(publicKey),
       ]);
-      if (activeContextKeyRef.current !== requestKey) return;
-
       const xlm = allBalances.find((b) => b.assetCode === "XLM");
       const usdc = allBalances.find((b) => b.assetCode === "USDC");
       const others = allBalances
@@ -450,14 +432,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       setOtherBalances(others);
       setReserveInfo(reserve);
       setStaleBalanceAt(null);
-      saveBalanceSnapshot(publicKey, network, {
+      saveBalanceSnapshot(publicKey, {
         xlmBalance: bal,
         usdcBalance: usdcBal,
         reserveInfo: reserve,
       });
     } catch (err: unknown) {
-      if (activeContextKeyRef.current !== requestKey) return;
-      const cached = loadBalanceSnapshot(publicKey, network);
+      const cached = loadBalanceSnapshot(publicKey);
       const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
       if (cached && isOffline) {
         setXlmBalance(cached.xlmBalance);
@@ -481,11 +462,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       setReserveInfo(null);
       setStaleBalanceAt(null);
     } finally {
-      if (activeContextKeyRef.current === requestKey) {
-        setBalanceLoading(false);
-      }
+      setBalanceLoading(false);
     }
-  }, [publicKey, network]);
+  }, [publicKey]);
 
   const refreshBalance = useCallback(async () => {
     if (!publicKey) return;
@@ -500,7 +479,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchPaymentStats = useCallback(async () => {
     if (!publicKey) return;
-    const requestKey = `${publicKey}:${network}`;
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
@@ -516,9 +494,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
       const [resStats, resSummary] = await Promise.all([
         fetch(`${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`, { headers }),
-        fetch(`${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/summary`, { headers })
+        fetch(`${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/summary`, { headers }),
       ]);
-      if (activeContextKeyRef.current !== requestKey) return;
 
       if (!resStats.ok) {
         throw new Error("Unable to load payment stats right now.");
@@ -553,30 +530,24 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         comparison: comparisonData,
       });
     } catch {
-      if (activeContextKeyRef.current !== requestKey) return;
       setPaymentStats(null);
       setPaymentStatsError("Could not load your payment stats.");
     } finally {
-      if (activeContextKeyRef.current === requestKey) {
-        setPaymentStatsLoading(false);
-      }
+      setPaymentStatsLoading(false);
     }
-  }, [publicKey, network]);
+  }, [publicKey]);
 
   const fetchSpendingHistory = useCallback(async () => {
     if (!publicKey) return;
-    const requestKey = `${publicKey}:${network}`;
 
     setSpendingLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
-      if (activeContextKeyRef.current !== requestKey) return;
-      
+
       // Group by calendar month (last 6 months)
       const now = new Date();
       const months: any[] = [];
       for (let i = 5; i >= 0; i--) {
-
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         months.push({
           month: d.toLocaleString("default", { month: "short" }),
@@ -591,8 +562,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       payments.forEach((p: any) => {
         const pDate = new Date(p.createdAt);
         const m = months.find(
-          (m: any) =>
-            m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
+          (m: any) => m.monthIndex === pDate.getMonth() && m.year === pDate.getFullYear()
         );
 
         if (m) {
@@ -609,29 +579,22 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch spending history:", err);
     } finally {
-      if (activeContextKeyRef.current === requestKey) {
-        setSpendingLoading(false);
-      }
+      setSpendingLoading(false);
     }
-  }, [publicKey, network]);
+  }, [publicKey]);
 
   const fetchSparklineData = useCallback(async () => {
     if (!publicKey) return;
-    const requestKey = `${publicKey}:${network}`;
     setSparklineLoading(true);
     try {
       const history = await getRecentPaymentsForSparkline(publicKey, 10);
-      if (activeContextKeyRef.current !== requestKey) return;
-      setSparklineData(history.map(h => parseFloat(h.amount)));
+      setSparklineData(history.map((h) => parseFloat(h.amount)));
     } catch (err) {
       console.error("Failed to fetch sparkline data:", err);
     } finally {
-      if (activeContextKeyRef.current === requestKey) {
-        setSparklineLoading(false);
-      }
+      setSparklineLoading(false);
     }
-  }, [publicKey, network]);
-
+  }, [publicKey]);
 
   useEffect(() => {
     fetchSpendingHistory();
@@ -639,11 +602,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   const fetchThirtyDayVolume = useCallback(async () => {
     if (!publicKey) return;
-    const requestKey = `${publicKey}:${network}`;
     setThirtyDayLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
-      if (activeContextKeyRef.current !== requestKey) return;
       const now = new Date();
       const days: any[] = [];
       for (let i = 29; i >= 0; i--) {
@@ -669,15 +630,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch 30-day volume:", err);
     } finally {
-      if (activeContextKeyRef.current === requestKey) {
-        setThirtyDayLoading(false);
-      }
+      setThirtyDayLoading(false);
     }
-  }, [publicKey, network]);
+  }, [publicKey]);
 
   const fetchTopRecipients = useCallback(async () => {
     if (!publicKey) return;
-    const requestKey = `${publicKey}:${network}`;
     setTopRecipientsLoading(true);
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
@@ -688,7 +646,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         `${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/top-recipients`,
         { headers }
       );
-      if (activeContextKeyRef.current !== requestKey) return;
       if (res.ok) {
         const payload = await res.json();
         setTopRecipients(payload?.data?.topRecipients ?? []);
@@ -696,11 +653,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     } catch (err) {
       console.error("Failed to fetch top recipients:", err);
     } finally {
-      if (activeContextKeyRef.current === requestKey) {
-        setTopRecipientsLoading(false);
-      }
+      setTopRecipientsLoading(false);
     }
-  }, [publicKey, network]);
+  }, [publicKey]);
 
   const handleExportCSV = async () => {
     if (!publicKey || csvExporting) return;
@@ -799,24 +754,24 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Sync notification permission state on mount and whenever the user
   // returns to the tab — they may have changed browser-level settings.
   useEffect(() => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (typeof window === "undefined" || !("Notification" in window)) return;
 
     const syncPermission = () => {
       const perm = Notification.permission;
       setNotificationPermission(perm);
       // If permission was revoked externally, disable notifications automatically.
-      if (perm !== 'granted') {
+      if (perm !== "granted") {
         setNotificationEnabled(false);
-        localStorage.setItem('notificationOptIn', 'false');
+        localStorage.setItem("notificationOptIn", "false");
       }
     };
 
     syncPermission();
-    const optIn = localStorage.getItem('notificationOptIn') === 'true';
-    setNotificationEnabled(optIn && Notification.permission === 'granted');
+    const optIn = localStorage.getItem("notificationOptIn") === "true";
+    setNotificationEnabled(optIn && Notification.permission === "granted");
 
-    window.addEventListener('focus', syncPermission);
-    return () => window.removeEventListener('focus', syncPermission);
+    window.addEventListener("focus", syncPermission);
+    return () => window.removeEventListener("focus", syncPermission);
   }, []);
 
   const handleCopyAddress = async () => {
@@ -832,7 +787,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     setRefreshCountdown(30);
     fetchBalance();
   };
-
 
   const handlePaymentSuccess = () => {
     setTimeout(() => {
@@ -854,13 +808,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       return false;
     }
 
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      showToast('Push notifications are not supported in this browser.');
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      showToast("Push notifications are not supported in this browser.");
       return false;
     }
 
     // Step 1 — Register the service worker (idempotent: returns existing if already registered).
-    const registration = await navigator.serviceWorker.register('/sw.js');
+    const registration = await navigator.serviceWorker.register("/sw.js");
 
     // Step 2 — Request notification permission. Must be called directly inside
     // a user-gesture handler; async chains that break the gesture context will
@@ -868,8 +822,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     const permission = await Notification.requestPermission();
     setNotificationPermission(permission);
 
-    if (permission !== 'granted') {
-      showToast('Notification permission was not granted.');
+    if (permission !== "granted") {
+      showToast("Notification permission was not granted.");
       return false;
     }
 
@@ -880,7 +834,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     if (!vapidPublicKey) {
       // No VAPID key configured — fall back to permission-only mode (no
       // server-pushed messages, but in-app bubble notifications still work).
-      console.warn('NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set. Server push disabled.');
+      console.warn("NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set. Server push disabled.");
       return true;
     }
 
@@ -893,14 +847,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       }));
 
     // Step 4 — Send the subscription to your server so it can push messages later.
-    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
     await fetch(`${apiBase}/api/push/subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ subscription, publicKey }),
     }).catch((err) => {
       // Non-fatal: subscription still works for same-session in-app notifications.
-      console.warn('Could not register push subscription with server:', err);
+      console.warn("Could not register push subscription with server:", err);
     });
 
     return true;
@@ -909,19 +863,19 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const handleToggleNotifications = async () => {
     // --- Disable ---
     if (notificationEnabled) {
-      localStorage.setItem('notificationOptIn', 'false');
+      localStorage.setItem("notificationOptIn", "false");
       setNotificationEnabled(false);
       showToast(t("notifications_disabled"));
       return;
     }
 
     // --- Enable ---
-    if (!('Notification' in window)) {
-      showToast('This browser does not support notifications.');
+    if (!("Notification" in window)) {
+      showToast("This browser does not support notifications.");
       return;
     }
 
-    if (Notification.permission === 'denied') {
+    if (Notification.permission === "denied") {
       showToast(t("notifications_blocked"));
       return;
     }
@@ -930,7 +884,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       const subscribed = await subscribeToPush();
       if (!subscribed) return;
 
-      localStorage.setItem('notificationOptIn', 'true');
+      localStorage.setItem("notificationOptIn", "true");
       setNotificationEnabled(true);
       showToast(t("notifications_enabled"));
 
@@ -938,14 +892,14 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       // Use showNotification() via the service worker registration —
       // this is the Push API-correct method, not new Notification().
       const registration = await navigator.serviceWorker.ready;
-      await registration.showNotification('Stellar Pay', {
-        body: 'You will now receive notifications for incoming payments.',
-        icon: '/favicon.svg',
-        badge: '/favicon.svg',
+      await registration.showNotification("Stellar Pay", {
+        body: "You will now receive notifications for incoming payments.",
+        icon: "/favicon.svg",
+        badge: "/favicon.svg",
       });
     } catch (err) {
-      console.error('Failed to enable push notifications:', err);
-      showToast('Could not enable notifications. Please try again.');
+      console.error("Failed to enable push notifications:", err);
+      showToast("Could not enable notifications. Please try again.");
     }
   };
 
@@ -957,123 +911,30 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     if (!notificationEnabled) return;
 
     // In-app bubble for immediate visual feedback
-    setBubbleMessage('You received 10.00 XLM');
+    setBubbleMessage("You received 10.00 XLM");
     setShowBubble(true);
     setTimeout(() => setShowBubble(false), 3000);
 
     // Real notification via service worker — validates the actual push path
-    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+    if ("serviceWorker" in navigator && Notification.permission === "granted") {
       try {
         const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification('Stellar Pay — Test', {
-          body: 'You received 10.00 XLM',
-          icon: '/favicon.svg',
-          badge: '/favicon.svg',
+        await registration.showNotification("Stellar Pay — Test", {
+          body: "You received 10.00 XLM",
+          icon: "/favicon.svg",
+          badge: "/favicon.svg",
         });
       } catch (err) {
-  const handleTestNotification = async () => {
-    if (!notificationEnabled) return;
-
-    // In-app bubble for immediate visual feedback
-    setBubbleMessage('You received 10.00 XLM');
-    setShowBubble(true);
-    setTimeout(() => setShowBubble(false), 3000);
-
-    // Real notification via service worker — validates the actual push path
-    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-      try {
-        const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification('Stellar Pay — Test', {
-          body: 'You received 10.00 XLM',
-          icon: '/favicon.svg',
-          badge: '/favicon.svg',
-        });
-      } catch (err) {
-        console.error('Test notification failed:', err);
+        console.error("Test notification failed:", err);
       }
     }
   };
 
-  const primeRealtimeCursor = useCallback(async () => {
+  // Real-time payment streaming for the connected wallet.
+  // On incoming payment: show OS notification when page is hidden,
+  // in-app bubble when page is visible.
+  useEffect(() => {
     if (!publicKey) return;
-
-    try {
-      const recent = await getRecentPaymentsForStats(publicKey, 1);
-      latestPaymentIdRef.current = recent[0]?.id ?? null;
-    } catch (err) {
-      console.warn("Failed to prime realtime payment cursor:", err);
-      latestPaymentIdRef.current = null;
-    }
-  }, [publicKey]);
-
-  const handleRealtimePayment = useCallback(
-    async (payment: PaymentRecord) => {
-      if (!payment?.id || payment.id === latestPaymentIdRef.current) {
-        return;
-      }
-
-      latestPaymentIdRef.current = payment.id;
-      setIncomingPayment(payment);
-      setRefreshKey((k) => k + 1);
-
-      if (payment.type !== "received") {
-        return;
-      }
-
-      const formattedAmount = formatAsset(payment.amount, payment.asset);
-      showToast(`Received ${formattedAmount}`);
-
-      if (notificationEnabled && Notification.permission === "granted") {
-        if (document.visibilityState === "hidden") {
-          try {
-            const registration = await navigator.serviceWorker.ready;
-            await registration.showNotification("Stellar Pay — Payment received", {
-              body: `You received ${formattedAmount}`,
-              icon: "/favicon.svg",
-              badge: "/favicon.svg",
-            });
-          } catch (err) {
-            console.error("showNotification failed:", err);
-          }
-        } else {
-          setBubbleMessage(`You received ${formattedAmount}`);
-          setShowBubble(true);
-          setTimeout(() => setShowBubble(false), 3000);
-        }
-
-        try {
-          const bal = await getBalances(publicKey);
-          const xlm = bal.find((b) => b.assetCode === "XLM");
-          if (xlm) setXlmBalance(xlm.balance);
-        } catch {
-          // Keep the previous balance if the refresh fails.
-        }
-      }
-    },
-    [notificationEnabled, publicKey, showToast]
-  );
-
-  const stopPollingFallback = useCallback(() => {
-    if (realtimePollRef.current !== null) {
-      window.clearInterval(realtimePollRef.current);
-      realtimePollRef.current = null;
-    }
-  }, []);
-
-  const startPollingFallback = useCallback(() => {
-    if (!publicKey || realtimePollRef.current !== null) return;
-
-    realtimePollRef.current = window.setInterval(async () => {
-      try {
-        const recent = await getRecentPaymentsForStats(publicKey, 1);
-        const latest = recent[0];
-        if (latest) {
-          void handleRealtimePayment(latest);
-        }
-      } catch (err) {
-        console.warn("Realtime polling fallback failed:", err);
-      }
-    }, 10000);
 
     let cancelled = false;
     let eventSource: EventSource | null = null;
@@ -1123,17 +984,17 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     return () => {
       cancelled = true;
       stopPollingFallback();
-      if (bubbleTimeoutRef.current !== null) {
-        window.clearTimeout(bubbleTimeoutRef.current);
-        bubbleTimeoutRef.current = null;
-      }
-      seenRealtimePaymentIdsRef.current.clear();
-      latestPaymentIdRef.current = null;
       realtimeSourceRef.current?.close();
       realtimeSourceRef.current = null;
       eventSource?.close();
     };
-  }, [handleRealtimePayment, primeRealtimeCursor, publicKey, startPollingFallback, stopPollingFallback]);
+  }, [
+    handleRealtimePayment,
+    primeRealtimeCursor,
+    publicKey,
+    startPollingFallback,
+    stopPollingFallback,
+  ]);
 
   if (!publicKey) {
     return (
@@ -1151,7 +1012,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
       <Head>
         <title>Dashboard | Stellar-MicroPay</title>
-        <meta name="description" content="Manage your Stellar account, view balances, and send micropayments instantly. Real-time transaction history and wallet summary." />
+        <meta
+          name="description"
+          content="Manage your Stellar account, view balances, and send micropayments instantly. Real-time transaction history and wallet summary."
+        />
         <link rel="canonical" href="https://stellar-micropay.vercel.app/dashboard" />
       </Head>
       <div className="mb-8">
@@ -1168,23 +1032,25 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         <div className="mt-4">
           <button
             onClick={handleToggleNotifications}
-            disabled={notificationPermission === 'denied'}
+            disabled={notificationPermission === "denied"}
             className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-stellar-400 hover:text-stellar-300 disabled:bg-white/5 disabled:text-slate-400 disabled:border-white/5 disabled:cursor-not-allowed transition-colors flex items-center justify-between cursor-pointer"
           >
             <span>
               {notificationEnabled
                 ? t("disable_notifications")
-                : notificationPermission === 'denied'
-                ? t("notifications_blocked")
-                : t("enable_notifications")}
+                : notificationPermission === "denied"
+                  ? t("notifications_blocked")
+                  : t("enable_notifications")}
             </span>
-            {notificationEnabled
-              ? <BellOffIcon className="w-4 h-4" />
-              : <BellIcon className="w-4 h-4" />}
+            {notificationEnabled ? (
+              <BellOffIcon className="w-4 h-4" />
+            ) : (
+              <BellIcon className="w-4 h-4" />
+            )}
           </button>
 
           {/* Test button: dev-only, shown only when notifications are enabled */}
-          {process.env.NODE_ENV === 'development' && notificationEnabled && (
+          {process.env.NODE_ENV === "development" && notificationEnabled && (
             <button
               onClick={handleTestNotification}
               className="mt-2 text-xs text-slate-400 hover:text-stellar-300 transition-colors flex items-center gap-1.5 cursor-pointer"
@@ -1227,11 +1093,15 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                       <div className="flex items-center gap-6">
                         <div>
                           <span className="text-xs text-slate-400">Total Sent</span>
-                          <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
+                          <p className="text-lg font-bold text-white">
+                            {selectedMonth.sent.toFixed(2)} XLM
+                          </p>
                         </div>
                         <div>
                           <span className="text-xs text-slate-400">Total Received</span>
-                          <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
+                          <p className="text-lg font-bold text-stellar-400">
+                            {selectedMonth.received.toFixed(2)} XLM
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -1258,8 +1128,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 <TopRecipientsWidget recipients={topRecipients} loading={topRecipientsLoading} />
                 <div className="card flex flex-col justify-between">
                   <div>
-                    <h2 className="font-display text-lg font-semibold text-white mb-2">Export Payment History</h2>
-                    <p className="text-sm text-slate-400">Download your full transaction history as a CSV file.</p>
+                    <h2 className="font-display text-lg font-semibold text-white mb-2">
+                      Export Payment History
+                    </h2>
+                    <p className="text-sm text-slate-400">
+                      Download your full transaction history as a CSV file.
+                    </p>
                   </div>
                   <button
                     onClick={handleExportCSV}
@@ -1312,9 +1186,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               className="font-mono text-sm text-slate-300 select-text cursor-pointer hover:text-white transition-colors text-start break-all"
               title={addressExpanded ? "Click to collapse" : "Click to show full address"}
             >
-              {addressExpanded
-                ? publicKey
-                : `${publicKey.slice(0, 6)}…${publicKey.slice(-6)}`}
+              {addressExpanded ? publicKey : `${publicKey.slice(0, 6)}…${publicKey.slice(-6)}`}
             </button>
             <div className="mt-2 flex items-center gap-3">
               <button
@@ -1347,7 +1219,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               <div className="h-8 w-36 bg-white/10 rounded-lg animate-pulse" />
             ) : xlmBalance !== null ? (
               <div>
-                <div className={`font-display text-3xl font-bold text-white ${balanceFlash ? "balance-flash" : ""}`}>
+                <div
+                  className={`font-display text-3xl font-bold text-white ${balanceFlash ? "balance-flash" : ""}`}
+                >
                   {parseFloat(xlmBalance).toLocaleString("en-US", {
                     maximumFractionDigits: 4,
                   })}
@@ -1424,46 +1298,46 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       {/* Reserve warning (#164). Amber when balance is within 2 XLM of the
           minimum reserve, red when at or below it. Suppressed when the
           account isn't funded — the Friendbot card below covers that path. */}
-      {!accountNotFound && reserveInfo && (() => {
-        const { xlmBalance: bal, minimumBalance: min, subentryCount } = reserveInfo;
-        const atOrBelow = bal <= min;
-        const nearMin = bal > min && bal <= min + 2;
-        if (!atOrBelow && !nearMin) return null;
-        const tone = atOrBelow
-          ? "border-red-500/40 bg-red-500/5 text-red-200"
-          : "border-amber-500/40 bg-amber-500/5 text-amber-200";
-        const headline = atOrBelow
-          ? "XLM balance is at or below the minimum reserve"
-          : "XLM balance is close to the minimum reserve";
-        return (
-          <div
-            className={`card mb-6 ${tone}`}
-            role="alert"
-            aria-live="polite"
-            data-testid="reserve-warning"
-          >
-            <p className="font-semibold mb-1">{headline}</p>
-            <p className="text-sm opacity-90">
-              You hold <strong>{bal.toFixed(4)} XLM</strong>. Your account
-              must keep at least{" "}
-              <strong>{min.toFixed(4)} XLM</strong> reserved
-              ({subentryCount} subentries × 0.5 XLM + 2 XLM base). Top up
-              before submitting transactions to avoid{" "}
-              <code className="text-xs opacity-80">tx_insufficient_balance</code>.
-            </p>
-            <p className="text-sm mt-2">
-              <a
-                href="https://developers.stellar.org/docs/learn/fundamentals/stellar-data-structures/accounts#base-reserves"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:opacity-100 opacity-80"
-              >
-                Stellar base reserves docs →
-              </a>
-            </p>
-          </div>
-        );
-      })()}
+      {!accountNotFound &&
+        reserveInfo &&
+        (() => {
+          const { xlmBalance: bal, minimumBalance: min, subentryCount } = reserveInfo;
+          const atOrBelow = bal <= min;
+          const nearMin = bal > min && bal <= min + 2;
+          if (!atOrBelow && !nearMin) return null;
+          const tone = atOrBelow
+            ? "border-red-500/40 bg-red-500/5 text-red-200"
+            : "border-amber-500/40 bg-amber-500/5 text-amber-200";
+          const headline = atOrBelow
+            ? "XLM balance is at or below the minimum reserve"
+            : "XLM balance is close to the minimum reserve";
+          return (
+            <div
+              className={`card mb-6 ${tone}`}
+              role="alert"
+              aria-live="polite"
+              data-testid="reserve-warning"
+            >
+              <p className="font-semibold mb-1">{headline}</p>
+              <p className="text-sm opacity-90">
+                You hold <strong>{bal.toFixed(4)} XLM</strong>. Your account must keep at least{" "}
+                <strong>{min.toFixed(4)} XLM</strong> reserved ({subentryCount} subentries × 0.5 XLM
+                + 2 XLM base). Top up before submitting transactions to avoid{" "}
+                <code className="text-xs opacity-80">tx_insufficient_balance</code>.
+              </p>
+              <p className="text-sm mt-2">
+                <a
+                  href="https://developers.stellar.org/docs/learn/fundamentals/stellar-data-structures/accounts#base-reserves"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:opacity-100 opacity-80"
+                >
+                  Stellar base reserves docs →
+                </a>
+              </p>
+            </div>
+          );
+        })()}
 
       {accountNotFound && isTestnet && (
         <div className="card mb-6 border-amber-500/30 bg-amber-500/5">
@@ -1513,7 +1387,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       )}
 
       {otherBalances.map((b) => (
-        <div key={b.code} className="card mb-4 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-violet-500/20 relative overflow-hidden">
+        <div
+          key={b.code}
+          className="card mb-4 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-violet-500/20 relative overflow-hidden"
+        >
           <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <p className="label mb-1">{b.code} Balance</p>
@@ -1526,11 +1403,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       ))}
 
       {/* Creator Tips Dashboard */}
-      <CreatorTipsDashboard 
-        publicKey={publicKey} 
-        username={creatorUsername}
-        xlmPrice={xlmPrice}
-      />
+      <CreatorTipsDashboard publicKey={publicKey} username={creatorUsername} xlmPrice={xlmPrice} />
 
       {/* External payment banner */}
       {stellarURI && stellarURI.success && stellarURI.isExternal && showExternalBanner && (
@@ -1582,10 +1455,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 aiPrefillData
                   ? aiPrefillData
                   : recurringPrefill
-                  ? recurringPrefill
-                  : stellarURI && stellarURI.success
-                  ? uriToPrefillData(stellarURI.data!)
-                  : null
+                    ? recurringPrefill
+                    : stellarURI && stellarURI.success
+                      ? uriToPrefillData(stellarURI.data!)
+                      : null
               }
             />
           ) : (
@@ -1656,7 +1529,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 function DownloadIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+      />
     </svg>
   );
 }

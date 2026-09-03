@@ -20,7 +20,7 @@ describe("formatAsset", () => {
   });
 
   it("formats formatXLM('1.2345678') as 1.2345678 XLM", () => {
-    expect(formatXLM('1.2345678')).toBe("1.2345678 XLM");
+    expect(formatXLM("1.2345678")).toBe("1.2345678 XLM");
   });
 
   it("formats USDC with 2 fixed decimal places", () => {
@@ -111,7 +111,12 @@ describe("parseBatchRecipientsCSV", () => {
   it("reads columns positionally when there is no header", () => {
     const rows = parseBatchRecipientsCSV(`${ADDRESS_A},1.25,Coffee`);
 
-    expect(rows[0]).toMatchObject({ rowNumber: 1, address: ADDRESS_A, amount: "1.25", memo: "Coffee" });
+    expect(rows[0]).toMatchObject({
+      rowNumber: 1,
+      address: ADDRESS_A,
+      amount: "1.25",
+      memo: "Coffee",
+    });
   });
 
   it("flags malformed rows without dropping them", () => {

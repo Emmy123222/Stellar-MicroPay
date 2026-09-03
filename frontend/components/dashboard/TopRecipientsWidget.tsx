@@ -22,12 +22,21 @@ export function TopRecipientsWidget({
       ) : (
         <ol className="space-y-2">
           {recipients.map((r, idx) => (
-            <li key={r.address} className="flex items-center justify-between gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/5">
+            <li
+              key={r.address}
+              className="flex items-center justify-between gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/5"
+            >
               <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-stellar-400 w-5 text-center">{idx + 1}</span>
-                <span className="font-mono text-sm text-slate-200">{shortenAddress(r.address)}</span>
+                <span className="text-xs font-bold text-stellar-400 w-5 text-center">
+                  {idx + 1}
+                </span>
+                <span className="font-mono text-sm text-slate-200">
+                  {shortenAddress(r.address)}
+                </span>
               </div>
-              <span className="text-sm font-semibold text-white">{parseFloat(r.totalXLMSent).toFixed(2)} XLM</span>
+              <span className="text-sm font-semibold text-white">
+                {parseFloat(r.totalXLMSent).toFixed(2)} XLM
+              </span>
             </li>
           ))}
         </ol>

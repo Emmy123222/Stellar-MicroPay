@@ -37,8 +37,7 @@ export default function Transactions() {
   const [exporting, setExporting] = useState(false);
   const [exportCount, setExportCount] = useState(0);
   const [exportFormat, setExportFormat] = useState<"csv" | "json" | null>(null);
-  const [directionFilter, setDirectionFilter] =
-    useState<TransactionDirectionFilter>("all");
+  const [directionFilter, setDirectionFilter] = useState<TransactionDirectionFilter>("all");
   const [minimumAmount, setMinimumAmount] = useState("");
   const [memoSearch, setMemoSearch] = useState("");
   const [filtersReady, setFiltersReady] = useState(false);
@@ -101,10 +100,7 @@ export default function Transactions() {
     if (!filtersReady) return;
 
     try {
-      sessionStorage.setItem(
-        TRANSACTION_FILTERS_STORAGE_KEY,
-        JSON.stringify(transactionFilters)
-      );
+      sessionStorage.setItem(TRANSACTION_FILTERS_STORAGE_KEY, JSON.stringify(transactionFilters));
     } catch {
       // Session persistence is a convenience; filtering should continue without it.
     }
@@ -201,7 +197,10 @@ export default function Transactions() {
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 animate-fade-in cursor-default select-none">
       <Head>
         <title>Transaction History | Stellar-MicroPay</title>
-        <meta name="description" content="View your full Stellar transaction history, export data as CSV or JSON, and print payment receipts. Secure and transparent." />
+        <meta
+          name="description"
+          content="View your full Stellar transaction history, export data as CSV or JSON, and print payment receipts. Secure and transparent."
+        />
         <link rel="canonical" href="https://stellar-micropay.vercel.app/transactions" />
       </Head>
       {/* Header */}
@@ -213,7 +212,9 @@ export default function Transactions() {
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <span>{`Account:`}</span>
             {/* Added select-text and cursor-text so the address pill remains functional */}
-            <span className="address-pill select-text cursor-text">{shortenAddress(publicKey)}</span>
+            <span className="address-pill select-text cursor-text">
+              {shortenAddress(publicKey)}
+            </span>
           </div>
         </div>
 
@@ -292,7 +293,11 @@ export default function Transactions() {
                   strokeWidth={2}
                   aria-hidden="true"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17h6m-6-4h6m-6-4h6M6.75 3h10.5A2.25 2.25 0 0119.5 5.25v13.5A2.25 2.25 0 0117.25 21H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 17h6m-6-4h6m-6-4h6M6.75 3h10.5A2.25 2.25 0 0119.5 5.25v13.5A2.25 2.25 0 0117.25 21H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3z"
+                  />
                 </svg>
                 {`Download JSON`}
               </>
@@ -441,17 +446,13 @@ export default function Transactions() {
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-400 mb-2">
                   Stellar MicroPay
                 </p>
-                <h2 className="text-2xl font-semibold text-slate-900">
-                  Payment Receipt
-                </h2>
+                <h2 className="text-2xl font-semibold text-slate-900">Payment Receipt</h2>
                 <p className="text-sm text-slate-400 mt-1">
                   {formatDate(receiptPayment.createdAt)}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                  Network
-                </p>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Network</p>
                 <p className="text-lg font-semibold text-slate-900">{networkLabel}</p>
                 <p className="text-sm text-slate-400 capitalize">
                   {receiptPayment.type === "sent" ? "Sent" : "Received"}
@@ -529,7 +530,15 @@ export default function Transactions() {
   );
 }
 
-function ReceiptRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function ReceiptRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div className="grid grid-cols-[1fr_minmax(0,1.8fr)] gap-4 border-b border-slate-200 pb-3">
       <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</dt>

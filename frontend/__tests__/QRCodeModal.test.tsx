@@ -36,53 +36,35 @@ const PUBLIC_KEY = "GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567"
 
 describe("QRCodeModal — address encoding & rendering (#511)", () => {
   it("renders a QR code canvas for the provided address", () => {
-    render(
-      <QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} />
-    );
+    render(<QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} />);
     expect(screen.getByTestId("qr-code-canvas")).toBeInTheDocument();
   });
 
   it("encodes the address into the Stellar SEP-0007 payment URI", () => {
-    render(
-      <QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} />
-    );
-    expect(
-      screen.getByText(`web+stellar:pay?destination=${PUBLIC_KEY}`)
-    ).toBeInTheDocument();
+    render(<QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} />);
+    expect(screen.getByText(`web+stellar:pay?destination=${PUBLIC_KEY}`)).toBeInTheDocument();
   });
 
   it("appends amount to the URI when a positive amount is provided", () => {
-    render(
-      <QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} amount="42.5" />
-    );
+    render(<QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} amount="42.5" />);
     expect(
       screen.getByText(`web+stellar:pay?destination=${PUBLIC_KEY}&amount=42.5`)
     ).toBeInTheDocument();
   });
 
   it("omits amount from URI when amount is zero", () => {
-    render(
-      <QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} amount="0" />
-    );
-    expect(
-      screen.getByText(`web+stellar:pay?destination=${PUBLIC_KEY}`)
-    ).toBeInTheDocument();
+    render(<QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} amount="0" />);
+    expect(screen.getByText(`web+stellar:pay?destination=${PUBLIC_KEY}`)).toBeInTheDocument();
   });
 
   it("updates the displayed URI when the publicKey prop changes", () => {
     const KEY_A = "GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567";
     const KEY_B = "GXYZ1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567";
-    const { rerender } = render(
-      <QRCodeModal isOpen onClose={jest.fn()} publicKey={KEY_A} />
-    );
-    expect(
-      screen.getByText(`web+stellar:pay?destination=${KEY_A}`)
-    ).toBeInTheDocument();
+    const { rerender } = render(<QRCodeModal isOpen onClose={jest.fn()} publicKey={KEY_A} />);
+    expect(screen.getByText(`web+stellar:pay?destination=${KEY_A}`)).toBeInTheDocument();
 
     rerender(<QRCodeModal isOpen onClose={jest.fn()} publicKey={KEY_B} />);
-    expect(
-      screen.getByText(`web+stellar:pay?destination=${KEY_B}`)
-    ).toBeInTheDocument();
+    expect(screen.getByText(`web+stellar:pay?destination=${KEY_B}`)).toBeInTheDocument();
   });
 
   it("calls onClose when the Close button is clicked", async () => {
@@ -107,15 +89,11 @@ describe("QRCodeModal — address encoding & rendering (#511)", () => {
 
   it("renders the Download QR button", () => {
     render(<QRCodeModal isOpen onClose={jest.fn()} publicKey={PUBLIC_KEY} />);
-    expect(
-      screen.getByRole("button", { name: /Download QR/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Download QR/i })).toBeInTheDocument();
   });
 
   it("renders nothing when isOpen is false", () => {
-    render(
-      <QRCodeModal isOpen={false} onClose={jest.fn()} publicKey={PUBLIC_KEY} />
-    );
+    render(<QRCodeModal isOpen={false} onClose={jest.fn()} publicKey={PUBLIC_KEY} />);
     expect(screen.queryByTestId("qr-code-canvas")).not.toBeInTheDocument();
   });
 });

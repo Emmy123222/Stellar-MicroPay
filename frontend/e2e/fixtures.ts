@@ -1,90 +1,102 @@
 // playwright/e2e/fixtures.ts
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect } from "@playwright/test";
 
-type WalletState = 'authenticated' | 'empty_balance' | 'insufficient_funds';
+type WalletState = "authenticated" | "empty_balance" | "insufficient_funds";
 
 export const test = base.extend<{
   walletState: WalletState;
 }>({
-  walletState: ['authenticated', { option: true }],
+  walletState: ["authenticated", { option: true }],
 
   page: async ({ page, walletState }, use) => {
     // --- Freighter wallet mock ---
     const publicKeyMap: Record<WalletState, string> = {
-      authenticated: 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV',
-      empty_balance: 'GBPMK2QWQ2JKMSFL6EK44LNK45QWGS7IJBLUZXBT5B2FZXOG77GRQ5J4',
-      insufficient_funds: 'GCFVV3BKTNNXJ46CY2TLAGRYFSP23HKEMP5CJFQU3EBACWSGYRQB5LEE',
+      authenticated: "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV",
+      empty_balance: "GBPMK2QWQ2JKMSFL6EK44LNK45QWGS7IJBLUZXBT5B2FZXOG77GRQ5J4",
+      insufficient_funds: "GCFVV3BKTNNXJ46CY2TLAGRYFSP23HKEMP5CJFQU3EBACWSGYRQB5LEE",
     };
     const publicKey = publicKeyMap[walletState];
 
     // --- Horizon (Stellar network) ---
-    await page.route('**/horizon-testnet.stellar.org/**', route => {
+    await page.route("**/horizon-testnet.stellar.org/**", (route) => {
       const url = route.request().url();
-      if (url.includes('/accounts/')) {
+      if (url.includes("/accounts/")) {
         const balance =
-          walletState === 'empty_balance' ? '0.0000000' :
-          walletState === 'insufficient_funds' ? '5.0000000' :
-          '100.0000000';
+          walletState === "empty_balance"
+            ? "0.0000000"
+            : walletState === "insufficient_funds"
+              ? "5.0000000"
+              : "100.0000000";
         route.fulfill({
           status: 200,
-          contentType: 'application/json',
+          contentType: "application/json",
           body: JSON.stringify({
             id: publicKey,
             account_id: publicKey,
-            sequence: '1234567890',
+            sequence: "1234567890",
             subentry_count: 0,
             thresholds: { low_threshold: 0, med_threshold: 0, high_threshold: 0 },
             flags: { auth_required: false, auth_revocable: false },
-            signers: [{ key: publicKey, weight: 1, type: 'ed25519_public_key' }],
-            balances: [{ asset_type: 'native', balance }],
+            signers: [{ key: publicKey, weight: 1, type: "ed25519_public_key" }],
+            balances: [{ asset_type: "native", balance }],
           }),
         });
-      } else if (url.includes('/transactions')) {
+      } else if (url.includes("/transactions")) {
         route.fulfill({
           status: 200,
-          contentType: 'application/json',
+          contentType: "application/json",
           body: JSON.stringify({ _embedded: { records: [] } }),
         });
-      } else if (url.includes('/fee_stats')) {
+      } else if (url.includes("/fee_stats")) {
         route.fulfill({
           status: 200,
-          contentType: 'application/json',
+          contentType: "application/json",
           body: JSON.stringify({
-            last_ledger: '12345678',
-            last_ledger_base_fee: '100',
+            last_ledger: "12345678",
+            last_ledger_base_fee: "100",
             fee_charged: {
-              max: '1000', min: '100', mode: '100',
-              p10: '100', p20: '100', p30: '100', p40: '100',
-              p50: '100', p60: '100', p70: '100', p80: '100',
-              p90: '100', p95: '200', p99: '500',
+              max: "1000",
+              min: "100",
+              mode: "100",
+              p10: "100",
+              p20: "100",
+              p30: "100",
+              p40: "100",
+              p50: "100",
+              p60: "100",
+              p70: "100",
+              p80: "100",
+              p90: "100",
+              p95: "200",
+              p99: "500",
             },
           }),
         });
       } else {
-        route.fulfill({ status: 200, body: '{}' });
+        route.fulfill({ status: 200, body: "{}" });
       }
     });
 
     // --- CoinGecko price ---
-    await page.route('**/api.coingecko.com/**', route => {
+    await page.route("**/api.coingecko.com/**", (route) => {
       route.fulfill({
         status: 200,
-        contentType: 'application/json',
+        contentType: "application/json",
         body: JSON.stringify({ stellar: { usd: 0.1 } }),
       });
     });
 
     // --- Backend payment stats API ---
-    await page.route('**/api/payments/**/stats', route => {
+    await page.route("**/api/payments/**/stats", (route) => {
       route.fulfill({
         status: 200,
-        contentType: 'application/json',
+        contentType: "application/json",
         body: JSON.stringify({
           success: true,
           data: {
-            publicKey: 'GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV',
-            totalSentXLM: '0.00',
-            totalReceivedXLM: '0.00',
+            publicKey: "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV",
+            totalSentXLM: "0.00",
+            totalReceivedXLM: "0.00",
             sentCount: 0,
             receivedCount: 0,
             totalTransactions: 0,
@@ -94,23 +106,23 @@ export const test = base.extend<{
     });
 
     // --- Backend auth API mocks ---
-    await page.route('**/api/auth**', route => {
-      if (route.request().method() === 'GET') {
+    await page.route("**/api/auth**", (route) => {
+      if (route.request().method() === "GET") {
         // GET /api/auth?account=... returns challenge transaction
         route.fulfill({
           status: 200,
-          contentType: 'application/json',
+          contentType: "application/json",
           body: JSON.stringify({
-            transaction: 'AAAAAgAAAAD8...mock_challenge_xdr' // mock XDR
+            transaction: "AAAAAgAAAAD8...mock_challenge_xdr", // mock XDR
           }),
         });
-      } else if (route.request().method() === 'POST') {
+      } else if (route.request().method() === "POST") {
         // POST /api/auth with signed transaction returns JWT
         route.fulfill({
           status: 200,
-          contentType: 'application/json',
+          contentType: "application/json",
           body: JSON.stringify({
-            token: 'mock_jwt_token'
+            token: "mock_jwt_token",
           }),
         });
       }
@@ -121,9 +133,7 @@ export const test = base.extend<{
         (window as any).freighter = true;
         window.addEventListener("message", (event) => {
           const request = event.data;
-          if (
-            request?.source !== "FREIGHTER_EXTERNAL_MSG_REQUEST"
-          ) {
+          if (request?.source !== "FREIGHTER_EXTERNAL_MSG_REQUEST") {
             return;
           }
 
@@ -151,11 +161,11 @@ export const test = base.extend<{
           getAddress: async () => ({ address: publicKey }),
           getPublicKey: async () => ({ publicKey }),
           requestAccess: async () => ({ address: publicKey }),
-          signTransaction: async (xdr: string) => ({ signedTxXdr: xdr + '_signed' }),
+          signTransaction: async (xdr: string) => ({ signedTxXdr: xdr + "_signed" }),
           isAllowed: async () => ({ isAllowed: true }),
         };
       },
-      { publicKey },
+      { publicKey }
     );
 
     await use(page);

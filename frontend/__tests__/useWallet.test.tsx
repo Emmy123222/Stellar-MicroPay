@@ -3,19 +3,23 @@
  * Unit tests for useWallet hook (#525)
  */
 
-import React from 'react';
-import { renderHook, act, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom';
-import { WalletProvider, useWallet } from '../lib/useWallet';
-import * as walletLib from '../lib/wallet';
+import React from "react";
+import { renderHook, act, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom";
+import { WalletProvider, useWallet } from "../lib/useWallet";
+import * as walletLib from "../lib/wallet";
 
-jest.mock('../lib/wallet', () => ({
+jest.mock("../lib/wallet", () => ({
   getConnectedPublicKey: jest.fn(),
   disconnectWallet: jest.fn(),
 }));
 
-const mockGetConnectedPublicKey = walletLib.getConnectedPublicKey as jest.MockedFunction<typeof walletLib.getConnectedPublicKey>;
-const mockDisconnectWallet = walletLib.disconnectWallet as jest.MockedFunction<typeof walletLib.disconnectWallet>;
+const mockGetConnectedPublicKey = walletLib.getConnectedPublicKey as jest.MockedFunction<
+  typeof walletLib.getConnectedPublicKey
+>;
+const mockDisconnectWallet = walletLib.disconnectWallet as jest.MockedFunction<
+  typeof walletLib.disconnectWallet
+>;
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -35,12 +39,12 @@ const localStorageMock = (() => {
   };
 })();
 
-Object.defineProperty(window, 'localStorage', {
+Object.defineProperty(window, "localStorage", {
   value: localStorageMock,
   writable: true,
 });
 
-describe('useWallet hook', () => {
+describe("useWallet hook", () => {
   beforeEach(() => {
     localStorageMock.clear();
     jest.clearAllMocks();
@@ -51,15 +55,15 @@ describe('useWallet hook', () => {
     <WalletProvider>{children}</WalletProvider>
   );
 
-  describe('connect() updates hook state with the public key on success', () => {
-    it('updates publicKey state when connectWallet is called', async () => {
+  describe("connect() updates hook state with the public key on success", () => {
+    it("updates publicKey state when connectWallet is called", async () => {
       const { result } = renderHook(() => useWallet(), { wrapper });
 
       await waitFor(() => {
         expect(result.current.isWalletReady).toBe(true);
       });
 
-      const testPublicKey = 'GABC123456789012345678901234567890123456789012345678';
+      const testPublicKey = "GABC123456789012345678901234567890123456789012345678";
 
       act(() => {
         result.current.connectWallet(testPublicKey);
@@ -68,24 +72,24 @@ describe('useWallet hook', () => {
       expect(result.current.publicKey).toBe(testPublicKey);
     });
 
-    it('persists public key to localStorage on connect', async () => {
+    it("persists public key to localStorage on connect", async () => {
       const { result } = renderHook(() => useWallet(), { wrapper });
 
       await waitFor(() => {
         expect(result.current.isWalletReady).toBe(true);
       });
 
-      const testPublicKey = 'GABC123456789012345678901234567890123456789012345678';
+      const testPublicKey = "GABC123456789012345678901234567890123456789012345678";
 
       act(() => {
         result.current.connectWallet(testPublicKey);
       });
 
-      expect(localStorage.getItem('stellar-micropay:last-public-key')).toBe(testPublicKey);
+      expect(localStorage.getItem("stellar-micropay:last-public-key")).toBe(testPublicKey);
     });
 
-    it('loads connected public key from Freighter on mount', async () => {
-      const testPublicKey = 'GDEF456789012345678901234567890123456789012345678901';
+    it("loads connected public key from Freighter on mount", async () => {
+      const testPublicKey = "GDEF456789012345678901234567890123456789012345678901";
       mockGetConnectedPublicKey.mockResolvedValueOnce(testPublicKey);
 
       const { result } = renderHook(() => useWallet(), { wrapper });
@@ -99,9 +103,9 @@ describe('useWallet hook', () => {
     });
   });
 
-  describe('disconnect() clears wallet state', () => {
-    it('clears publicKey state when disconnectWallet is called', async () => {
-      const testPublicKey = 'GABC123456789012345678901234567890123456789012345678';
+  describe("disconnect() clears wallet state", () => {
+    it("clears publicKey state when disconnectWallet is called", async () => {
+      const testPublicKey = "GABC123456789012345678901234567890123456789012345678";
       mockGetConnectedPublicKey.mockResolvedValueOnce(testPublicKey);
 
       const { result } = renderHook(() => useWallet(), { wrapper });
@@ -118,33 +122,33 @@ describe('useWallet hook', () => {
       expect(mockDisconnectWallet).toHaveBeenCalled();
     });
 
-    it('removes public key from localStorage on disconnect', async () => {
+    it("removes public key from localStorage on disconnect", async () => {
       const { result } = renderHook(() => useWallet(), { wrapper });
 
       await waitFor(() => {
         expect(result.current.isWalletReady).toBe(true);
       });
 
-      const testPublicKey = 'GABC123456789012345678901234567890123456789012345678';
+      const testPublicKey = "GABC123456789012345678901234567890123456789012345678";
 
       act(() => {
         result.current.connectWallet(testPublicKey);
       });
 
-      expect(localStorage.getItem('stellar-micropay:last-public-key')).toBe(testPublicKey);
+      expect(localStorage.getItem("stellar-micropay:last-public-key")).toBe(testPublicKey);
 
       act(() => {
         result.current.disconnectWallet();
       });
 
-      expect(localStorage.getItem('stellar-micropay:last-public-key')).toBeNull();
+      expect(localStorage.getItem("stellar-micropay:last-public-key")).toBeNull();
     });
   });
 
-  describe('Public key persists across remounts', () => {
-    it('loads last public key from localStorage on mount', async () => {
-      const testPublicKey = 'GHIJ789012345678901234567890123456789012345678901234';
-      localStorage.setItem('stellar-micropay:last-public-key', testPublicKey);
+  describe("Public key persists across remounts", () => {
+    it("loads last public key from localStorage on mount", async () => {
+      const testPublicKey = "GHIJ789012345678901234567890123456789012345678901234";
+      localStorage.setItem("stellar-micropay:last-public-key", testPublicKey);
 
       const { result } = renderHook(() => useWallet(), { wrapper });
 
@@ -156,8 +160,8 @@ describe('useWallet hook', () => {
       });
     });
 
-    it('maintains public key across remounts', async () => {
-      const testPublicKey = 'GKLM901234567890123456789012345678901234567890123456';
+    it("maintains public key across remounts", async () => {
+      const testPublicKey = "GKLM901234567890123456789012345678901234567890123456";
 
       // First mount
       const { result: result1, unmount } = renderHook(() => useWallet(), { wrapper });
@@ -187,8 +191,8 @@ describe('useWallet hook', () => {
     });
   });
 
-  describe('Signing helper delegates to lib/wallet.ts correctly', () => {
-    it('calls clearWalletConnection from lib/wallet on disconnect', async () => {
+  describe("Signing helper delegates to lib/wallet.ts correctly", () => {
+    it("calls clearWalletConnection from lib/wallet on disconnect", async () => {
       const { result } = renderHook(() => useWallet(), { wrapper });
 
       await waitFor(() => {
@@ -202,8 +206,10 @@ describe('useWallet hook', () => {
       expect(mockDisconnectWallet).toHaveBeenCalledTimes(1);
     });
 
-    it('calls getConnectedPublicKey from lib/wallet on mount', async () => {
-      mockGetConnectedPublicKey.mockResolvedValueOnce('GPQR012345678901234567890123456789012345678901234567');
+    it("calls getConnectedPublicKey from lib/wallet on mount", async () => {
+      mockGetConnectedPublicKey.mockResolvedValueOnce(
+        "GPQR012345678901234567890123456789012345678901234567"
+      );
 
       renderHook(() => useWallet(), { wrapper });
 
@@ -213,22 +219,22 @@ describe('useWallet hook', () => {
     });
   });
 
-  describe('Error handling', () => {
-    it('throws error when useWallet is used outside WalletProvider', () => {
+  describe("Error handling", () => {
+    it("throws error when useWallet is used outside WalletProvider", () => {
       // Suppress console.error for this test
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
       expect(() => {
         renderHook(() => useWallet());
-      }).toThrow('useWallet must be used within a WalletProvider.');
+      }).toThrow("useWallet must be used within a WalletProvider.");
 
       consoleErrorSpy.mockRestore();
     });
 
-    it('handles localStorage failures gracefully', async () => {
+    it("handles localStorage failures gracefully", async () => {
       const originalSetItem = localStorage.setItem;
       localStorage.setItem = jest.fn(() => {
-        throw new Error('Storage quota exceeded');
+        throw new Error("Storage quota exceeded");
       });
 
       const { result } = renderHook(() => useWallet(), { wrapper });
@@ -240,7 +246,7 @@ describe('useWallet hook', () => {
       // Should not throw
       expect(() => {
         act(() => {
-          result.current.connectWallet('GSTU345678901234567890123456789012345678901234567890');
+          result.current.connectWallet("GSTU345678901234567890123456789012345678901234567890");
         });
       }).not.toThrow();
 

@@ -48,11 +48,7 @@ function toMinutes(hhmm: string): number {
 
 /** Returns true when the current local time falls within [start, end) night window.
  *  Correctly handles overnight windows (e.g. 20:00 – 07:00). */
-export function isInNightWindow(
-  nowMinutes: number,
-  startHHMM: string,
-  endHHMM: string
-): boolean {
+export function isInNightWindow(nowMinutes: number, startHHMM: string, endHHMM: string): boolean {
   const start = toMinutes(startHHMM);
   const end = toMinutes(endHHMM);
 
@@ -128,11 +124,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const computeScheduledTheme = useCallback(
     (sched: ThemeSchedule): "dark" | "light" => {
       if (!sched.autoEnabled) return theme; // no-op when disabled
-      return isInNightWindow(
-        currentLocalMinutes(),
-        sched.nightStart,
-        sched.nightEnd
-      )
+      return isInNightWindow(currentLocalMinutes(), sched.nightStart, sched.nightEnd)
         ? "dark"
         : "light";
     },
@@ -143,8 +135,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const savedTheme = localStorage.getItem(LS_THEME) as "dark" | "light" | null;
     const autoEnabled = localStorage.getItem(LS_AUTO) === "1";
-    const nightStart =
-      localStorage.getItem(LS_NIGHT_START) ?? DEFAULT_NIGHT_START;
+    const nightStart = localStorage.getItem(LS_NIGHT_START) ?? DEFAULT_NIGHT_START;
     const nightEnd = localStorage.getItem(LS_NIGHT_END) ?? DEFAULT_NIGHT_END;
 
     const initSchedule: ThemeSchedule = { autoEnabled, nightStart, nightEnd };
@@ -152,19 +143,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     let effective: "dark" | "light";
     if (autoEnabled) {
-      effective = isInNightWindow(
-        currentLocalMinutes(),
-        nightStart,
-        nightEnd
-      )
-        ? "dark"
-        : "light";
+      effective = isInNightWindow(currentLocalMinutes(), nightStart, nightEnd) ? "dark" : "light";
     } else {
       effective =
         savedTheme ??
-        (window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light");
+        (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     }
 
     setTheme(effective);
@@ -179,11 +162,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       // Respect manual session override
       if (manualOverrideRef.current !== null) return;
 
-      const next = isInNightWindow(
-        currentLocalMinutes(),
-        schedule.nightStart,
-        schedule.nightEnd
-      )
+      const next = isInNightWindow(currentLocalMinutes(), schedule.nightStart, schedule.nightEnd)
         ? "dark"
         : "light";
 
@@ -229,11 +208,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         // apply the schedule-driven theme
         if (next.autoEnabled) {
           manualOverrideRef.current = null;
-          const scheduled = isInNightWindow(
-            currentLocalMinutes(),
-            next.nightStart,
-            next.nightEnd
-          )
+          const scheduled = isInNightWindow(currentLocalMinutes(), next.nightStart, next.nightEnd)
             ? "dark"
             : "light";
           setTheme(scheduled);

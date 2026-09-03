@@ -3,7 +3,7 @@
  * React context provider for internationalization.
  */
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import {
   Locale,
   DEFAULT_LOCALE,
@@ -13,53 +13,12 @@ import {
   getTranslations,
   isRTL,
   type Translations,
-} from '@/lib/i18n';
-
-const TRANSLATION_DICTIONARY: Record<string, string> = {
-  destination: "Destination",
-  destination_placeholder: "G... address or alice.xlm",
-  amount: "Amount",
-  amount_placeholder: "0.0000000",
-  memo: "Memo",
-  memo_optional: "Memo (optional)",
-  memo_placeholder: "Memo text (max 28 bytes)",
-  send_payment: "Send Payment",
-  sending: "Sending...",
-  send: "Send",
-  send_button: "Send",
-  confirm_title: "Confirm Payment",
-  confirm_sign: "Confirm & Sign",
-  cancel: "Cancel",
-  to: "To",
-  estimated_fee: "Estimated Fee",
-  max: "Max",
-  success_title: "Payment Sent Successfully",
-  success_message: "Your transaction has been submitted to the Stellar network.",
-  transaction_hash: "Transaction Hash",
-  view_explorer: "View on Explorer",
-  mint_receipt: "Mint NFT Receipt",
-  minting_receipt: "Minting NFT Receipt...",
-  send_another: "Send Another Payment",
-  contacts: "Contacts",
-  close: "Close",
-  save_contact: "Save contact",
-  remove_contact: "Remove contact",
-  scan_qr: "Scan QR",
-  memo_required: "Memo is required for this exchange address",
-};
-
-function createT(locale: Locale): Translations & ((key: string) => string) {
-  const base = getTranslations(locale);
-  const fn = (key: string): string => {
-    return TRANSLATION_DICTIONARY[key] || key;
-  };
-  return Object.assign(fn, base) as any;
-}
+} from "@/lib/i18n";
 
 interface I18nContextType {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: Translations & ((key: string) => string);
+  t: Translations;
   isRTL: boolean;
   supportedLocales: Locale[];
 }
@@ -97,21 +56,21 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       console.warn(`Unsupported locale: ${newLocale}`);
       return;
     }
-    
+
     setLocaleState(newLocale);
     setStoredLocale(newLocale);
-    
-    // Update document direction for RTP support
-    if (typeof document !== 'undefined') {
-      document.documentElement.dir = isRTL(newLocale) ? 'rtl' : 'ltr';
+
+    // Update document direction for RTL support
+    if (typeof document !== "undefined") {
+      document.documentElement.dir = isRTL(newLocale) ? "rtl" : "ltr";
       document.documentElement.lang = newLocale;
     }
   };
 
   // Set initial document direction
   useEffect(() => {
-    if (isClient && typeof document !== 'undefined') {
-      document.documentElement.dir = isRTL(locale) ? 'rtl' : 'ltr';
+    if (isClient && typeof document !== "undefined") {
+      document.documentElement.dir = isRTL(locale) ? "rtl" : "ltr";
       document.documentElement.lang = locale;
     }
   }, [locale, isClient]);
@@ -119,7 +78,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const value: I18nContextType = {
     locale,
     setLocale,
-    t: createT(locale),
+    t: getTranslations(locale),
     isRTL: isRTL(locale),
     supportedLocales: SUPPORTED_LOCALES,
   };
@@ -130,15 +89,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 export function useI18n(): I18nContextType {
   const context = useContext(I18nContext);
   if (context === undefined) {
-    return {
-      locale: DEFAULT_LOCALE,
-      setLocale: () => {},
-      t: createT(DEFAULT_LOCALE),
-      isRTL: false,
-      supportedLocales: SUPPORTED_LOCALES,
-    };
+    throw new Error("useI18n must be used within an I18nProvider");
   }
   return context;
 }
-
-export const useTranslation = useI18n;

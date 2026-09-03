@@ -14,8 +14,7 @@ const cursorStore = require("./cursorStore");
 const { deliverWebhook } = require("./webhookDelivery");
 const { getWebhooksByPublicKey, getAllWebhooks } = require("./webhookStore");
 
-const HORIZON_URL =
-  process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
 const horizonServer = new Horizon.Server(HORIZON_URL);
 
@@ -73,9 +72,7 @@ function startMonitoring(publicKey) {
         seenTokens.set(publicKey, seen);
 
         const asset =
-          record.asset_type === "native"
-            ? "native"
-            : `${record.asset_code}:${record.asset_issuer}`;
+          record.asset_type === "native" ? "native" : `${record.asset_code}:${record.asset_issuer}`;
 
         const network = HORIZON_URL.includes("testnet") ? "testnet" : "mainnet";
         

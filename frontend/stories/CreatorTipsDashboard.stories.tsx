@@ -23,7 +23,7 @@ const MOCK_TIPS = {
       totalByAsset: { XLM: { count: 2, amount: "150.0" } },
       averageTip: "75.0",
       largestTip: "100.0",
-      smallestTip: "50.0"
+      smallestTip: "50.0",
     },
     tips: [
       {
@@ -34,7 +34,7 @@ const MOCK_TIPS = {
         asset: "XLM",
         memo: "Great work!",
         txHash: "hash1",
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       },
       {
         id: 2,
@@ -44,10 +44,10 @@ const MOCK_TIPS = {
         asset: "XLM",
         memo: "Thanks!",
         txHash: "hash2",
-        timestamp: new Date(Date.now() - 86400000).toISOString()
-      }
-    ]
-  }
+        timestamp: new Date(Date.now() - 86400000).toISOString(),
+      },
+    ],
+  },
 };
 
 export const Loading: Story = {
@@ -60,14 +60,18 @@ export const Loading: Story = {
     (Story) => {
       const originalFetch = window.fetch;
       window.fetch = async (input, init) => {
-        if (input.toString().includes('/api/tips/received')) {
-           return new Promise(() => {}); 
+        if (input.toString().includes("/api/tips/received")) {
+          return new Promise(() => {});
         }
         return originalFetch(input, init);
       };
-      return <div className="p-4 bg-slate-950"><Story /></div>;
-    }
-  ]
+      return (
+        <div className="p-4 bg-slate-950">
+          <Story />
+        </div>
+      );
+    },
+  ],
 };
 
 export const Empty: Story = {
@@ -80,14 +84,25 @@ export const Empty: Story = {
     (Story) => {
       const originalFetch = window.fetch;
       window.fetch = async (input, init) => {
-        if (input.toString().includes('/api/tips/received')) {
-           return Promise.resolve(new Response(JSON.stringify({ success: true, data: { stats: { totalTips: 0, totalByAsset: {} }, tips: [] } })));
+        if (input.toString().includes("/api/tips/received")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                success: true,
+                data: { stats: { totalTips: 0, totalByAsset: {} }, tips: [] },
+              })
+            )
+          );
         }
         return originalFetch(input, init);
       };
-      return <div className="p-4 bg-slate-950"><Story /></div>;
-    }
-  ]
+      return (
+        <div className="p-4 bg-slate-950">
+          <Story />
+        </div>
+      );
+    },
+  ],
 };
 
 export const Populated: Story = {
@@ -100,12 +115,16 @@ export const Populated: Story = {
     (Story) => {
       const originalFetch = window.fetch;
       window.fetch = async (input, init) => {
-        if (input.toString().includes('/api/tips/received')) {
-           return Promise.resolve(new Response(JSON.stringify(MOCK_TIPS)));
+        if (input.toString().includes("/api/tips/received")) {
+          return Promise.resolve(new Response(JSON.stringify(MOCK_TIPS)));
         }
         return originalFetch(input, init);
       };
-      return <div className="p-4 bg-slate-950"><Story /></div>;
-    }
-  ]
+      return (
+        <div className="p-4 bg-slate-950">
+          <Story />
+        </div>
+      );
+    },
+  ],
 };

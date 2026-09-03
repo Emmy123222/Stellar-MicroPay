@@ -7,10 +7,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
-import {
-  isValidStellarAddress,
-  resolveFederationAddress,
-} from "@/lib/stellar";
+import { isValidStellarAddress, resolveFederationAddress } from "@/lib/stellar";
 import {
   type AddressBookContact,
   deleteAddressBookContact,
@@ -94,9 +91,7 @@ export default function Contacts() {
       const existing = contacts.find((c) => c.id === editingId);
       const updatedAt = Date.now();
       const nextContacts = contacts.map((c) =>
-        c.id === editingId
-          ? { ...c, nickname: name.trim(), address, tags: formTags, updatedAt }
-          : c
+        c.id === editingId ? { ...c, nickname: name.trim(), address, tags: formTags, updatedAt } : c
       );
       saveAddressBookContacts(nextContacts);
       setContacts(nextContacts);
@@ -283,7 +278,12 @@ export default function Contacts() {
                   type="text"
                   value={tagInput}
                   onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddFormTag(); } }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddFormTag();
+                    }
+                  }}
                   placeholder="e.g. exchange, family"
                   className="input-field flex-1"
                 />
@@ -353,9 +353,13 @@ export default function Contacts() {
                 onChange={(e) => setFederationInput(e.target.value)}
                 placeholder="user*domain.com"
                 className="input-field"
-                onKeyDown={(e) => { if (e.key === "Enter") handleFederationLookup(); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleFederationLookup();
+                }}
               />
-              <p className="mt-1 text-xs text-slate-400">Resolve Stellar Federation addresses to public keys</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Resolve Stellar Federation addresses to public keys
+              </p>
             </div>
 
             {federationResult && (
@@ -382,9 +386,15 @@ export default function Contacts() {
               className="btn-primary w-full"
             >
               {federationLoading ? (
-                <><Spinner />Looking up...</>
+                <>
+                  <Spinner />
+                  Looking up...
+                </>
               ) : (
-                <><SearchIcon className="w-4 h-4" />Resolve Address</>
+                <>
+                  <SearchIcon className="w-4 h-4" />
+                  Resolve Address
+                </>
               )}
             </button>
           </div>
@@ -393,7 +403,9 @@ export default function Contacts() {
         {/* ── Tag filter chips ────────────────────────────────────────────── */}
         {allTags.length > 0 && (
           <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-xs text-slate-500 uppercase tracking-wide font-medium">Filter:</span>
+            <span className="text-xs text-slate-500 uppercase tracking-wide font-medium">
+              Filter:
+            </span>
             <button
               onClick={() => setActiveTagFilter(null)}
               className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
@@ -599,8 +611,16 @@ function ContactCard({
                   <span
                     role="button"
                     tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); onRemoveInlineTag(contact, tag); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onRemoveInlineTag(contact, tag); } }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveInlineTag(contact, tag);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.stopPropagation();
+                        onRemoveInlineTag(contact, tag);
+                      }
+                    }}
                     className="hover:text-red-400 ml-0.5"
                     aria-label={`Remove tag ${tag}`}
                   >
@@ -619,7 +639,10 @@ function ContactCard({
                 value={inlineTagInput}
                 onChange={(e) => onSetInlineTagInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); onAddInlineTag(contact); }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    onAddInlineTag(contact);
+                  }
                   if (e.key === "Escape") onCloseInlineTags();
                 }}
                 placeholder="New tag…"
@@ -722,7 +745,13 @@ function ContactCard({
 
 function PlusIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
     </svg>
   );
@@ -730,47 +759,103 @@ function PlusIcon({ className }: { className?: string }) {
 
 function SearchIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.5 5.5a7.5 7.5 0 0010.5 10.5z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.5 5.5a7.5 7.5 0 0010.5 10.5z"
+      />
     </svg>
   );
 }
 
 function ContactsIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+      />
     </svg>
   );
 }
 
 function CopyIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+      />
     </svg>
   );
 }
 
 function EditIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+      />
     </svg>
   );
 }
 
 function TrashIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+      />
     </svg>
   );
 }
 
 function CheckIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
     </svg>
   );
@@ -778,7 +863,13 @@ function CheckIcon({ className }: { className?: string }) {
 
 function ArrowLeftIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
     </svg>
   );
@@ -794,23 +885,49 @@ function StarFilledIcon({ className }: { className?: string }) {
 
 function StarOutlineIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+      />
     </svg>
   );
 }
 
 function TagIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M3 3h7.5a2 2 0 011.414.586l7.5 7.5a2 2 0 010 2.828l-5.5 5.5a2 2 0 01-2.828 0l-7.5-7.5A2 2 0 013 10.5V3z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M7 7h.01M3 3h7.5a2 2 0 011.414.586l7.5 7.5a2 2 0 010 2.828l-5.5 5.5a2 2 0 01-2.828 0l-7.5-7.5A2 2 0 013 10.5V3z"
+      />
     </svg>
   );
 }
 
 function XSmallIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
@@ -820,7 +937,11 @@ function Spinner() {
   return (
     <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
     </svg>
   );
 }

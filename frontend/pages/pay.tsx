@@ -30,8 +30,7 @@ export default function PayPage() {
   const [prefill, setPrefill] = useState<PrefillData | null>(null);
   const [xlmBalance, setXlmBalance] = useState<string>("0");
   const [tipTotal, setTipTotal] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [expiredRequest, setExpiredRequest] = useState<PrefillData | null>(null);
+  const [error, setError] = useState<string | null>(null); // New: Error state
 
   // Step 1: Parse and validate URL payment details.
   useEffect(() => {
@@ -61,7 +60,7 @@ export default function PayPage() {
           ? "The payment link expiry timestamp is invalid."
           : parsed.reason === "missing"
             ? "The payment link data is incomplete or malformed."
-            : "Invalid payment link. Please check the URL.",
+            : "Invalid payment link. Please check the URL."
       );
       return;
     }
@@ -71,21 +70,16 @@ export default function PayPage() {
     // the request can be paid.
     const redeemable = canRedeemPaymentLink(parsed.payload);
     if (!redeemable.ok) {
-      if (redeemable.reason === "expired") {
-        // Show the original request as read-only so the user can see what
-        // was requested even though they can no longer pay it.
-        setPrefill(null);
-        setExpiredRequest(parsed.payload);
-      } else {
-        setPrefill(null);
-        setExpiredRequest(null);
-        setError("This payment link has already been redeemed.");
-      }
+      setPrefill(null);
+      setError(
+        redeemable.reason === "redeemed"
+          ? "This payment link has already been redeemed."
+          : "This payment link has expired."
+      );
       return;
     }
 
     setPrefill(parsed.payload);
-    setExpiredRequest(null);
     setError(null);
   }, [router.isReady, router.query]);
 
@@ -101,8 +95,8 @@ export default function PayPage() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      setExpiredRequest(prefill);
       setPrefill(null);
+      setError("This payment link has expired.");
     }, msUntilExpiry);
 
     return () => window.clearTimeout(timeoutId);
@@ -126,51 +120,6 @@ export default function PayPage() {
     }
   }, [prefill?.destination]);
 
-  // UI: Expired request read-only view
-  if (expiredRequest) {
-    return (
-      <div className="max-w-md mx-auto mt-20 p-8 card border-amber-500/30 animate-fade-in bg-cosmos-900/50">
-        <div className="bg-amber-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-2xl">⏰</span>
-        </div>
-        <h2 className="text-xl font-bold text-white mb-2">
-          Payment Link Expired
-        </h2>
-        <p className="text-slate-400 mb-6">
-          This payment request has expired and can no longer be completed.
-        </p>
-        <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 text-left">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Destination</p>
-            <p className="text-sm font-mono text-white break-all">{expiredRequest.destination}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Amount</p>
-            <p className="text-sm font-semibold text-white">{expiredRequest.amount} XLM</p>
-          </div>
-          {expiredRequest.memo && (
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Memo</p>
-              <p className="text-sm text-slate-200">{expiredRequest.memo}</p>
-            </div>
-          )}
-          {expiredRequest.validUntil != null && (
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Expired At</p>
-              <p className="text-sm text-amber-300">{new Date(expiredRequest.validUntil).toLocaleString()}</p>
-            </div>
-          )}
-        </div>
-        <button
-          onClick={() => router.push("/dashboard")}
-          className="btn-secondary w-full py-2 mt-6"
-        >
-          Return to Dashboard
-        </button>
-      </div>
-    );
-  }
-
   // UI: Error State (Graceful Degradation)
   if (error) {
     return (
@@ -178,14 +127,9 @@ export default function PayPage() {
         <div className="bg-red-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
           <span className="text-2xl text-red-500">⚠️</span>
         </div>
-        <h2 className="text-xl font-bold text-white mb-2">
-          Payment Unavailable
-        </h2>
+        <h2 className="text-xl font-bold text-white mb-2">Payment Unavailable</h2>
         <p className="text-slate-400 mb-6">{error}</p>
-        <button
-          onClick={() => router.push("/dashboard")}
-          className="btn-secondary w-full py-2"
-        >
+        <button onClick={() => router.push("/dashboard")} className="btn-secondary w-full py-2">
           Return to Dashboard
         </button>
       </div>
@@ -195,9 +139,7 @@ export default function PayPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-16 animate-fade-in">
       <div className="text-center mb-10">
-        <h1 className="font-display text-3xl font-bold text-white mb-3">
-          Complete Payment
-        </h1>
+        <h1 className="font-display text-3xl font-bold text-white mb-3">Complete Payment</h1>
         <p className="text-slate-400">
           {publicKey
             ? "Review the details below to authorize the transaction."
@@ -209,9 +151,7 @@ export default function PayPage() {
             <span className="text-xs font-medium text-stellar-400">
               {`Recipient's Total Tips Recorded:`}
             </span>
-            <span className="text-xs font-bold text-white">
-              {formatStroopsToXLM(tipTotal)}
-            </span>
+            <span className="text-xs font-bold text-white">{formatStroopsToXLM(tipTotal)}</span>
           </div>
         )}
       </div>

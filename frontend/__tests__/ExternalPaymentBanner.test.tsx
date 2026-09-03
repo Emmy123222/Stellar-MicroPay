@@ -13,32 +13,21 @@ describe("ExternalPaymentBanner", () => {
 
   it("is visible when rendered (visible under the condition that triggers it)", () => {
     render(<ExternalPaymentBanner onDismiss={onDismiss} />);
-    expect(
-      screen.getByText(/Payment request from external app/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Payment request from external app/i)).toBeInTheDocument();
   });
 
   it("renders the default message when no message prop is supplied", () => {
     render(<ExternalPaymentBanner onDismiss={onDismiss} />);
-    expect(
-      screen.getByText(/Send a payment using the pre-filled form below/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Send a payment using the pre-filled form below/i)).toBeInTheDocument();
   });
 
   it("renders a custom message when the message prop is provided", () => {
-    render(
-      <ExternalPaymentBanner
-        message="Pay 5 XLM to charity.stellar"
-        onDismiss={onDismiss}
-      />
-    );
+    render(<ExternalPaymentBanner message="Pay 5 XLM to charity.stellar" onDismiss={onDismiss} />);
     expect(screen.getByText("Pay 5 XLM to charity.stellar")).toBeInTheDocument();
   });
 
   it("shows the origin domain when the originDomain prop is provided", () => {
-    render(
-      <ExternalPaymentBanner originDomain="app.example.com" onDismiss={onDismiss} />
-    );
+    render(<ExternalPaymentBanner originDomain="app.example.com" onDismiss={onDismiss} />);
     expect(screen.getByText("app.example.com")).toBeInTheDocument();
   });
 
@@ -69,9 +58,7 @@ describe("ExternalPaymentBanner", () => {
     }
 
     render(<Harness />);
-    expect(
-      screen.getByText(/Payment request from external app/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Payment request from external app/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Dismiss/i }));
 

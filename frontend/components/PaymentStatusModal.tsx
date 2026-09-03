@@ -5,13 +5,7 @@ import Modal from "@/components/Modal";
 
 export type PaymentStepId = "building" | "signing" | "submitting" | "confirming";
 export type PaymentFlowStatus =
-  | "idle"
-  | "building"
-  | "signing"
-  | "submitting"
-  | "confirming"
-  | "success"
-  | "error";
+  "idle" | "building" | "signing" | "submitting" | "confirming" | "success" | "error";
 
 const TX_TIMEOUT_SECONDS = 60;
 
@@ -174,9 +168,7 @@ export default function PaymentStatusModal({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-semibold text-white">{label}</p>
-                      <p className="text-xs text-slate-400">
-                        {getStepCaption(stepState)}
-                      </p>
+                      <p className="text-xs text-slate-400">{getStepCaption(stepState)}</p>
                     </div>
                     <span className="text-xs font-medium text-slate-400">
                       {formatElapsed(timing, now)}
@@ -289,22 +281,14 @@ function CountdownTimer({
       <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-white/5">
         <div
           className={`h-full rounded-full transition-all duration-1000 ${
-            isUrgent
-              ? "bg-red-500"
-              : isWarning
-                ? "bg-amber-400"
-                : "bg-stellar-400"
+            isUrgent ? "bg-red-500" : isWarning ? "bg-amber-400" : "bg-stellar-400"
           }`}
           style={{ width: `${fraction * 100}%` }}
         />
       </div>
       <span
         className={`text-xs font-medium whitespace-nowrap tabular-nums ${
-          isUrgent
-            ? "text-red-400"
-            : isWarning
-              ? "text-amber-300"
-              : "text-slate-400"
+          isUrgent ? "text-red-400" : isWarning ? "text-amber-300" : "text-slate-400"
         }`}
       >
         {isUrgent ? `${remainingSeconds}s left` : `~${remainingSeconds}s remaining`}
@@ -338,10 +322,15 @@ function StepIcon({
   return <SparklesIcon className="h-4 w-4 text-slate-300" />;
 }
 
-
 function CheckIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
     </svg>
   );
@@ -349,7 +338,13 @@ function CheckIcon({ className }: { className?: string }) {
 
 function XIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="m6 6 12 12M18 6 6 18" />
     </svg>
   );
@@ -359,24 +354,48 @@ function Spinner({ className }: { className?: string }) {
   return (
     <svg className={`${className ?? ""} animate-spin`} viewBox="0 0 24 24" fill="none">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4Z" />
+      <path
+        className="opacity-80"
+        fill="currentColor"
+        d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4Z"
+      />
     </svg>
   );
 }
 
 function BuildIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="m14.25 6 3.75-3.75 3.75 3.75L18 9.75" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 7.5 6 15m0 0L3.75 17.25 6.75 20.25 9 18m-3-3 3 3" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 7.5 6 15m0 0L3.75 17.25 6.75 20.25 9 18m-3-3 3 3"
+      />
     </svg>
   );
 }
 
 function SignatureIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 16.5c2.25-2.5 3.75-3.75 5.25-3.75 1.75 0 1.75 2.25 3.25 2.25 1.75 0 2.25-6 4.75-6 1.5 0 2 1 3 2.25" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.75 16.5c2.25-2.5 3.75-3.75 5.25-3.75 1.75 0 1.75 2.25 3.25 2.25 1.75 0 2.25-6 4.75-6 1.5 0 2 1 3 2.25"
+      />
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 20.25h18" />
     </svg>
   );
@@ -384,26 +403,64 @@ function SignatureIcon({ className }: { className?: string }) {
 
 function UploadIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V4.5m0 0 4.5 4.5M12 4.5 7.5 9" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75v1.5A2.25 2.25 0 0 0 6.75 19.5h10.5A2.25 2.25 0 0 0 19.5 17.25v-1.5" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 16.5V4.5m0 0 4.5 4.5M12 4.5 7.5 9"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4.5 15.75v1.5A2.25 2.25 0 0 0 6.75 19.5h10.5A2.25 2.25 0 0 0 19.5 17.25v-1.5"
+      />
     </svg>
   );
 }
 
 function SparklesIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3.75 13.688 8.313 18.25 10l-4.563 1.688L12 16.25l-1.688-4.563L5.75 10l4.563-1.688L12 3.75Z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="m18.75 15 .563 1.688L21 17.25l-1.688.563L18.75 19.5l-.563-1.688L16.5 17.25l1.688-.563L18.75 15Z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 3.75 13.688 8.313 18.25 10l-4.563 1.688L12 16.25l-1.688-4.563L5.75 10l4.563-1.688L12 3.75Z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m18.75 15 .563 1.688L21 17.25l-1.688.563L18.75 19.5l-.563-1.688L16.5 17.25l1.688-.563L18.75 15Z"
+      />
     </svg>
   );
 }
 
 function ExternalLinkIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+      />
     </svg>
   );
 }

@@ -8,13 +8,7 @@ jest.mock("next/router", () => ({
 
 jest.mock("@/components/TipWidget", () => ({
   __esModule: true,
-  default: ({
-    creatorUsername,
-    destination,
-  }: {
-    creatorUsername: string;
-    destination: string;
-  }) => (
+  default: ({ creatorUsername, destination }: { creatorUsername: string; destination: string }) => (
     <div data-testid="tip-widget">
       {creatorUsername}:{destination}
     </div>
