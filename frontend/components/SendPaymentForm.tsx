@@ -50,15 +50,8 @@ import {
   submitTransaction,
   truncateMemoText,
 } from "@/lib/stellar";
-import { MULTISIG_THRESHOLD_XLM } from "@/components/MultiSigFlow";
+import { useToastContext } from "@/lib/ToastContext";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import {
-  type AddressBookContact,
-  loadAddressBookContacts,
-  saveAddressBookContacts,
-  subscribeToAddressBookContacts,
-  upsertAddressBookContact,
-} from "@/lib/addressBook";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import {
   SendIcon,

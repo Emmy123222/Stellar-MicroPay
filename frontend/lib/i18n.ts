@@ -25,6 +25,9 @@ export interface Translations {
     disconnectConfirm: string;
     confirm: string;
     cancel: string;
+    openMenu: string;
+    closeMenu: string;
+    mobileNavigation: string;
   };
   common: {
     loading: string;

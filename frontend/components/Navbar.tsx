@@ -1,6 +1,12 @@
 /**
  * components/Navbar.tsx
- * Top navigation bar with theme toggle, network status, and wallet controls.
+ * Top navigation bar with theme toggle, network status, wallet controls,
+ * and an accessible mobile navigation drawer (#834).
+ *
+ * The mobile menu behaves as a dismissible navigation dialog:
+ * - Focus is trapped while the menu is open.
+ * - Closing restores focus to the hamburger button.
+ * - Escape and route changes dismiss the menu.
  */
 
 import { useEffect, useState } from "react";
@@ -29,6 +35,99 @@ export default function Navbar() {
   const { theme, toggleTheme } = useTheme();
   const { locale, setLocale, t, supportedLocales } = useI18n();
 
+  /* --- mobile menu state ------------------------------------------- */
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuPanelRef = useRef<HTMLDivElement>(null);
+
+  const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
+
+  /* Close menu on route change */
+  useEffect(() => {
+    const handleRouteChange = () => setMobileMenuOpen(false);
+    router.events.on("routeChangeStart", handleRouteChange);
+    return () => {
+      router.events.off("routeChangeStart", handleRouteChange);
+    };
+  }, [router.events]);
+
+  /* Trap focus & handle Escape while mobile menu is open */
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    // Save the element that opened the menu so we can restore focus later
+    const opener = menuButtonRef.current;
+
+    // Move focus into the panel
+    const focusable = getFocusableElements(menuPanelRef.current);
+    (focusable[0] ?? menuPanelRef.current)?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeMobileMenu();
+        return;
+      }
+
+      if (e.key === "Tab") {
+        const els = getFocusableElements(menuPanelRef.current);
+        if (els.length === 0) {
+          e.preventDefault();
+          menuPanelRef.current?.focus();
+          return;
+        }
+
+        const first = els[0];
+        const last = els[els.length - 1];
+        const current = document.activeElement;
+
+        if (e.shiftKey) {
+          if (!current || !menuPanelRef.current?.contains(current) || current === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (!current || !menuPanelRef.current?.contains(current) || current === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      // Restore focus to the hamburger button that opened the menu
+      opener?.focus();
+    };
+  }, [mobileMenuOpen, closeMobileMenu]);
+
+  /* Lock body scroll while mobile menu is open */
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileMenuOpen]);
+
+  /* --- other state ------------------------------------------------- */
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
+  const config = getNetworkConfig();
+  const isMainnet = config.network === "mainnet";
+  const networkLabel =
+    config.network === "custom" ? "Custom" : isMainnet ? "Mainnet" : "Testnet";
+  const networkBadgeClassName =
+    config.network === "custom"
+      ? "border-purple-400/35 bg-purple-400/10 text-purple-300"
+      : isMainnet
+        ? "border-emerald-400/35 bg-emerald-400/10 text-emerald-300"
+        : "border-amber-400/35 bg-amber-400/10 text-amber-300";
+
+  /* --- navigation links (shared between desktop & mobile) --------- */
   const navLinks = [
     { href: "/", label: t("home") },
     { href: "/dashboard", label: t("dashboard") },
@@ -91,6 +190,7 @@ export default function Navbar() {
     return () => window.clearTimeout(timeoutId);
   }, [showDisconnectConfirm]);
 
+  /* --- wallet ------------------------------------------------------ */
   const handleConnectClick = async () => {
     const { publicKey: nextPublicKey, error: walletError } = await requestWalletConnection();
 
@@ -110,10 +210,24 @@ export default function Navbar() {
     connectWallet(nextPublicKey);
   };
 
+  /* ================================================================ */
+  /* Render                                                           */
+  /* ================================================================ */
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-white/80 backdrop-blur-xl transition-colors duration-300 dark:bg-cosmos-900/80">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-4">
+          {/* Hamburger – mobile only */}
+          <button
+            ref={menuButtonRef}
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            aria-label={t.nav.openMenu}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300/30 bg-white/90 text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-100 dark:border-slate-700/50 dark:bg-cosmos-800/80 dark:text-slate-100 dark:hover:bg-cosmos-700/90 md:hidden"
+          >
+            <MenuIcon className="h-5 w-5" />
+          </button>
+
           <Link href="/" className="group flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-stellar-500/30 bg-stellar-500/20 transition-colors group-hover:border-stellar-500/60">
               <NavStarIcon className="h-4 w-4 text-stellar-400" />
@@ -147,73 +261,22 @@ export default function Navbar() {
             />
           )}
 
+          {/* Desktop nav links */}
           <div className="hidden items-center gap-1 md:flex">
-            <Link
-              href="/"
-              className={clsx(
-                "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
-                router.pathname === "/"
-                  ? "bg-stellar-500/15 text-stellar-300"
-                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
-              )}
-            >
-              {t.nav.home}
-            </Link>
-            <Link
-              href="/dashboard"
-              className={clsx(
-                "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
-                router.pathname === "/dashboard"
-                  ? "bg-stellar-500/15 text-stellar-300"
-                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
-              )}
-            >
-              {t.nav.dashboard}
-            </Link>
-            <Link
-              href="/trade"
-              className={clsx(
-                "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
-                router.pathname === "/trade"
-                  ? "bg-stellar-500/15 text-stellar-300"
-                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
-              )}
-            >
-              {t.nav.trade}
-            </Link>
-            <Link
-              href="/transactions"
-              className={clsx(
-                "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
-                router.pathname === "/transactions"
-                  ? "bg-stellar-500/15 text-stellar-300"
-                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
-              )}
-            >
-              {t.nav.transactions}
-            </Link>
-            <Link
-              href="/network"
-              className={clsx(
-                "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
-                router.pathname === "/network"
-                  ? "bg-stellar-500/15 text-stellar-300"
-                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
-              )}
-            >
-              {t.nav.network}
-            </Link>
-            <Link
-              href="/settings"
-              className={clsx(
-                "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
-                router.pathname === "/settings"
-                  ? "bg-stellar-500/15 text-stellar-300"
-                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
-              )}
-            >
-              {t.nav.settings}
-            </Link>
+            {navLinks.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className={clsx(
+                  "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
+                  router.pathname === href
+                    ? "bg-stellar-500/15 text-stellar-300"
+                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
+                )}
+              >
+                {label}
+              </Link>
+            ))}
           </div>
         </div>
 
@@ -290,6 +353,96 @@ export default function Navbar() {
           )}
         </div>
       </div>
+
+      {/* ============================================================ */}
+      {/* Mobile navigation drawer                                     */}
+      {/* ============================================================ */}
+      {mobileMenuOpen && (
+        <div
+          data-testid="mobile-menu-backdrop"
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm md:hidden"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeMobileMenu();
+          }}
+        >
+          <div
+            ref={menuPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t.nav.mobileNavigation}
+            tabIndex={-1}
+            className="flex h-full w-72 flex-col overflow-y-auto bg-white shadow-xl dark:bg-cosmos-900"
+          >
+            {/* Close button */}
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+              <span className="font-display text-sm font-semibold text-slate-900 dark:text-white">
+                Menu
+              </span>
+              <button
+                type="button"
+                onClick={closeMobileMenu}
+                aria-label={t.nav.closeMenu}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
+              >
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Links */}
+            <nav className="flex-1 px-3 py-4">
+              <ul className="space-y-1">
+                {navLinks.map(({ href, label }) => (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      onClick={closeMobileMenu}
+                      className={clsx(
+                        "block rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                        router.pathname === href
+                          ? "bg-stellar-500/15 text-stellar-300"
+                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
+                      )}
+                    >
+                      {label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            {/* Wallet action */}
+            <div className="border-t border-slate-200 px-3 py-4 dark:border-slate-700">
+              {publicKey ? (
+                <div className="flex items-center gap-2 px-3">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                  <span className="text-sm text-slate-700 dark:text-slate-300">
+                    {shortenAddress(publicKey)}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setShowDisconnectConfirm(true);
+                      closeMobileMenu();
+                    }}
+                    className="ml-auto text-xs text-slate-400 hover:text-slate-300"
+                  >
+                    {t.nav.disconnect}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    closeMobileMenu();
+                    handleConnectClick();
+                  }}
+                  className="btn-primary w-full px-4 py-2.5 text-sm"
+                >
+                  {t.nav.connectWallet}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
