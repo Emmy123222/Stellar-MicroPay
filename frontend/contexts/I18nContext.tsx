@@ -66,7 +66,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Set initial document direction
+  // Keep <html lang>/<html dir> in sync with the active locale after hydration.
+  // Pre-hydration values are applied by public/locale-init.js to avoid a flash.
   useEffect(() => {
     if (isClient && typeof document !== "undefined") {
       document.documentElement.dir = isRTL(locale) ? "rtl" : "ltr";

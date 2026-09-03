@@ -12,6 +12,10 @@ export default function Document() {
         {/* Prevent theme flash on page load (#217) without requiring inline script CSP allowances. */}
         <script src="/theme-init.js" />
 
+        {/* Prevent stored-locale lang/dir flash on page load; the active locale is
+            read back in I18nContext after hydration to keep the document in sync. */}
+        <script src="/locale-init.js" />
+
         {/* PWA Manifest */}
         <link rel="manifest" href="/manifest.json" />
 

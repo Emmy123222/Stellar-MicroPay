@@ -32,6 +32,7 @@ export interface Translations {
     success: string;
     copy: string;
     copied: string;
+    selectLanguage: string;
   };
   dashboard: {
     title: string;
@@ -177,12 +178,11 @@ export function getLocaleDisplayName(locale: Locale): string {
 }
 
 /**
- * Check if locale is RTL right-to-left)
- * Currently all supported locales are LTR, but this prepares for future RTL support
+ * Check if locale is RTL (right-to-left)
+ * The canonical RTL locale list is RTL_LOCALES; new RTL locales must be added there.
  */
 export function isRTL(locale: Locale): boolean {
-  const rtlLocales: Locale[] = [];
-  return rtlLocales.includes(locale);
+  return RTL_LOCALES.includes(locale);
 }
 
 // Re-export the canonical translation hook from the I18n context
