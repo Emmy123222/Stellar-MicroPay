@@ -164,4 +164,114 @@ proptest! {
             );
         }
     }
+
+    /// Property test (#788): Conservation across arbitrary weights and elapsed ledgers.
+    ///
+    /// For any arbitrary number of recipients (1..=8), arbitrary positive weights (1..=100_000),
+    /// arbitrary accrual rates, and arbitrary elapsed ledger sequences:
+    /// 1. The sum of all recipient entitlements (`claimable + claimed`) MUST EXACTLY EQUAL
+    ///    `total_streamed_amount` at all ledgers — zero stroops stranded or lost to rounding.
+    /// 2. Stream closure settles every recipient and returns `deposited - total_streamed` to the
+    ///    payer, leaving the contract balance at exactly 0.
+    #[test]
+    fn fuzz_weighted_stream_exact_conservation(
+        rate_per_ledger in 1i128..=10_000i128,
+        weights in proptest::collection::vec(1u32..=100_000u32, 1..=8),
+        ledger_advances in proptest::collection::vec(1u32..=500u32, 1..=10),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let payer = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract(admin.clone());
+        let total_deposit: i128 = rate_per_ledger * 10_000;
+        let deposit = if total_deposit < MIN_STREAM_DEPOSIT {
+            MIN_STREAM_DEPOSIT
+        } else {
+            total_deposit
+        };
+        token::StellarAssetClient::new(&env, &token_id).mint(&payer, &deposit);
+        let token = token::Client::new(&env, &token_id);
+
+        let mut recipients = vec![&env];
+        let mut weights_vec = vec![&env];
+        for weight in &weights {
+            recipients.push_back(Address::generate(&env));
+            weights_vec.push_back(*weight);
+        }
+
+        let id = client.open_stream(
+            &token_id,
+            &payer,
+            &recipients,
+            &weights_vec,
+            &rate_per_ledger,
+            &deposit,
+        );
+
+        for advance in ledger_advances {
+            env.ledger().with_mut(|info| {
+                info.sequence_number = info.sequence_number.saturating_add(advance);
+            });
+
+            let stream = client.get_stream(&id);
+            let funded_ledgers = stream.deposited / stream.rate_per_ledger;
+            let elapsed_ledgers = (env.ledger().sequence() - stream.start_ledger) as i128;
+            let active_ledgers = if elapsed_ledgers > funded_ledgers {
+                funded_ledgers
+            } else {
+                elapsed_ledgers
+            };
+            let expected_total_streamed = stream.rate_per_ledger * active_ledgers;
+
+            let mut sum_entitled: i128 = 0;
+            for i in 0..recipients.len() {
+                let r = recipients.get(i).unwrap();
+                let claimable = client.get_claimable(&id, &r);
+                let entry = stream.recipients.get(i).unwrap();
+                sum_entitled += claimable + entry.claimed;
+            }
+
+            prop_assert_eq!(
+                sum_entitled,
+                expected_total_streamed,
+                "conservation invariant violated: sum(entitled) {} != total_streamed {}",
+                sum_entitled,
+                expected_total_streamed
+            );
+        }
+
+        // Now close the stream and verify full settlement and exact refund
+        client.close_stream(&id, &payer);
+        let closed_stream = client.get_stream(&id);
+        prop_assert!(closed_stream.closed);
+
+        let mut total_paid_to_recipients: i128 = 0;
+        for i in 0..recipients.len() {
+            let r = recipients.get(i).unwrap();
+            let bal = token.balance(&r);
+            prop_assert_eq!(bal, closed_stream.recipients.get(i).unwrap().claimed);
+            total_paid_to_recipients += bal;
+        }
+
+        let refund = token.balance(&payer);
+        prop_assert_eq!(
+            total_paid_to_recipients + refund,
+            deposit,
+            "solvency invariant violated on close: total_paid {} + refund {} != deposit {}",
+            total_paid_to_recipients,
+            refund,
+            deposit
+        );
+        prop_assert_eq!(
+            token.balance(&contract_id),
+            0,
+            "contract balance non-zero after close"
+        );
+    }
 }

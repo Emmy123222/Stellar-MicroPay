@@ -228,7 +228,7 @@ jest.mock("../src/services/cursorStore", () => ({
 }));
 
 const { Horizon } = require("@stellar/stellar-sdk");
-const { startMonitoring } = require("../src/services/paymentMonitor");
+const { startMonitoring, stopMonitoring } = require("../src/services/paymentMonitor");
 const { getWebhooksByPublicKey } = require("../src/services/webhookStore");
 const { deliverWebhook } = require("../src/services/webhookDelivery");
 const cursorStore = require("../src/services/cursorStore");
@@ -252,6 +252,7 @@ function payment(over = {}) {
 }
 
 beforeEach(() => {
+  stopMonitoring(PUBLIC_KEY);
   jest.clearAllMocks();
   resetAllBreakers();
   streamOptions = null;
