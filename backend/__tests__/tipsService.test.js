@@ -84,6 +84,146 @@ describe("tipsService", () => {
     });
   });
 
+  describe("recordTip idempotency (txHash + operationIndex)", () => {
+    it("returns the existing record when the same txHash and operationIndex are replayed", () => {
+      const first = tipsService.recordTip({
+        senderPublicKey: KEY_A,
+        creatorPublicKey: KEY_B,
+        amount: "10.0",
+        txHash: "tx-replay",
+        operationIndex: 0,
+      });
+
+      const replay = tipsService.recordTip({
+        senderPublicKey: KEY_A,
+        creatorPublicKey: KEY_B,
+        amount: "10.0",
+        txHash: "tx-replay",
+        operationIndex: 0,
+      });
+
+      expect(first.isDuplicate).toBe(false);
+      expect(replay.isDuplicate).toBe(true);
+      expect(replay.id).toBe(first.id);
+
+      const stored = tipsService.getTipsReceived(KEY_B);
+      expect(stored.total).toBe(1);
+    });
+
+    it("does not treat mismatched sender/amount as new when txHash+operationIndex replay", () => {
+      const first = tipsService.recordTip({
+        senderPublicKey: KEY_A,
+        creatorPublicKey: KEY_B,
+        amount: "10.0",
+        txHash: "tx-replay-2",
+        operationIndex: 0,
+      });
+
+      // A client replaying the same on-chain operation with slightly
+      // different metadata should still resolve to the original record.
+      const replay = tipsService.recordTip({
+        senderPublicKey: KEY_A,
+        creatorPublicKey: KEY_B,
+        amount: "999.0",
+        txHash: "tx-replay-2",
+        operationIndex: 0,
+      });
+
+      expect(replay.id).toBe(first.id);
+      expect(replay.amount).toBe("10.0");
+      expect(tipsService.getTipsReceived(KEY_B).total).toBe(1);
+    });
+
+    it("treats different operationIndex values on the same txHash as distinct tips", () => {
+      tipsService.recordTip({
+        senderPublicKey: KEY_A,
+        creatorPublicKey: KEY_B,
+        amount: "10.0",
+        txHash: "tx-multi-op",
+        operationIndex: 0,
+      });
+      tipsService.recordTip({
+        senderPublicKey: KEY_A,
+        creatorPublicKey: KEY_B,
+        amount: "5.0",
+        txHash: "tx-multi-op",
+        operationIndex: 1,
+      });
+
+      expect(tipsService.getTipsReceived(KEY_B).total).toBe(2);
+    });
+
+    it("treats the same operationIndex on different txHash values as distinct tips", () => {
+      tipsService.recordTip({
+        senderPublicKey: KEY_A,
+        creatorPublicKey: KEY_B,
+        amount: "10.0",
+        txHash: "tx-a",
+        operationIndex: 0,
+      });
+      tipsService.recordTip({
+        senderPublicKey: KEY_A,
+        creatorPublicKey: KEY_B,
+        amount: "10.0",
+        txHash: "tx-b",
+        operationIndex: 0,
+      });
+
+      expect(tipsService.getTipsReceived(KEY_B).total).toBe(2);
+    });
+
+    it("does not deduplicate tips recorded without a txHash", () => {
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "10.0" });
+      tipsService.recordTip({ senderPublicKey: KEY_A, creatorPublicKey: KEY_B, amount: "10.0" });
+
+      expect(tipsService.getTipsReceived(KEY_B).total).toBe(2);
+    });
+
+    it("rejects a negative operationIndex", () => {
+      expect(() =>
+        tipsService.recordTip({
+          senderPublicKey: KEY_A,
+          creatorPublicKey: KEY_B,
+          amount: "10.0",
+          txHash: "tx-bad-index",
+          operationIndex: -1,
+        })
+      ).toThrow("operationIndex must be a non-negative integer");
+    });
+
+    it("rejects a non-integer operationIndex", () => {
+      expect(() =>
+        tipsService.recordTip({
+          senderPublicKey: KEY_A,
+          creatorPublicKey: KEY_B,
+          amount: "10.0",
+          txHash: "tx-bad-index-2",
+          operationIndex: 1.5,
+        })
+      ).toThrow("operationIndex must be a non-negative integer");
+    });
+
+    it("prevents duplicate records under concurrent duplicate submissions", async () => {
+      const submit = () =>
+        Promise.resolve().then(() =>
+          tipsService.recordTip({
+            senderPublicKey: KEY_A,
+            creatorPublicKey: KEY_B,
+            amount: "10.0",
+            txHash: "tx-concurrent",
+            operationIndex: 0,
+          })
+        );
+
+      const results = await Promise.all([submit(), submit(), submit(), submit(), submit()]);
+
+      const uniqueIds = new Set(results.map((r) => r.id));
+      expect(uniqueIds.size).toBe(1);
+      expect(results.filter((r) => r.isDuplicate)).toHaveLength(4);
+      expect(tipsService.getTipsReceived(KEY_B).total).toBe(1);
+    });
+  });
+
   describe("getTipsReceived", () => {
     beforeEach(() => {
       tipsService.recordTip({

@@ -16,7 +16,9 @@ const tipsService = require("../services/tipsService");
  * @property {string} asset
  * @property {string} memo
  * @property {string} txHash
+ * @property {number} operationIndex
  * @property {string} timestamp
+ * @property {boolean} isDuplicate
  */
 
 /**
@@ -40,13 +42,15 @@ const tipsService = require("../services/tipsService");
  * @param {string} [req.body.asset] - Asset code, defaults to "XLM"
  * @param {string} [req.body.memo] - Optional message from sender
  * @param {string} [req.body.txHash] - On-chain transaction hash
+ * @param {number} [req.body.operationIndex] - Index of the payment operation within the transaction (default 0)
  * @param {object} res - Express response
  * @param {function} next - Express error-handling callback
- * @returns {Promise<void>} 201 JSON: `{ success: true, data: TipRecord, message: string }`
+ * @returns {Promise<void>} 201 JSON `{ success: true, data: TipRecord, message: string }` for a new
+ *   tip, or 200 with the pre-existing record when (txHash, operationIndex) was already recorded.
  */
 async function recordTip(req, res, next) {
   try {
-    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash } = req.body;
+    const { senderPublicKey, creatorPublicKey, amount, asset, memo, txHash, operationIndex } = req.body;
 
     // Validate input
     tipsService.validateTipInput({ senderPublicKey, creatorPublicKey, amount });
@@ -58,7 +62,17 @@ async function recordTip(req, res, next) {
       asset: asset || "XLM",
       memo: memo || "",
       txHash: txHash || "",
+      operationIndex: operationIndex === undefined || operationIndex === null || operationIndex === "" ? 0 : operationIndex,
     });
+
+    if (tip.isDuplicate) {
+      res.status(200).json({
+        success: true,
+        data: tip,
+        message: "Tip already recorded",
+      });
+      return;
+    }
 
     res.status(201).json({
       success: true,

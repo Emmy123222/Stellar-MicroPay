@@ -10,8 +10,13 @@
 
 const tipsStore = require("./tipsStore");
 
+// Idempotency index: Map<"${txHash}:${operationIndex}", TipRecord>
+// Lets replayed client submissions of the same on-chain operation resolve to
+// the record that was already created instead of inserting a duplicate.
+const tipsByTxHash = new Map();
+
 // Tip record structure:
-// { id, senderPublicKey, creatorPublicKey, amount, asset, memo, timestamp, txHash }
+// { id, senderPublicKey, creatorPublicKey, amount, asset, memo, timestamp, txHash, operationIndex }
 
 let tipIdCounter = 1;
 
@@ -25,7 +30,9 @@ let tipIdCounter = 1;
  * @param {string} asset - The asset code (XLM, USDC, etc.)
  * @param {string} [memo] - Optional memo/message from sender
  * @param {string} [txHash] - The transaction hash
- * @returns {object} The created tip record
+ * @param {number} [operationIndex] - Index of the payment operation within the transaction
+ * @returns {object} The created tip record, or the existing record when this
+ *   (txHash, operationIndex) pair was already recorded (`isDuplicate: true`)
  */
 function recordTip({
   senderPublicKey,
@@ -41,6 +48,23 @@ function recordTip({
     throw error;
   }
 
+  const normalizedOperationIndex = Number(operationIndex);
+  if (!Number.isInteger(normalizedOperationIndex) || normalizedOperationIndex < 0) {
+    const error = new Error("operationIndex must be a non-negative integer");
+    error.status = 400;
+    throw error;
+  }
+
+  if (txHash) {
+    const idempotencyKey = buildIdempotencyKey(txHash, normalizedOperationIndex);
+    const existing = tipsByTxHash.get(idempotencyKey);
+    if (existing) {
+      // Replay of an already-recorded on-chain operation: return the
+      // original record rather than creating a duplicate.
+      return { ...existing, isDuplicate: true };
+    }
+  }
+
   const tip = {
     id: tipsStore.nextTipId(),
     senderPublicKey,
@@ -49,7 +73,9 @@ function recordTip({
     asset,
     memo,
     txHash,
+    operationIndex: normalizedOperationIndex,
     timestamp: new Date().toISOString(),
+    isDuplicate: false,
   };
 
   return tipsStore.insert(tip);
