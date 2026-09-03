@@ -80,20 +80,26 @@ interface MultiSigFlowProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Extract the last-4-byte hint (hex) from each signature in a signed XDR. */
+/** Extract the last-4-byte hint (hex) from each unique signature in a signed XDR. */
 function extractHints(signedXDRs: string[]): string[] {
-  const hints: string[] = [];
+  const uniqueSigs: { hint: string; signature: string }[] = [];
   for (const xdr of signedXDRs) {
     try {
       const tx = new Transaction(xdr, NETWORK_PASSPHRASE);
       for (const sig of tx.signatures) {
-        hints.push(Buffer.from(sig.hint()).toString("hex"));
+        const hintHex = Buffer.from(sig.hint()).toString("hex");
+        const sigHex = Buffer.from(sig.signature()).toString("hex");
+        
+        const exists = uniqueSigs.some(s => s.hint === hintHex && s.signature === sigHex);
+        if (!exists) {
+          uniqueSigs.push({ hint: hintHex, signature: sigHex });
+        }
       }
     } catch {
       // skip malformed XDR
     }
   }
-  return hints;
+  return uniqueSigs.map(s => s.hint);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
