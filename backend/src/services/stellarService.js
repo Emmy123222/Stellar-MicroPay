@@ -2,6 +2,9 @@
  * src/services/stellarService.js
  * Business logic for interacting with the Stellar Horizon API.
  * All blockchain reads happen here — this is the single source of truth.
+ *
+ * Network note (#809): defaults to testnet via `HORIZON_URL` unless overridden by
+ * env. Horizon traffic uses `@stellar/stellar-sdk` with a patched axios override.
  */
 
 "use strict";
