@@ -46,7 +46,7 @@
     "jest-environment-jsdom": "^30.3.0",
     "postcss": "8.5.28",
     "serve": "14.2.6",
-    "tailwindcss": "^3.4.1",
+    "tailwindcss": "^4.3.3",
     "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "typescript": "^5"
