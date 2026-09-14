@@ -35,7 +35,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/jest": "^30.0.0",
-    "@types/node": "^20",
+    "@types/node": "^26",
     "@types/qrcode.react": "^1.0.5",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
