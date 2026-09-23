@@ -49,3 +49,5 @@ test_snapshots
 
 # ─── Local scripts (never push) ───────────────────────────────────────────────
 scripts/create_issues.py
+\n# TypeScript build info\nfrontend/tsconfig.tsbuildinfo
+\n# Codex CI artifacts\n.codex-artifacts/
