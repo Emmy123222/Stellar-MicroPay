@@ -4,6 +4,12 @@ import {
   TransactionCategory,
   fetchHorizonRoot,
   feeLevelFromStroops,
+  buildAssetIssueTransaction,
+  buildStellarToml,
+  assetExplorerUrl,
+  validateAssetCode,
+  validateHomeDomain,
+  ASSET_CODE_MAX_LENGTH,
 } from "@/lib/stellar";
 import { Account } from "@stellar/stellar-sdk";
 
@@ -85,6 +91,124 @@ describe("Stellar helper", () => {
       expect(feeLevelFromStroops(100)).toBe("elevated");
       expect(feeLevelFromStroops(1000)).toBe("elevated");
       expect(feeLevelFromStroops(1001)).toBe("high");
+    });
+  });
+});
+
+describe("Asset issuance helpers (#1147)", () => {
+  const ISSUER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const DISTRIBUTOR = "GB62CUHQB72WRU3LZFL5BIXMQVQ22MJCDX4FZUBGBQH3PPPPS6INOCLV";
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  describe("validateAssetCode", () => {
+    it("accepts 1–12 uppercase alphanumeric codes", () => {
+      expect(validateAssetCode("A")).toBeNull();
+      expect(validateAssetCode("COOL2")).toBeNull();
+      expect(validateAssetCode("A".repeat(ASSET_CODE_MAX_LENGTH))).toBeNull();
+    });
+
+    it("rejects empty, too long, spaced, lowercase and reserved codes", () => {
+      expect(validateAssetCode("")).toMatch(/enter an asset code/i);
+      expect(validateAssetCode("A".repeat(ASSET_CODE_MAX_LENGTH + 1))).toMatch(
+        /between 1 and 12 characters/i
+      );
+      expect(validateAssetCode("CO OL")).toMatch(/cannot contain spaces/i);
+      expect(validateAssetCode("cool")).toMatch(/uppercase/i);
+      expect(validateAssetCode("CO-OL")).toMatch(/uppercase/i);
+      expect(validateAssetCode("XLM")).toMatch(/reserved/i);
+    });
+  });
+
+  describe("validateHomeDomain", () => {
+    it("treats an empty domain as valid because the field is optional", () => {
+      expect(validateHomeDomain("")).toBeNull();
+      expect(validateHomeDomain("   ")).toBeNull();
+    });
+
+    it("accepts hostnames with or without a scheme", () => {
+      expect(validateHomeDomain("example.com")).toBeNull();
+      expect(validateHomeDomain("https://example.com/")).toBeNull();
+      expect(validateHomeDomain("sub.example.co.uk")).toBeNull();
+    });
+
+    it("rejects malformed domains", () => {
+      expect(validateHomeDomain("not a domain")).toMatch(/valid domain/i);
+      expect(validateHomeDomain("localhost")).toMatch(/valid domain/i);
+    });
+  });
+
+  describe("buildStellarToml", () => {
+    it("describes the currency and where to publish the file", () => {
+      const toml = buildStellarToml({
+        homeDomain: "example.com",
+        assetCode: "COOL",
+        issuerPublicKey: ISSUER,
+        network: "testnet",
+      });
+
+      expect(toml).toContain("[[CURRENCIES]]");
+      expect(toml).toContain('code = "COOL"');
+      expect(toml).toContain(`issuer = "${ISSUER}"`);
+      expect(toml).toContain("Test SDF Network");
+      expect(toml).toContain("https://example.com/.well-known/stellar.toml");
+    });
+
+    it("falls back to a placeholder domain when none is supplied", () => {
+      const toml = buildStellarToml({
+        homeDomain: "   ",
+        assetCode: "COOL",
+        issuerPublicKey: ISSUER,
+      });
+
+      expect(toml).toContain("yourdomain.com/.well-known/stellar.toml");
+    });
+  });
+
+  describe("assetExplorerUrl", () => {
+    it("points at the Stellar Expert asset page", () => {
+      expect(assetExplorerUrl("COOL", "GABC")).toBe(
+        "https://stellar.expert/explorer/testnet/asset/COOL-GABC"
+      );
+    });
+  });
+
+  describe("buildAssetIssueTransaction", () => {
+    it("pays the custom asset from the issuer to the distributor", async () => {
+      jest
+        .spyOn(server, "loadAccount")
+        .mockResolvedValue(new Account(ISSUER, "1234567890") as never);
+
+      const transaction = await buildAssetIssueTransaction({
+        issuerPublicKey: ISSUER,
+        distributorPublicKey: DISTRIBUTOR,
+        assetCode: "COOL",
+        amount: "1000.0000000",
+      });
+
+      const operation = transaction.operations[0] as unknown as {
+        type: string;
+        destination: string;
+        amount: string;
+      };
+
+      expect(transaction.operations).toHaveLength(1);
+      expect(operation.type).toBe("payment");
+      expect(operation.destination).toBe(DISTRIBUTOR);
+      expect(operation.amount).toBe("1000.0000000");
+    });
+
+    it("refuses to build a payment for an invalid asset code", async () => {
+      await expect(
+        buildAssetIssueTransaction({
+          issuerPublicKey: ISSUER,
+          distributorPublicKey: DISTRIBUTOR,
+          assetCode: "BAD CODE",
+          amount: "1.0000000",
+        })
+      ).rejects.toThrow(/cannot contain spaces/i);
     });
   });
 });

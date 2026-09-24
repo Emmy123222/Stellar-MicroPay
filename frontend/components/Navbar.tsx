@@ -28,6 +28,7 @@ const navLinks = [
   { href: "/trade", labelKey: "navbar.trade" },
   { href: "/transactions", labelKey: "navbar.transactions" },
   { href: "/network", labelKey: "navbar.network" },
+  { href: "/issue-token", labelKey: "navbar.issueToken" },
   { href: "/settings", labelKey: "navbar.settings" },
 ];
 

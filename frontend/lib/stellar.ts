@@ -710,6 +710,197 @@ export async function buildAccountMergeTransaction({
   return builder.build();
 }
 
+// ── Custom asset issuance (#1147) ─────────────────────────────────────────
+
+/** Shortest allowed custom asset code. */
+export const ASSET_CODE_MIN_LENGTH = 1;
+
+/** Longest asset code the Stellar protocol accepts. */
+export const ASSET_CODE_MAX_LENGTH = 12;
+
+/** Codes the protocol reserves, e.g. the native asset. */
+export const RESERVED_ASSET_CODES = ["XLM"];
+
+/**
+ * Validate a custom asset code.
+ *
+ * Stellar asset codes are 1–12 characters of uppercase `A–Z` and `0–9`. Spaces,
+ * lowercase letters and symbols are rejected, and `XLM` is reserved for the
+ * native asset.
+ *
+ * @param code - The candidate asset code.
+ * @returns `null` when the code is valid, otherwise a human-readable reason.
+ */
+export function validateAssetCode(code: string): string | null {
+  if (!code) return "Enter an asset code.";
+
+  if (code.length < ASSET_CODE_MIN_LENGTH || code.length > ASSET_CODE_MAX_LENGTH) {
+    return `Asset code must be between ${ASSET_CODE_MIN_LENGTH} and ${ASSET_CODE_MAX_LENGTH} characters.`;
+  }
+
+  if (/\s/.test(code)) return "Asset code cannot contain spaces.";
+
+  if (!/^[A-Z0-9]+$/.test(code)) {
+    return "Asset code must use uppercase letters and numbers only.";
+  }
+
+  if (RESERVED_ASSET_CODES.includes(code)) {
+    return `${code} is reserved for the native Stellar asset.`;
+  }
+
+  return null;
+}
+
+/**
+ * Validate a home domain (the domain publishing a SEP-0001 `stellar.toml`).
+ *
+ * @returns `null` when valid or empty (the field is optional).
+ */
+export function validateHomeDomain(domain: string): string | null {
+  if (!domain.trim()) return null;
+
+  const hostname = domain
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "");
+
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(hostname)) {
+    return "Enter a valid domain, e.g. example.com";
+  }
+
+  return null;
+}
+
+/**
+ * Build an unsigned payment of a custom asset from the issuer to a
+ * distributor — the "issue" half of asset issuance.
+ *
+ * The distributor must already hold a trustline for the asset, otherwise
+ * Stellar rejects the payment.
+ *
+ * @throws {Error} If the asset code is invalid or the issuer account cannot be loaded.
+ */
+export async function buildAssetIssueTransaction({
+  issuerPublicKey,
+  distributorPublicKey,
+  assetCode,
+  amount,
+}: {
+  issuerPublicKey: string;
+  distributorPublicKey: string;
+  assetCode: string;
+  amount: string;
+}): Promise<Transaction> {
+  const codeError = validateAssetCode(assetCode);
+  if (codeError) throw new Error(codeError);
+
+  const sourceAccount = await server.loadAccount(issuerPublicKey);
+
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.payment({
+        destination: distributorPublicKey,
+        asset: new Asset(assetCode, issuerPublicKey),
+        amount,
+      })
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+/**
+ * Build an unsigned `setOptions` transaction that sets an account's home domain.
+ *
+ * The domain must serve a `stellar.toml` under `/.well-known/` for wallets and
+ * explorers to discover the issuer's asset metadata (SEP-0001).
+ */
+export async function buildHomeDomainTransaction({
+  publicKey,
+  homeDomain,
+}: {
+  publicKey: string;
+  homeDomain: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(publicKey);
+
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(Operation.setOptions({ homeDomain }))
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+/** Stellar Expert URL for an issued asset, e.g. `.../asset/COOL-GABC...`. */
+export function assetExplorerUrl(assetCode: string, issuer: string): string {
+  const net = NETWORK === "mainnet" ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${net}/asset/${assetCode}-${issuer}`;
+}
+
+/** SEP-0001 `stellar.toml` location for a home domain. */
+export function stellarTomlUrl(homeDomain: string): string {
+  const hostname = homeDomain
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "");
+  return `https://${hostname}/.well-known/stellar.toml`;
+}
+
+/**
+ * Render the `stellar.toml` an issuer should publish for a custom asset.
+ *
+ * Returning it as a string lets the wizard offer a preview, a copy button and a
+ * download without the user hand-writing TOML.
+ */
+export function buildStellarToml({
+  homeDomain,
+  assetCode,
+  issuerPublicKey,
+  network,
+}: {
+  homeDomain: string;
+  assetCode: string;
+  issuerPublicKey: string;
+  network?: "testnet" | "mainnet";
+}): string {
+  const activeNetwork = network ?? NETWORK;
+  const accounts = [issuerPublicKey];
+
+  if (activeNetwork === "mainnet") {
+    accounts.push("GCO2IP3MCPLXT4GMQ5H7UQRCLHH3QDEM7SY6DNNJDAW6DGRITQKHXVV");
+  }
+
+  const domain =
+    homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "") ||
+    "yourdomain.com";
+
+  return [
+    "# Stellar MicroPay — generated asset metadata (SEP-0001)",
+    `VERSION = "1.0.0"`,
+    `NETWORK_PASSPHRASE = "${
+      activeNetwork === "mainnet" ? Networks.PUBLIC : Networks.TESTNET
+    }"`,
+    "",
+    "[[CURRENCIES]]",
+    `code = "${assetCode}"`,
+    `issuer = "${issuerPublicKey}"`,
+    "is_asset_anchored = false",
+    `desc = "${assetCode} issued via Stellar MicroPay"`,
+    "",
+    "# Liquidity/explorer accounts that must be trusted for mainnet listings.",
+    "ACCOUNTS = [",
+    ...accounts.map((account) => `  "${account}",`),
+    "]",
+    "",
+    `# Publish this file at: ${stellarTomlUrl(domain)}`,
+    "",
+  ].join("\n");
+}
+
 /**
  * Submit a signed transaction XDR string to the Stellar network.
  *
