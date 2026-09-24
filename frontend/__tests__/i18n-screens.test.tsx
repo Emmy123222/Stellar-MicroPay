@@ -95,6 +95,13 @@ describe("Dashboard internationalisation", () => {
     expect(screen.getByText("Dirección de la cartera")).toBeInTheDocument();
     expect(screen.getByText("Saldo XLM")).toBeInTheDocument();
     expect(screen.getByText("Actividad reciente")).toBeInTheDocument();
+    // The tab strip introduced by the stacked events branch is translated too.
+    expect(
+      screen.getByRole("tab", { name: "Resumen" })
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("tab", { name: "Eventos en vivo" })
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("Send and receive XLM globally")
     ).not.toBeInTheDocument();
