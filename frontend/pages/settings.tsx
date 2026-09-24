@@ -10,9 +10,12 @@ import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar
 import { disconnectWallet } from "@/lib/wallet";
 import { shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+import { useTranslation } from "@/contexts/I18nContext";
+import { LOCALE_LABELS, SUPPORTED_LOCALES, type Locale } from "@/lib/i18n";
 
 export default function SettingsPage() {
   const { publicKey, disconnectWallet: disconnectCurrentWallet } = useWallet();
+  const { t, locale, setLocale } = useTranslation();
   const [config, setConfig] = useState<NetworkConfig>({
     network: "testnet",
     horizonUrl: "https://horizon-testnet.stellar.org",
@@ -115,14 +118,14 @@ export default function SettingsPage() {
     e.preventDefault();
 
     if (!username.trim() || !publicKey) {
-      setUsernameError("Username and wallet connection required");
+      setUsernameError(t("settings.username.errorRequired"));
       return;
     }
 
     // Validate username format
     const usernameRegex = /^[a-zA-Z0-9]{3,20}$/;
     if (!usernameRegex.test(username.trim())) {
-      setUsernameError("Username must be 3-20 characters, alphanumeric only");
+      setUsernameError(t("settings.username.errorFormat"));
       return;
     }
 
@@ -144,14 +147,18 @@ export default function SettingsPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to register username");
+        throw new Error(payload?.error || t("settings.username.errorGeneric"));
       }
 
       setRegisteredUsername(username.trim().toLowerCase());
-      setUsernameSuccess(`Username @${username.trim()} registered successfully!`);
+      setUsernameSuccess(
+        t("settings.username.success", { username: username.trim() })
+      );
       setUsername("");
     } catch (err) {
-      setUsernameError(err instanceof Error ? err.message : "Failed to register username");
+      setUsernameError(
+        err instanceof Error ? err.message : t("settings.username.errorGeneric")
+      );
     } finally {
       setUsernameLoading(false);
     }
@@ -173,22 +180,51 @@ export default function SettingsPage() {
           <div className="space-y-8">
             <div>
               <h1 className="text-2xl font-display font-bold text-slate-900 dark:text-white mb-2">
-                Settings
+                {t("settings.title")}
               </h1>
               <p className="text-slate-600 dark:text-slate-400">
-                Configure your Stellar network preferences
+                {t("settings.subtitle")}
+              </p>
+            </div>
+
+            {/* Language picker — persists the locale to localStorage (#1145). */}
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+                {t("settings.language.title")}
+              </h2>
+
+              <label
+                htmlFor="language-select"
+                className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
+              >
+                {t("settings.language.label")}
+              </label>
+              <select
+                id="language-select"
+                value={locale}
+                onChange={(event) => setLocale(event.target.value as Locale)}
+                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
+              >
+                {SUPPORTED_LOCALES.map((supportedLocale) => (
+                  <option key={supportedLocale} value={supportedLocale}>
+                    {LOCALE_LABELS[supportedLocale]}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {t("settings.language.hint")}
               </p>
             </div>
 
             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-                Network Configuration
+                {t("settings.network.title")}
               </h2>
 
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Select Network
+                    {t("settings.network.selectNetwork")}
                   </label>
                   <div className="grid grid-cols-3 gap-3">
                     <button
@@ -199,7 +235,7 @@ export default function SettingsPage() {
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Testnet
+                      {t("settings.network.testnet")}
                     </button>
                     <button
                       onClick={() => handleNetworkChange("mainnet")}
@@ -209,7 +245,7 @@ export default function SettingsPage() {
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Mainnet
+                      {t("settings.network.mainnet")}
                     </button>
                     <button
                       onClick={() => handleNetworkChange("custom")}
@@ -219,7 +255,7 @@ export default function SettingsPage() {
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Custom
+                      {t("settings.network.custom")}
                     </button>
                   </div>
                 </div>
@@ -227,7 +263,7 @@ export default function SettingsPage() {
                 {config.network === "custom" && (
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      Custom Horizon URL
+                      {t("settings.network.customHorizonUrl")}
                     </label>
                     <input
                       type="url"
@@ -238,14 +274,16 @@ export default function SettingsPage() {
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
                     />
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      Enter a custom Horizon server URL. Changes take effect immediately.
+                      {t("settings.network.customHorizonHint")}
                     </p>
                   </div>
                 )}
 
                 <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-slate-600 dark:text-slate-400">Current:</span>
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {t("settings.network.current")}
+                    </span>
                     <span className="font-mono text-slate-900 dark:text-white">
                       {config.horizonUrl}
                     </span>
@@ -261,7 +299,7 @@ export default function SettingsPage() {
                   <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  Creator Username
+                  {t("settings.username.title")}
                 </h2>
 
                 {registeredUsername ? (
@@ -272,21 +310,25 @@ export default function SettingsPage() {
                       </svg>
                       <div>
                         <p className="text-emerald-400 font-medium">@{registeredUsername}</p>
-                        <p className="text-xs text-slate-400">Your tip page: {typeof window !== "undefined" ? window.location.origin : ""}/tip/{registeredUsername}</p>
+                        <p className="text-xs text-slate-400">
+                          {t("settings.username.tipPagePrefix")}{" "}
+                          {typeof window !== "undefined" ? window.location.origin : ""}
+                          /tip/{registeredUsername}
+                        </p>
                       </div>
                     </div>
                     <Link
                       href={`/tip/${registeredUsername}`}
                       className="inline-flex items-center gap-2 text-sm text-stellar-400 hover:text-stellar-300"
                     >
-                      View your tip page →
+                      {t("settings.username.viewTipPage")}
                     </Link>
                   </div>
                 ) : (
                   <form onSubmit={handleRegisterUsername} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                        Register a username
+                        {t("settings.username.registerLabel")}
                       </label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
@@ -295,7 +337,7 @@ export default function SettingsPage() {
                             type="text"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            placeholder="yourname"
+                            placeholder={t("settings.username.placeholder")}
                             className="w-full pl-7 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
                             disabled={usernameLoading}
                           />
@@ -305,11 +347,13 @@ export default function SettingsPage() {
                           disabled={usernameLoading || !username.trim()}
                           className="px-4 py-2 bg-stellar-500 hover:bg-stellar-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
                         >
-                          {usernameLoading ? "Registering..." : "Register"}
+                          {usernameLoading
+                            ? t("settings.username.registering")
+                            : t("settings.username.register")}
                         </button>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        3-20 characters, letters and numbers only
+                        {t("settings.username.hint")}
                       </p>
                     </div>
 
@@ -329,7 +373,9 @@ export default function SettingsPage() {
 
                 <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-slate-600 dark:text-slate-400">Linked wallet:</span>
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {t("settings.username.linkedWallet")}
+                    </span>
                     <span className="font-mono text-slate-900 dark:text-white">
                       {shortenAddress(publicKey)}
                     </span>
@@ -343,7 +389,7 @@ export default function SettingsPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                   <p className="text-slate-600 dark:text-slate-400">
-                    Connect your wallet to register a username
+                    {t("settings.username.connectPrompt")}
                   </p>
                 </div>
               </div>
@@ -363,18 +409,18 @@ export default function SettingsPage() {
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                Switch to Mainnet?
+                {t("settings.network.mainnetWarningTitle")}
               </h3>
             </div>
             <p className="text-slate-600 dark:text-slate-400 mb-6">
-              Mainnet uses real XLM and real funds. Make sure you understand the risks and have backed up your keys. This action will disconnect your wallet.
+              {t("settings.network.mainnetWarningBody")}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={confirmMainnetSwitch}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
               >
-                Switch to Mainnet
+                {t("settings.network.switchToMainnet")}
               </button>
               <button
                 onClick={() => {
@@ -383,7 +429,7 @@ export default function SettingsPage() {
                 }}
                 className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white px-4 py-2 rounded-lg font-medium transition-colors"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </div>

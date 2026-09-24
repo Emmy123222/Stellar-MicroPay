@@ -9,6 +9,7 @@ import Head from "next/head";
 import Navbar from "@/components/Navbar";
 import QuickSendModal from "@/components/QuickSendModal";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
+import { I18nProvider } from "@/contexts/I18nContext";
 import {
   getStellarURIFromURL,
   registerProtocolHandler,
@@ -200,7 +201,9 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      <WalletProvider>
+      {/* Locale is applied above the wallet so every screen can translate. */}
+      <I18nProvider>
+        <WalletProvider>
         <Head>
           <title>Stellar-MicroPay | Instant Micropayments</title>
           <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -246,7 +249,8 @@ export default function App({ Component, pageProps }: AppProps) {
           isQuickSendOpen={isQuickSendOpen}
           setIsQuickSendOpen={setIsQuickSendOpen}
         />
-      </WalletProvider>
+        </WalletProvider>
+      </I18nProvider>
     </ThemeContext.Provider>
   );
 }
