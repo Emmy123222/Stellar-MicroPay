@@ -19,20 +19,23 @@ import {
 } from "@/lib/wallet";
 import { useWallet } from "@/lib/useWallet";
 import { useTheme } from "@/pages/_app";
+import { useTranslation } from "@/contexts/I18nContext";
 
+/** Nav entries carry an i18n key so labels follow the active locale (#1145). */
 const navLinks = [
-  { href: "/", label: "Home" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/trade", label: "Trade" },
-  { href: "/transactions", label: "Transactions" },
-  { href: "/network", label: "Network" },
-  { href: "/settings", label: "Settings" },
+  { href: "/", labelKey: "navbar.home" },
+  { href: "/dashboard", labelKey: "navbar.dashboard" },
+  { href: "/trade", labelKey: "navbar.trade" },
+  { href: "/transactions", labelKey: "navbar.transactions" },
+  { href: "/network", labelKey: "navbar.network" },
+  { href: "/settings", labelKey: "navbar.settings" },
 ];
 
 export default function Navbar() {
   const router = useRouter();
   const { publicKey, connectWallet, disconnectWallet } = useWallet();
   const { theme, toggleTheme } = useTheme();
+  const { t } = useTranslation();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [feeLevel, setFeeLevel] = useState<FeeLevel | null>(null);
   const config = getNetworkConfig();
@@ -146,7 +149,7 @@ export default function Navbar() {
                     : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
                 )}
               >
-                {link.label}
+                {t(link.labelKey)}
               </Link>
             ))}
           </div>
@@ -181,11 +184,13 @@ export default function Navbar() {
                 aria-label="Show disconnect confirmation"
                 className="px-2 py-1 text-xs text-slate-500 transition-colors hover:text-slate-300"
               >
-                Disconnect
+                {t("navbar.disconnect")}
               </button>
               {showDisconnectConfirm && (
                 <div className="flex items-center gap-1 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2 py-1">
-                  <span className="text-[11px] text-amber-300">Disconnect wallet?</span>
+                  <span className="text-[11px] text-amber-300">
+                    {t("navbar.disconnectConfirm")}
+                  </span>
                   <button
                     onClick={() => {
                       setShowDisconnectConfirm(false);
@@ -193,20 +198,20 @@ export default function Navbar() {
                     }}
                     className="rounded px-1.5 py-0.5 text-[11px] text-red-300 hover:bg-red-500/20"
                   >
-                    Confirm
+                    {t("navbar.confirm")}
                   </button>
                   <button
                     onClick={() => setShowDisconnectConfirm(false)}
                     className="rounded px-1.5 py-0.5 text-[11px] text-slate-200 hover:bg-white/10"
                   >
-                    Cancel
+                    {t("navbar.cancel")}
                   </button>
                 </div>
               )}
             </div>
           ) : (
             <button onClick={handleConnectClick} className="btn-primary px-4 py-2 text-sm">
-              Connect Wallet
+              {t("navbar.connectWallet")}
             </button>
           )}
         </div>

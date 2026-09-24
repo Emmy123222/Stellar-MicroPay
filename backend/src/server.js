@@ -20,6 +20,7 @@ const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
+const eventsRoutes = require("./routes/events");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -68,6 +69,12 @@ app.use("/api/auth",     authRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/health",       healthRoutes);
+
+// Server-sent events are mounted ahead of the global rate limiter: a stream is
+// a single long-lived request, and the browser reconnects it automatically, so
+// counting each connection against the 100-req/15-min budget would starve the
+// feed. The handler bounds its own work with a poll interval instead.
+app.use("/api/events", eventsRoutes);
 
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
