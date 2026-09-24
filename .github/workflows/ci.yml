@@ -16,9 +16,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The check below diffs against a parent (push) or the base branch
+          # (pull request). The default depth-1 clone has neither, so `HEAD^`
+          # resolved to "unknown revision" and the job failed on every event.
+          fetch-depth: 0
+
       - name: Reject whitespace errors and unresolved conflicts
         run: |
-          git diff --check HEAD^
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Everything this PR adds, relative to where it forked off the base.
+            range="${{ github.event.pull_request.base.sha }}...HEAD"
+          elif git rev-parse --verify -q 'HEAD^' >/dev/null; then
+            range='HEAD^'
+          else
+            # Root commit on a freshly pushed branch: nothing to compare against.
+            range='HEAD'
+          fi
+
+          echo "Checking whitespace in: ${range}"
+          git diff --check "${range}"
+
+          echo "Checking for unresolved merge conflict markers"
           ! git grep -n -E '^(<<<<<<<|=======|>>>>>>>)'
 
   frontend:
@@ -71,9 +92,39 @@ jobs:
         with:
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --target wasm32v1-none
-      - run: cargo test
-      - run: cargo build --target wasm32v1-none --release
+
+      # soroban-sdk >= 25.x refuses to compile for a wasm target unless the
+      # build system sets SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2.
+      # Only stellar-cli sets it, and it is not optional bookkeeping: the SDK
+      # shakes the contract spec during the build, so a plain `cargo build`
+      # would emit a wasm whose spec is wrong. Build through the CLI instead.
+      - name: Install stellar-cli
+        env:
+          # Keep in step with the soroban-sdk major in
+          # contracts/stellar-micropay-contract/Cargo.toml.
+          STELLAR_CLI_VERSION: "28.0.0"
+        run: |
+          set -euo pipefail
+
+          url="https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "$url" | tar -xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/stellar" --version
+
+      # Type-check and unit-test against the host target: the wasm target is
+      # covered by the CLI build below. --locked keeps Cargo.lock authoritative,
+      # so a manifest bump that forgets the lockfile fails here instead of
+      # silently re-resolving at build time.
+      - run: cargo check --locked --workspace
+      - run: cargo test --locked --workspace
+
+      - name: Build contract wasm
+        run: |
+          stellar contract build \
+            --manifest-path contracts/stellar-micropay-contract/Cargo.toml \
+            --locked
+
       - uses: actions/upload-artifact@v4
         with:
           name: stellar-micropay-contract-wasm

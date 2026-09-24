@@ -17,8 +17,12 @@ backend/.env
 backend/logs/
 
 # ─── Rust / Cargo ─────────────────────────────────────────────────────────────
+# Cargo.lock is intentionally NOT ignored: it is tracked, the contract is a
+# deployable artifact, and CI builds with --locked. It used to be listed here
+# while also being committed, which meant tooling (Dependabot's soroban-sdk bump)
+# silently dropped its lockfile update and the committed lockfile drifted a whole
+# major version behind Cargo.toml.
 target/
-Cargo.lock
 
 # ─── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
@@ -46,6 +50,9 @@ build/
 playwright-report/
 test-results/
 test_snapshots
+
+# Lighthouse CI (written by the Lighthouse job)
+.lighthouseci/
 
 # ─── Local scripts (never push) ───────────────────────────────────────────────
 scripts/create_issues.py

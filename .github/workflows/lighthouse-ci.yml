@@ -32,6 +32,30 @@ jobs:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
+      # treosh/lighthouse-ci-action does not accept startServerCommand,
+      # startServerReadyPattern or startServerReadyTimeout (it warned "Unexpected
+      # input(s)" and ignored them), so no server was ever listening on :3000 and
+      # every run died with "Lighthouse failed with exit code 1". Start the
+      # static server here instead, and only pass inputs the action supports.
+      - name: Start static server
+        run: |
+          set -euo pipefail
+
+          # nohup + detached stdin so the server outlives this step.
+          nohup npm run start > /tmp/serve.log 2>&1 < /dev/null &
+
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/; then
+              echo "Static server is up on http://localhost:3000"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Static server never became ready. Log:" >&2
+          cat /tmp/serve.log >&2
+          exit 1
+
       - name: Audit primary routes
         uses: treosh/lighthouse-ci-action@v12
         with:
@@ -39,8 +63,5 @@ jobs:
             http://localhost:3000/
             http://localhost:3000/dashboard
             http://localhost:3000/pay
-          startServerCommand: npm run start --prefix frontend
-          startServerReadyPattern: "Accepting connections"
-          startServerReadyTimeout: 60000
           uploadArtifacts: true
           temporaryPublicStorage: false
