@@ -677,6 +677,29 @@ const options = {
           },
         },
       },
+      "/api/events/stream": {
+        get: {
+          tags: ["Events"],
+          summary: "Stream Soroban contract events (Server-Sent Events)",
+          description:
+            "Opens a `text/event-stream` connection. Each message is a JSON envelope with a `kind` of `ready`, `event` or `status`.",
+          parameters: [
+            {
+              name: "cursor",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Resume from a paging cursor returned by Soroban RPC",
+            },
+          ],
+          responses: {
+            200: {
+              description: "Event stream",
+              content: { "text/event-stream": { schema: { type: "string" } } },
+            },
+          },
+        },
+      },
       "/federation": {
         get: {
           tags: ["Federation"],

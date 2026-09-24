@@ -1,4 +1,10 @@
-import { buildAccountMergeTransaction, server, TransactionCategory } from "@/lib/stellar";
+import {
+  buildAccountMergeTransaction,
+  server,
+  TransactionCategory,
+  fetchHorizonRoot,
+  feeLevelFromStroops,
+} from "@/lib/stellar";
 import { Account } from "@stellar/stellar-sdk";
 
 describe("Stellar helper", () => {
@@ -29,5 +35,56 @@ describe("Stellar helper", () => {
     // we can test that the enum exists and is used.
     expect(TransactionCategory.Payment).toBe("Payment");
     expect(TransactionCategory.Merge).toBe("Merge");
+  });
+
+  describe("fetchHorizonRoot", () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it("reads the Horizon root endpoint and returns the typed payload", async () => {
+      const payload = {
+        horizon_version: "28.0.1",
+        core_version: "stellar-core 29.0.0",
+        ingest_latest_ledger: 42,
+        history_latest_ledger: 42,
+        history_latest_ledger_closed_at: "2026-09-24T10:35:22Z",
+        core_latest_ledger: 42,
+        network_passphrase: "Test SDF Network ; September 2015",
+        current_protocol_version: 28,
+        core_supported_protocol_version: 29,
+      };
+
+      const fetchMock = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => payload,
+      } as Response);
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      await expect(fetchHorizonRoot()).resolves.toEqual(payload);
+      expect(String(fetchMock.mock.calls[0][0])).toMatch(/horizon-testnet\.stellar\.org\/$/);
+    });
+
+    it("throws when Horizon responds with an error status", async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+        json: async () => ({}),
+      } as Response) as unknown as typeof fetch;
+
+      await expect(fetchHorizonRoot()).rejects.toThrow(/503/);
+    });
+  });
+
+  describe("feeLevelFromStroops", () => {
+    it("classifies a fee using the navbar thresholds", () => {
+      expect(feeLevelFromStroops(99)).toBe("normal");
+      expect(feeLevelFromStroops(100)).toBe("elevated");
+      expect(feeLevelFromStroops(1000)).toBe("elevated");
+      expect(feeLevelFromStroops(1001)).toBe("high");
+    });
   });
 });
