@@ -1369,20 +1369,6 @@ export interface NetworkFeeStats {
   baseFeeXlm: number;
 }
 
-export interface NetworkStats {
-  latestLedgerSequence: number;
-  lastLedgerCloseTime: string;
-  avgTransactionCount: number;
-  currentBaseFee: number;
-  p50Fee: number;
-  p95Fee: number;
-  p99Fee: number;
-}
-
-/**
- * Fetches the current network fee statistics from Horizon and classifies
-
-
 /**
  * Fetches the current network fee statistics from Horizon and classifies
  * the fee level for the network status indicator.
@@ -1411,16 +1397,243 @@ export async function fetchNetworkFeeStats(): Promise<NetworkFeeStats> {
   );
   const baseFeeXlm = modeStroops / STELLAR_STROOPS_PER_XLM;
 
-  let feeLevel: FeeLevel;
-  if (modeStroops < STELLAR_BASE_FEE_STROOPS) {
-    feeLevel = "normal";
-  } else if (modeStroops <= ELEVATED_FEE_MAX_STROOPS) {
-    feeLevel = "elevated";
-  } else {
-    feeLevel = "high";
+  return { feeLevel: feeLevelFromStroops(modeStroops), baseFeeXlm };
+}
+
+// ── Horizon root / network health (#1144) ──────────────────────────────────
+
+/**
+ * Horizon's root endpoint (`GET /`) response, trimmed to the fields this app
+ * reads. The endpoint is the canonical source for the network's current ledger
+ * and the Horizon/core versions serving it.
+ *
+ * @see {@link https://developers.stellar.org/docs/data/apis/horizon/api-reference/get-root | Horizon get root}
+ */
+export interface HorizonRootResponse {
+  horizon_version: string;
+  core_version: string;
+  ingest_latest_ledger: number;
+  history_latest_ledger: number;
+  history_latest_ledger_closed_at: string;
+  core_latest_ledger: number;
+  network_passphrase: string;
+  current_protocol_version: number;
+  core_supported_protocol_version: number;
+}
+
+/**
+ * Network health metrics rendered by the network status page.
+ *
+ * A `null` value means the metric could not be derived from Horizon on this
+ * refresh — the UI shows "Unavailable" rather than a misleading zero.
+ */
+export interface NetworkMetrics {
+  /** Sequence of the newest ledger Horizon has ingested. */
+  latestLedgerSequence: number;
+  /** ISO-8601 close time of the newest ledger. */
+  lastLedgerCloseTime: string;
+  /** Seconds between the newest ledger close time and this measurement. */
+  ledgerCloseLagSeconds: number;
+  /** Protocol minimum fee in XLM (Horizon `last_ledger_base_fee`). */
+  baseFeeXlm: number;
+  /** Median fee actually charged by recent transactions, in XLM. */
+  recommendedFeeXlm: number;
+  /** 95th percentile fee charged, in XLM. */
+  feeP95Xlm: number;
+  /** 99th percentile fee charged, in XLM. */
+  feeP99Xlm: number;
+  /** Fee level classification for the network status indicator. */
+  feeLevel: FeeLevel;
+  /** Distinct accounts seen in the newest ledger's operations. */
+  activeAccounts: number | null;
+  /** Ledger the {@link NetworkMetrics.activeAccounts} sample came from. */
+  activeAccountsLedger: number;
+  /** Successful operations per second across the sampled ledger window. */
+  operationsPerSecond: number | null;
+  /** Number of ledgers averaged for {@link NetworkMetrics.operationsPerSecond}. */
+  sampledLedgerCount: number;
+  /** Client-measured round-trip time of the Horizon root request, in ms. */
+  horizonLatencyMs: number;
+  /** Client-measured round-trip time of the fee-stats request, in ms. */
+  feeStatsLatencyMs: number;
+  /** Stellar protocol version reported by Horizon. */
+  protocolVersion: number | null;
+  /** Horizon build serving the active network. */
+  horizonVersion: string | null;
+  /** Stellar Core build behind Horizon. */
+  coreVersion: string | null;
+  /** Network passphrase, e.g. `Test SDF Network ; September 2015`. */
+  networkPassphrase: string | null;
+}
+
+/** How many recent ledgers are averaged for the operations/second metric. */
+export const NETWORK_SAMPLE_LEDGER_COUNT = 10;
+
+/** Cap for the operations page used to count active accounts. */
+export const NETWORK_OPERATIONS_PAGE_LIMIT = 200;
+
+function nowMs(): number {
+  return typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
+function stroopsToXlm(stroops: string | number | undefined, fallback = 0): number {
+  const parsed = typeof stroops === "number" ? stroops : parseInt(stroops ?? "", 10);
+  return Number.isFinite(parsed) ? parsed / STELLAR_STROOPS_PER_XLM : fallback;
+}
+
+/**
+ * Fetch Horizon's root (`GET /`) endpoint.
+ *
+ * `stellar-sdk`'s JS `Horizon.Server` has no `fetchRoot()` helper (that method
+ * only exists in the Go/Java SDKs), so this hits the same endpoint directly and
+ * returns the typed payload the status page needs.
+ *
+ * @throws {Error} If Horizon responds with a non-2xx status.
+ */
+export async function fetchHorizonRoot(): Promise<HorizonRootResponse> {
+  const { horizonUrl } = getNetworkConfig();
+  const res = await fetch(`${horizonUrl.replace(/\/$/, "")}/`);
+
+  if (!res.ok) {
+    throw new Error(`Horizon root endpoint returned ${res.status} ${res.statusText}`);
   }
 
-  return { feeLevel, baseFeeXlm };
+  return (await res.json()) as HorizonRootResponse;
+}
+
+/**
+ * Count the distinct accounts referenced by the operations of a single ledger.
+ *
+ * Horizon has no account-count metric, so "active accounts" is defined here as
+ * the accounts that participated in the newest ledger. Returns `null` when the
+ * operations page cannot be read, so the UI can say "Unavailable".
+ */
+export async function countActiveAccountsInLedger(
+  ledgerSequence: number
+): Promise<number | null> {
+  try {
+    const operations = await getServer()
+      .operations()
+      .forLedger(ledgerSequence)
+      .limit(NETWORK_OPERATIONS_PAGE_LIMIT)
+      .call();
+
+    const accounts = new Set<string>();
+
+    for (const op of operations.records) {
+      const candidate = op as {
+        source_account?: string;
+        from?: string;
+        to?: string;
+        into?: string;
+        destination?: string;
+      };
+
+      for (const address of [
+        candidate.source_account,
+        candidate.from,
+        candidate.to,
+        candidate.into,
+        candidate.destination,
+      ]) {
+        if (address) accounts.add(address);
+      }
+    }
+
+    return accounts.size;
+  } catch (err) {
+    console.error("Failed to count active accounts:", err);
+    return null;
+  }
+}
+
+/**
+ * Collect every network health metric the status page renders.
+ *
+ * Sources:
+ *   - Horizon root (`/`) — ledger sequence, close time, protocol/versions.
+ *   - Horizon `/fee_stats` — base, recommended, p95 and p99 fees.
+ *   - Horizon `/ledgers` — operations-per-second over a recent window.
+ *   - Horizon `/ledgers/{seq}/operations` — active accounts.
+ *
+ * Latencies are measured client-side around each request.
+ */
+export async function fetchNetworkMetrics(): Promise<NetworkMetrics> {
+  const horizon = getServer();
+
+  const rootStartedAt = nowMs();
+  const root = await fetchHorizonRoot();
+  const horizonLatencyMs = nowMs() - rootStartedAt;
+
+  const feeStartedAt = nowMs();
+  const feeStats = await horizon.feeStats();
+  const feeStatsLatencyMs = nowMs() - feeStartedAt;
+
+  const ledgers = await horizon
+    .ledgers()
+    .order("desc")
+    .limit(NETWORK_SAMPLE_LEDGER_COUNT)
+    .call();
+
+  const records = ledgers.records;
+  if (records.length === 0) {
+    throw new Error("Horizon returned no ledgers for the requested window.");
+  }
+
+  const newestLedger = records[0];
+  const oldestLedger = records[records.length - 1];
+
+  const totalOperations = records.reduce(
+    (sum, ledger) => sum + (ledger.operation_count ?? 0),
+    0
+  );
+  const windowSeconds =
+    (Date.parse(newestLedger.closed_at) - Date.parse(oldestLedger.closed_at)) / 1000;
+  const operationsPerSecond =
+    windowSeconds > 0
+      ? Math.round((totalOperations / windowSeconds) * 100) / 100
+      : null;
+
+  const activeAccounts = await countActiveAccountsInLedger(newestLedger.sequence);
+
+  const modeStroops = parseInt(
+    feeStats.fee_charged?.mode ?? STELLAR_BASE_FEE_STROOPS_STRING,
+    10
+  );
+  const lastLedgerCloseMs = Date.parse(root.history_latest_ledger_closed_at);
+
+  return {
+    latestLedgerSequence: root.history_latest_ledger,
+    lastLedgerCloseTime: root.history_latest_ledger_closed_at,
+    ledgerCloseLagSeconds: Number.isFinite(lastLedgerCloseMs)
+      ? Math.max(0, Math.round((Date.now() - lastLedgerCloseMs) / 1000))
+      : 0,
+    baseFeeXlm: stroopsToXlm(feeStats.last_ledger_base_fee, STELLAR_BASE_FEE_XLM),
+    recommendedFeeXlm: stroopsToXlm(feeStats.fee_charged?.p50),
+    feeP95Xlm: stroopsToXlm(feeStats.fee_charged?.p95),
+    feeP99Xlm: stroopsToXlm(feeStats.fee_charged?.p99),
+    feeLevel: feeLevelFromStroops(modeStroops),
+    activeAccounts,
+    activeAccountsLedger: newestLedger.sequence,
+    operationsPerSecond,
+    sampledLedgerCount: records.length,
+    horizonLatencyMs,
+    feeStatsLatencyMs,
+    protocolVersion: root.current_protocol_version ?? null,
+    horizonVersion: root.horizon_version ?? null,
+    coreVersion: root.core_version ?? null,
+    networkPassphrase: root.network_passphrase ?? null,
+  };
+}
+
+/** Classify a fee (in stroops) using the same thresholds as the navbar indicator. */
+export function feeLevelFromStroops(modeStroops: number): FeeLevel {
+  if (modeStroops < STELLAR_BASE_FEE_STROOPS) return "normal";
+  if (modeStroops <= ELEVATED_FEE_MAX_STROOPS) return "elevated";
+  return "high";
 }
 
 // ── DEX Trading Helpers ───────────────────────────────────────────────────
