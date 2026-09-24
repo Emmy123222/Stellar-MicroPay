@@ -12,6 +12,16 @@ jest.mock('@/lib/stellar', () => ({
     isValidStellarAddress: jest.fn((addr) => addr.startsWith('G') && addr.length === 56),
     submitTransaction: jest.fn(),
     STELLAR_MEMO_TEXT_MAX_BYTES: 28,
+    STELLAR_MEMO_HASH_HEX_LENGTH: 64,
+    STELLAR_MEMO_PLACEHOLDERS: {
+        text: 'Payment note...',
+        id: 'e.g. 1234567890',
+        hash: '64 hex characters',
+        return: '64 hex characters',
+    },
+    // The real validation is covered in __tests__/stellar.test.ts; here it only has
+    // to answer for the values these tests type.
+    memoValueError: jest.fn(() => null),
     memoTextByteLength: jest.fn((memo: string) => encodeURIComponent(memo).replace(/%[0-9A-F]{2}/gi, 'x').length),
     truncateMemoText: jest.fn((memo: string) => Array.from(memo).reduce((result, char) => {
         return encodeURIComponent(result + char).replace(/%[0-9A-F]{2}/gi, 'x').length <= 28 ? result + char : result;
@@ -180,5 +190,37 @@ describe('SendPaymentForm - Memo Templates', () => {
         expect(memoInput.value).toBe('Salary');
         expect(rentChip).not.toHaveClass('bg-stellar-500/20');
         expect(salaryChip).toHaveClass('bg-stellar-500/20');
+    });
+
+    it('offers all four memo types and adapts the field to the chosen one', async () => {
+        render(<SendPaymentForm {...defaultProps} />);
+        const user = userEvent.setup();
+
+        const typeSelect = screen.getByLabelText('Memo (optional)');
+
+        // Default stays what it was before this existed: a text note.
+        expect(typeSelect).toHaveValue('text');
+        expect(screen.getByPlaceholderText('Payment note...')).toBeInTheDocument();
+
+        await user.selectOptions(typeSelect, 'id');
+
+        expect(typeSelect).toHaveValue('id');
+        const memoInput = screen.getByPlaceholderText('e.g. 1234567890') as HTMLInputElement;
+        expect(memoInput).toHaveAttribute('maxlength', '20');
+
+        // The template chips write text memos, so they are not offered here.
+        expect(screen.queryByText('Coffee ☕')).not.toBeInTheDocument();
+    });
+
+    it('clears the memo when the type changes, because the old value cannot be valid', async () => {
+        render(<SendPaymentForm {...defaultProps} />);
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: /Rent/i }));
+        expect(screen.getByPlaceholderText('Payment note...')).toHaveValue('Rent');
+
+        await user.selectOptions(screen.getByLabelText('Memo (optional)'), 'hash');
+
+        expect(screen.getByPlaceholderText('64 hex characters')).toHaveValue('');
     });
 });

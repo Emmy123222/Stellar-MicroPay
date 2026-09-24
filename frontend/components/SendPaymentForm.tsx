@@ -19,9 +19,13 @@ import {
   fetchNetworkFeeStats,
   isValidStellarAddress,
   memoTextByteLength,
+  memoValueError,
   server,
   STELLAR_BASE_FEE_XLM,
+  STELLAR_MEMO_HASH_HEX_LENGTH,
+  STELLAR_MEMO_PLACEHOLDERS,
   STELLAR_MEMO_TEXT_MAX_BYTES,
+  type StellarMemoType,
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
@@ -118,6 +122,7 @@ export default function SendPaymentForm({
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
+  const [memoType, setMemoType] = useState<StellarMemoType>("text");
   const [isResolvingUsername, setIsResolvingUsername] = useState(false);
   const [usernameResolutionError, setUsernameResolutionError] = useState<string | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
@@ -292,10 +297,22 @@ export default function SendPaymentForm({
   };
 
   const handleMemoChange = (value: string) => {
-    setMemo(value);
+    // Text is capped at 28 bytes by the protocol, so trimming while typing is a
+    // kindness. A hash or an id cannot be trimmed to fit — it is either the right
+    // length or it is wrong — so those are kept as typed and validated instead.
+    setMemo(memoType === "text" ? truncateMemoText(value) : value);
     if (value !== selectedMemoTemplate) {
       setSelectedMemoTemplate(null);
     }
+  };
+
+  const handleMemoTypeChange = (next: StellarMemoType) => {
+    // The current value is almost never valid for the new type (a 28-character
+    // note is not a 64-character hash), so clear it rather than leave a field
+    // that only fails validation.
+    setMemoType(next);
+    setMemo("");
+    setSelectedMemoTemplate(null);
   };
 
   useEffect(() => {
@@ -346,7 +363,21 @@ export default function SendPaymentForm({
   const isValidAmt = !Number.isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
 
   const canSubmit = (isValidDest || (isUsernameDestination && !isResolvingUsername && !usernameResolutionError)) &&
-    isValidAmt && status === "idle" && destination !== publicKey;
+    isValidAmt && status === "idle" && destination !== publicKey && !memoValueError(memoType, memo);
+
+  // A memo the protocol would reject blocks submit below instead of failing after
+  // the user has signed.
+  const memoError = memoValueError(memoType, memo);
+  const memoMaxLength =
+    memoType === "text" ? STELLAR_MEMO_TEXT_MAX_BYTES
+      : memoType === "id" ? 20
+        : STELLAR_MEMO_HASH_HEX_LENGTH;
+  const memoHint =
+    memoType === "text"
+      ? `${memoTextByteLength(memo)}/${STELLAR_MEMO_TEXT_MAX_BYTES} characters`
+      : memoType === "id"
+        ? "Unsigned 64-bit integer"
+        : `${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters (32 bytes)`;
 
   const resolveUsername = async (username: string) => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
@@ -462,6 +493,7 @@ export default function SendPaymentForm({
             toPublicKey: destination,
             amount: amountNum.toFixed(7),
             memo: memo.trim() || undefined,
+            memoType,
           });
       markStepCompleted("building");
 
@@ -712,16 +744,34 @@ export default function SendPaymentForm({
 
         {!hideMemoField && (
           <div>
-            <label className="label">Memo (optional)</label>
-            <input
-              type="text"
-              value={memo}
-              onChange={(e) => handleMemoChange(truncateMemoText(e.target.value))}
-              placeholder="Payment note..."
-              className="input-field"
-              disabled={status !== "idle"}
-              maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
-            />
+            <label className="label" htmlFor="memo-type">Memo (optional)</label>
+            <div className="flex gap-2">
+              <select
+                id="memo-type"
+                value={memoType}
+                onChange={(e) => handleMemoTypeChange(e.target.value as StellarMemoType)}
+                disabled={status !== "idle"}
+                className="input-field w-32 shrink-0"
+              >
+                <option value="text">Text</option>
+                <option value="id">ID</option>
+                <option value="hash">Hash</option>
+                <option value="return">Return</option>
+              </select>
+              <input
+                type="text"
+                value={memo}
+                onChange={(e) => handleMemoChange(e.target.value)}
+                placeholder={STELLAR_MEMO_PLACEHOLDERS[memoType]}
+                className="input-field"
+                disabled={status !== "idle"}
+                maxLength={memoMaxLength}
+                inputMode={memoType === "id" ? "numeric" : "text"}
+                aria-invalid={Boolean(memoError)}
+                aria-describedby="memo-help"
+              />
+            </div>
+            {memoType === "text" && (
             <div className="mt-3 flex flex-wrap gap-2">
               {memoTemplates.map((template) => {
                 const isActive = selectedMemoTemplate === template;
@@ -744,8 +794,12 @@ export default function SendPaymentForm({
                 );
               })}
             </div>
-            <p className="mt-3 text-xs text-slate-500">
-              {memoTextByteLength(memo)}/{STELLAR_MEMO_TEXT_MAX_BYTES} characters
+            )}
+            <p
+              id="memo-help"
+              className={clsx("mt-3 text-xs", memoError ? "text-red-400" : "text-slate-500")}
+            >
+              {memoError ?? memoHint}
             </p>
           </div>
         )}

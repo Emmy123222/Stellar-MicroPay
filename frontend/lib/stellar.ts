@@ -164,6 +164,91 @@ export function truncateMemoText(memo: string): string {
 }
 
 /**
+ * Memo types the Stellar protocol defines, and the ones the payment form offers.
+ */
+export type StellarMemoType = "text" | "id" | "hash" | "return";
+
+/** MEMO_ID is a uint64, so this is the largest value the protocol field holds. */
+export const STELLAR_MEMO_ID_MAX = "18446744073709551615";
+
+/** MEMO_HASH and MEMO_RETURN carry exactly 32 bytes, i.e. 64 hex characters. */
+export const STELLAR_MEMO_HASH_HEX_LENGTH = 64;
+
+/** Placeholder per memo type, so the form and its tests agree on the wording. */
+export const STELLAR_MEMO_PLACEHOLDERS: Record<StellarMemoType, string> = {
+  text: "Payment note...",
+  id: "e.g. 1234567890",
+  hash: "64 hex characters",
+  return: "64 hex characters",
+};
+
+/**
+ * Why `value` cannot be used as a memo of `type`, or null when it can.
+ *
+ * Separate from {@link buildMemo} so the form can show the reason while typing and
+ * disable submit, while the builder still refuses to attach a memo the protocol
+ * would reject.
+ */
+export function memoValueError(type: StellarMemoType, value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null; // an empty memo is simply not attached
+
+  if (type === "id") {
+    if (!/^\d+$/.test(trimmed)) return "MEMO_ID must be a whole number.";
+    // Compare as BigInt: Number() loses precision above 2^53.
+    if (BigInt(trimmed) > BigInt(STELLAR_MEMO_ID_MAX)) {
+      return "MEMO_ID must fit in an unsigned 64-bit integer.";
+    }
+    return null;
+  }
+
+  if (type === "hash" || type === "return") {
+    const label = type === "hash" ? "MEMO_HASH" : "MEMO_RETURN";
+    if (!/^[0-9a-fA-F]+$/.test(trimmed)) return `${label} must be hexadecimal.`;
+    if (trimmed.length !== STELLAR_MEMO_HASH_HEX_LENGTH) {
+      return `${label} must be exactly ${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters (32 bytes).`;
+    }
+    return null;
+  }
+
+  if (memoTextByteLength(trimmed) > STELLAR_MEMO_TEXT_MAX_BYTES) {
+    return `MEMO_TEXT must be at most ${STELLAR_MEMO_TEXT_MAX_BYTES} bytes.`;
+  }
+  return null;
+}
+
+/**
+ * Build the {@link Memo} the transaction builder needs for the chosen type.
+ *
+ * Only text is truncated, because the 28-byte cap is the one the protocol lets you
+ * handle by approximation. A hash that is not 32 bytes, or an id that does not fit
+ * in uint64, is rejected instead of adjusted: a truncated hash is a different
+ * value than the one the sender meant to commit to.
+ */
+export function buildMemo(type: StellarMemoType, value: string): Memo {
+  const trimmed = value.trim();
+
+  // Text is the one type the protocol lets you trim to fit, so it is shortened
+  // rather than refused. The other three have fixed shapes: a 31-byte hash or a
+  // uint64 overflow is a different value than the sender meant, so it throws.
+  if (type === "text") return Memo.text(truncateMemoText(trimmed));
+
+  const problem = memoValueError(type, trimmed);
+  if (problem) throw new Error(problem);
+
+  switch (type) {
+    case "id":
+      return Memo.id(trimmed);
+    case "hash":
+      return Memo.hash(trimmed);
+    case "return":
+      return Memo.return(trimmed);
+    default:
+      return Memo.text(truncateMemoText(trimmed));
+  }
+}
+
+/**
  * USDC issuer (Circle) for the active network.
  *
  * If you intend to use USDC features on testnet, set `NEXT_PUBLIC_USDC_ISSUER`.
@@ -630,12 +715,15 @@ export async function buildPaymentTransaction({
   toPublicKey,
   amount,
   memo,
+  memoType = "text",
   asset = "XLM",
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
   memo?: string;
+  /** What the memo value is: `text` (default), `id`, `hash` or `return`. */
+  memoType?: StellarMemoType;
   asset?: "XLM" | "USDC";
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
@@ -673,7 +761,7 @@ export async function buildPaymentTransaction({
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
 
   if (memo) {
-    builder.addMemo(Memo.text(truncateMemoText(memo)));
+    builder.addMemo(buildMemo(memoType, memo));
   }
 
   return builder.build();
