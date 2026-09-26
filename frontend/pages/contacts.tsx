@@ -33,6 +33,7 @@ export default function Contacts() {
   // Contact management state
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [storageAvailable, setStorageAvailable] = useState(true);
 
   // Form state
   const [name, setName] = useState("");
@@ -49,21 +50,30 @@ export default function Contacts() {
 
   // Load contacts from localStorage on mount
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setContacts(JSON.parse(stored));
-      } catch (err) {
-        console.error("Failed to load contacts:", err);
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        try {
+          setContacts(JSON.parse(stored));
+        } catch (err) {
+          console.error("Failed to load contacts:", err);
+        }
       }
+    } catch {
+      setStorageAvailable(false);
+    } finally {
+      setLoaded(true);
     }
-    setLoaded(true);
   }, []);
 
   // Save contacts to localStorage whenever they change
   useEffect(() => {
     if (loaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts));
+      } catch {
+        setStorageAvailable(false);
+      }
     }
   }, [contacts, loaded]);
 
@@ -197,6 +207,15 @@ export default function Contacts() {
         </h1>
         <p className="text-slate-400">{`Save and manage Stellar addresses`}</p>
       </div>
+
+      {!storageAvailable && (
+        <div
+          role="status"
+          className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200"
+        >
+          Contacts won&apos;t be saved in private/incognito mode
+        </div>
+      )}
 
       {/* Toast */}
       {toastVisible && (
