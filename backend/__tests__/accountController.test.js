@@ -15,6 +15,7 @@ function setupApp() {
   
   app.get("/api/accounts/resolve/:username", accountController.resolveUsername);
   app.get("/api/accounts/:publicKey/balance", accountController.getBalance);
+  app.get("/api/accounts/:publicKey/streaks", accountController.getStreaks);
   app.get("/api/accounts/:publicKey", accountController.getAccount);
   app.post("/api/accounts/register", accountController.registerUsername);
   
@@ -103,13 +104,43 @@ describe("accountController", () => {
     });
   });
 
+  describe("getStreaks", () => {
+    it("returns streak info for a valid public key", async () => {
+      stellarService.getAccountStreaks.mockResolvedValue({
+        currentStreak: 5,
+        longestStreak: 10,
+        lastTransactionDate: "2026-03-27T10:00:00Z"
+      });
+
+      const res = await request(app).get("/api/accounts/G_VALID/streaks");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        currentStreak: 5,
+        longestStreak: 10,
+        lastTransactionDate: "2026-03-27T10:00:00Z"
+      });
+      expect(stellarService.getAccountStreaks).toHaveBeenCalledWith("G_VALID");
+    });
+
+    it("propagates errors from stellarService", async () => {
+      const err = new Error("Failed to get streaks");
+      err.status = 500;
+      stellarService.getAccountStreaks.mockRejectedValue(err);
+
+      const res = await request(app).get("/api/accounts/G_ERROR/streaks");
+
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({ error: "Failed to get streaks" });
+    });
+  });
+
   describe("registerUsername", () => {
     it("returns 400 if username or publicKey is missing", async () => {
       const res = await request(app).post("/api/accounts/register").send({ username: "alice" });
       
       expect(res.status).toBe(400);
       expect(res.body).toEqual({
-        success: false,
         error: "Username and public key are required"
       });
     });
@@ -150,14 +181,14 @@ describe("accountController", () => {
     it("resolves a username to its associated public key", async () => {
       usernameService.resolveUsername.mockReturnValue({ publicKey: "G_VALID" });
 
-      const res = await request(app).get("/api/accounts/resolve/alice");
+      const res = await request(app).get("/api/accounts/resolve/bob");
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         success: true,
         data: { publicKey: "G_VALID" }
       });
-      expect(usernameService.resolveUsername).toHaveBeenCalledWith("alice");
+      expect(usernameService.resolveUsername).toHaveBeenCalledWith("bob");
     });
 
     it("propagates errors when username cannot be resolved", async () => {

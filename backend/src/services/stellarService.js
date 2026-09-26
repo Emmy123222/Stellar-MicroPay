@@ -13,6 +13,10 @@ const logger = require("../utils/logger");
 const ACCOUNT_CACHE_TTL_MS = 5_000;
 const ACCOUNT_CACHE_MAX = 256;
 
+// ─── In-memory LRU cache for getAccountStreaks (1 hour TTL) ─────────────────
+const STREAKS_CACHE_TTL_MS = 60 * 60 * 1000;
+const STREAKS_CACHE_MAX = 1000;
+
 // ─── Timeout + retry ──────────────────────────────────────────────────────────
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -98,6 +102,13 @@ function clearAccountCache() {
   accountCache.clear();
 }
 
+/** @type {Map<string, { value: object, expiresAt: number }>} */
+const streaksCache = new Map();
+
+function clearStreaksCache() {
+  streaksCache.clear();
+}
+
 // ─── Account ──────────────────────────────────────────────────────────────────
 
 /**
@@ -154,6 +165,113 @@ async function getXLMBalance(publicKey) {
   const { balances } = await getAccount(publicKey);
   const xlm = balances.find((b) => b.assetCode === "XLM");
   return xlm ? xlm.balance : "0";
+}
+
+/**
+ * Get account streaks based on last 200 payments
+ */
+async function getAccountStreaks(publicKey) {
+  validatePublicKey(publicKey);
+
+  const cached = streaksCache.get(publicKey);
+  if (cached) {
+    if (Date.now() <= cached.expiresAt) {
+      // LRU: re-insert to move to end
+      streaksCache.delete(publicKey);
+      streaksCache.set(publicKey, cached);
+      return cached.value;
+    }
+    streaksCache.delete(publicKey);
+  }
+
+  const query = server.payments().forAccount(publicKey).limit(200).order("desc");
+  const result = await withTimeoutAndRetry(() => query.call());
+
+  const dates = new Set();
+  let lastTransactionDate = null;
+
+  for (const op of result.records) {
+    if (!PAYMENT_TYPES.has(op.type)) continue;
+    if (!lastTransactionDate) {
+      lastTransactionDate = op.created_at;
+    }
+    const d = new Date(op.created_at);
+    const dateStr = d.toISOString().split("T")[0];
+    dates.add(dateStr);
+  }
+
+  const sortedDates = Array.from(dates).sort((a, b) => b.localeCompare(a));
+
+  let currentStreak = 0;
+  let longestStreak = 0;
+
+  if (sortedDates.length > 0) {
+    const today = new Date();
+    const todayStr = today.toISOString().split("T")[0];
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+    // Current streak
+    if (sortedDates[0] === todayStr || sortedDates[0] === yesterdayStr) {
+      currentStreak = 1;
+      let prevDate = new Date(sortedDates[0]);
+      for (let i = 1; i < sortedDates.length; i++) {
+        const d = new Date(sortedDates[i]);
+        const diffDays = Math.round((prevDate.getTime() - d.getTime()) / (1000 * 3600 * 24));
+        if (diffDays === 1) {
+          currentStreak++;
+          prevDate = d;
+        } else {
+          break;
+        }
+      }
+    }
+
+    // Longest streak
+    let max = 0;
+    let currentCount = 0;
+    let prev = null;
+
+    for (let i = 0; i < sortedDates.length; i++) {
+      const d = new Date(sortedDates[i]);
+      if (!prev) {
+        currentCount = 1;
+        prev = d;
+        max = 1;
+      } else {
+        const diffDays = Math.round((prev.getTime() - d.getTime()) / (1000 * 3600 * 24));
+        if (diffDays === 1) {
+          currentCount++;
+          prev = d;
+        } else {
+          currentCount = 1;
+          prev = d;
+        }
+        if (currentCount > max) {
+          max = currentCount;
+        }
+      }
+    }
+    longestStreak = max;
+  }
+
+  const streaksData = {
+    currentStreak,
+    longestStreak,
+    lastTransactionDate,
+  };
+
+  if (streaksCache.size >= STREAKS_CACHE_MAX) {
+    streaksCache.delete(streaksCache.keys().next().value);
+  }
+  streaksCache.set(publicKey, {
+    value: streaksData,
+    expiresAt: Date.now() + STREAKS_CACHE_TTL_MS,
+  });
+
+  return streaksData;
 }
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
@@ -283,4 +401,6 @@ module.exports = {
   streamPaymentEvents,
   validatePublicKey,
   clearAccountCache,
+  clearStreaksCache,
+  getAccountStreaks,
 };
