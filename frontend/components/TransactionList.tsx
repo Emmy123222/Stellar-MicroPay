@@ -12,8 +12,9 @@ import {
   PaymentRecord,
   PaymentHistoryResponse,
 } from "@/lib/stellar";
-import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
+import { formatAmount, formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
 import clsx from "clsx";
+import { AssetBadge } from "@/components/AssetBadge";
 
 export type TransactionDirectionFilter = "all" | "sent" | "received";
 
@@ -413,8 +414,9 @@ export default function TransactionList({
                 )}
               >
                 {tx.type === "sent" ? "-" : "+"}
-                {formatAsset(tx.amount, tx.asset)}
+                {formatAmount(tx.amount, tx.asset)}
               </span>
+              <AssetBadge assetCode={tx.asset} />
 
               {/* Send Again — only for sent transactions */}
               {tx.type === "sent" && (
