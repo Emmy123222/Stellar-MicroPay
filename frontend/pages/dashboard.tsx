@@ -58,7 +58,13 @@ import {
   getRecentPaymentsForSparkline,
   PaymentRecord,
 } from "@/lib/stellar";
-import { formatAsset, formatUSD, copyToClipboard } from "@/utils/format";
+import { formatAsset, copyToClipboard } from "@/utils/format";
+import {
+  getXlmPrice,
+  getFiatCurrencyPreference,
+  formatFiatEquivalent,
+  type FiatCurrency,
+} from "@/lib/price";
 import { useToast } from "@/lib/useToast";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { getJwtToken } from "@/lib/auth"; // Assuming auth helper exists or similar logic
@@ -134,6 +140,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [staleBalanceAt, setStaleBalanceAt] = useState<number | null>(null);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
+  const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>("USD");
+  const [priceUnavailable, setPriceUnavailable] = useState(false);
   const [copied, setCopied] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshCountdown, setRefreshCountdown] = useState(AUTO_REFRESH_SECONDS);
@@ -467,11 +475,38 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   }, [fetchSparklineData, refreshKey]);
 
   useEffect(() => {
-    fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd")
-      .then((res) => res.json())
-      .then((data) => setXlmPrice(data?.stellar?.usd ?? null))
-      .catch(() => setXlmPrice(null));
-  }, [refreshKey]);
+    // Load persisted fiat currency preference (#1149) and stay in sync
+    // when the user changes it in Settings (same-tab + cross-tab).
+    setFiatCurrency(getFiatCurrencyPreference());
+
+    const syncCurrency = () => setFiatCurrency(getFiatCurrencyPreference());
+    window.addEventListener("stellar-micropay:fiat-currency-change", syncCurrency);
+    window.addEventListener("storage", syncCurrency);
+    return () => {
+      window.removeEventListener("stellar-micropay:fiat-currency-change", syncCurrency);
+      window.removeEventListener("storage", syncCurrency);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Multi-currency XLM price via Stellar Expert market data API
+    // (cached for 60s inside lib/price, CoinGecko fallback). #1149
+    getXlmPrice(fiatCurrency)
+      .then((price) => {
+        if (cancelled) return;
+        setXlmPrice(price);
+        setPriceUnavailable(price === null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setXlmPrice(null);
+        setPriceUnavailable(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey, fiatCurrency]);
 
   // Sync notification permission state on mount and whenever the user
   // returns to the tab — they may have changed browser-level settings.
@@ -635,6 +670,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         body: 'You will now receive notifications for incoming payments.',
         icon: '/favicon.svg',
         badge: '/favicon.svg',
+        data: { url: '/dashboard' },
       });
     } catch (err) {
       console.error('Failed to enable push notifications:', err);
@@ -662,6 +698,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           body: 'You received 10.00 XLM',
           icon: '/favicon.svg',
           badge: '/favicon.svg',
+          data: { url: '/dashboard' },
         });
       } catch (err) {
         console.error('Test notification failed:', err);
@@ -682,6 +719,22 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           const formattedAmount = formatAsset(payment.amount, payment.asset);
           showToast(`Received ${formattedAmount}`);
 
+          // Best-effort: let the backend fan out Web Push to other
+          // subscribed devices for this account (#1143).
+          try {
+            const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+            void fetch(`${apiBase}/api/push/payment-event`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                publicKey,
+                body: `You received ${formattedAmount}`,
+              }),
+            });
+          } catch {
+            // non-fatal
+          }
+
           if (notificationEnabled && Notification.permission === 'granted') {
             if (document.visibilityState === 'hidden') {
               // Page is not visible — use the service worker showNotification()
@@ -692,6 +745,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                   body: `You received ${formattedAmount}`,
                   icon: '/favicon.svg',
                   badge: '/favicon.svg',
+                  data: { url: '/dashboard' },
                 });
               } catch (err) {
                 console.error('showNotification failed:', err);
@@ -852,10 +906,13 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                   })}
                   <span className="text-stellar-400 text-xl ml-2">XLM</span>
                 </div>
-                {xlmPrice !== null && (
+                {xlmPrice !== null && xlmBalance !== null && (
                   <p className="text-sm text-slate-400 mt-0.5">
-                    {formatUSD(parseFloat(xlmBalance) * xlmPrice)}
+                    {formatFiatEquivalent(xlmBalance, xlmPrice, fiatCurrency)}
                   </p>
+                )}
+                {priceUnavailable && xlmBalance !== null && (
+                  <p className="text-sm text-slate-500 mt-0.5">price unavailable</p>
                 )}
                 {staleBalanceAt && (
                   <p className="mt-1 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-200">

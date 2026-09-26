@@ -12,6 +12,9 @@ const controller = require("../controllers/turretsController");
 const router = express.Router();
 
 router.get("/", strictLimiter, controller.list);
+router.get("/signer", strictLimiter, controller.getSigner);
+router.post("/dca", strictLimiter, controller.createDca);
+router.post("/stop-loss", strictLimiter, controller.createStopLoss);
 router.post("/challenge", strictLimiter, controller.createChallenge);
 router.post("/deploy", strictLimiter, controller.deploy);
 router.get("/:id", strictLimiter, controller.getOne);

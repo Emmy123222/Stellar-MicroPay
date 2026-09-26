@@ -6,10 +6,20 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
 import { disconnectWallet } from "@/lib/wallet";
 import { shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+import {
+  getFiatCurrencyPreference,
+  setFiatCurrencyPreference,
+  SUPPORTED_FIAT_CURRENCIES,
+  type FiatCurrency,
+} from "@/lib/price";
+
+const TurretsWizard = dynamic(() => import("@/components/TurretsWizard"), { ssr: false });
+const AnchorRamp = dynamic(() => import("@/components/AnchorRamp"), { ssr: false });
 
 export default function SettingsPage() {
   const { publicKey, disconnectWallet: disconnectCurrentWallet } = useWallet();
@@ -20,6 +30,7 @@ export default function SettingsPage() {
   const [customUrl, setCustomUrl] = useState("");
   const [showMainnetWarning, setShowMainnetWarning] = useState(false);
   const [pendingNetwork, setPendingNetwork] = useState<"testnet" | "mainnet" | "custom" | null>(null);
+  const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>("USD");
 
   // Username registration state
   const [username, setUsername] = useState("");
@@ -58,7 +69,17 @@ export default function SettingsPage() {
     if (currentConfig.network === "custom") {
       setCustomUrl(currentConfig.horizonUrl);
     }
+    setFiatCurrency(getFiatCurrencyPreference());
   }, []);
+
+  const handleCurrencyChange = (currency: FiatCurrency) => {
+    setFiatCurrency(currency);
+    setFiatCurrencyPreference(currency);
+    // Notify same-tab listeners (e.g. dashboard) of the change.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("stellar-micropay:fiat-currency-change"));
+    }
+  };
 
   const handleNetworkChange = (network: "testnet" | "mainnet" | "custom") => {
     if (network === "mainnet" && config.network !== "mainnet") {
@@ -252,6 +273,50 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Display currency (#1149) */}
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+                Display Currency
+              </h2>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Fiat equivalent for your XLM balance
+              </label>
+              <div className="grid grid-cols-4 gap-3">
+                {SUPPORTED_FIAT_CURRENCIES.map((currency) => (
+                  <button
+                    key={currency}
+                    onClick={() => handleCurrencyChange(currency)}
+                    className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                      fiatCurrency === currency
+                        ? "border-stellar-500 bg-stellar-500/10 text-stellar-400"
+                        : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
+                    }`}
+                  >
+                    {currency}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                Saved locally and shown next to your balance as “X XLM ≈ $Y.YY”.
+              </p>
+            </div>
+
+            {/* Automation — Turrets DCA / Stop-Loss wizard (#1148) */}
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+                Automation
+              </h2>
+              <TurretsWizard />
+            </div>
+
+            {/* On/Off Ramp — SEP-0006 anchor integration (#1142) */}
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+                On/Off Ramp
+              </h2>
+              <AnchorRamp />
             </div>
 
             {/* Username Registration Section */}

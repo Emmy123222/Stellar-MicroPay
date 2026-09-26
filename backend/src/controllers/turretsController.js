@@ -84,9 +84,58 @@ function resume(req, res, next) {
   }
 }
 
+function getSigner(req, res) {
+  const turretSignerAddress = turretsService.getTurretSignerAddress();
+  res.json({ success: true, data: { turretSignerAddress } });
+}
+
+function createDca(req, res, next) {
+  try {
+    const { ownerPublicKey, intervalMinutes, amountQuote, quoteAssetCode, quoteAssetIssuer } =
+      req.body || {};
+    const data = turretsService.createDcaAutomation({
+      ownerPublicKey,
+      intervalMinutes,
+      amountQuote,
+      quoteAssetCode,
+      quoteAssetIssuer,
+    });
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+function createStopLoss(req, res, next) {
+  try {
+    const {
+      ownerPublicKey,
+      thresholdPrice,
+      amountSell,
+      sellAssetCode,
+      sellAssetIssuer,
+      cooldownMinutes,
+    } = req.body || {};
+    const data = turretsService.createStopLossAutomation({
+      ownerPublicKey,
+      thresholdPrice,
+      amountSell,
+      sellAssetCode,
+      sellAssetIssuer,
+      cooldownMinutes,
+    });
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   createChallenge,
   deploy,
+  getSigner,
+  createDca,
+  createStopLoss,
   list,
   getOne,
   getHistory,
