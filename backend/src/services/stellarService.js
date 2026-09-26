@@ -13,6 +13,13 @@ const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
 const server = new Horizon.Server(HORIZON_URL);
+const FEE_CACHE_TTL = 10 * 1000;
+let feeCache = { data: null, timestamp: 0 };
+
+function parseStroops(value, fallback = 100) {
+  const parsed = Number.parseInt(value ?? fallback, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 // ─── Account ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +69,41 @@ async function getXLMBalance(publicKey) {
   const { balances } = await getAccount(publicKey);
   const xlm = balances.find((b) => b.assetCode === "XLM");
   return xlm ? xlm.balance : "0";
+}
+
+// ─── Network Fee Stats ────────────────────────────────────────────────────────
+
+/**
+ * Fetch current Horizon fee statistics and return a simplified recommendation.
+ * Results are cached for 10 seconds to avoid hammering Horizon.
+ */
+async function getFeeStats() {
+  const now = Date.now();
+
+  if (feeCache.data && now - feeCache.timestamp < FEE_CACHE_TTL) {
+    return feeCache.data;
+  }
+
+  const response = await fetch(`${HORIZON_URL.replace(/\/$/, "")}/fee_stats`);
+
+  if (!response.ok) {
+    throw new Error(`Horizon fee_stats returned ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const feeCharged = payload?.fee_charged || {};
+  const baseFee = parseStroops(feeCharged.mode, 100);
+  const data = {
+    baseFee,
+    feeCharged: {
+      p10: parseStroops(feeCharged.p10, baseFee),
+      p50: parseStroops(feeCharged.p50, baseFee),
+      p90: parseStroops(feeCharged.p90, baseFee),
+    },
+  };
+
+  feeCache = { data, timestamp: Date.now() };
+  return data;
 }
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
@@ -128,4 +170,10 @@ function validatePublicKey(publicKey) {
   }
 }
 
-module.exports = { getAccount, getXLMBalance, getPayments, validatePublicKey };
+module.exports = {
+  getAccount,
+  getXLMBalance,
+  getFeeStats,
+  getPayments,
+  validatePublicKey,
+};

@@ -12,6 +12,18 @@ const { sanitizePublicKey } = require("../middleware/sanitization");
 const paymentController = require("../controllers/paymentController");
 
 /**
+ * GET /api/payments/fee-stats
+ * Return current network fee recommendations in stroops.
+ */
+router.get("/fee-stats", paymentController.getFeeStats);
+
+/**
+ * POST /api/payments/estimate-fee
+ * Compatibility alias for fee estimation requests.
+ */
+router.post("/estimate-fee", paymentController.estimateFee);
+
+/**
  * GET /api/payments/:publicKey
  * Fetch payment history for an account via Horizon.
  *

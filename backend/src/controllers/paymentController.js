@@ -63,4 +63,30 @@ async function getStats(req, res, next) {
   }
 }
 
-module.exports = { getPayments, getStats };
+/**
+ * GET /api/payments/fee-stats
+ * Returns current network fee recommendations in stroops.
+ */
+async function getFeeStats(req, res, next) {
+  try {
+    const data = await stellarService.getFeeStats();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/payments/estimate-fee
+ * Compatibility alias for clients that want a fee estimate payload.
+ */
+async function estimateFee(req, res, next) {
+  try {
+    const data = await stellarService.getFeeStats();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getPayments, getStats, getFeeStats, estimateFee };
