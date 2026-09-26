@@ -7,12 +7,25 @@
 "use strict";
 
 const { Horizon } = require("@stellar/stellar-sdk");
+const circuitBreaker = require("./horizonCircuitBreaker");
 require("dotenv").config();
 
 const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
 const server = new Horizon.Server(HORIZON_URL);
+
+/**
+ * A 404 from Horizon is a legitimate answer (the account exists in Stellar
+ * terms but is not funded on this network), not an infrastructure failure, so
+ * it must not trip the circuit breaker.
+ *
+ * @param {Error} err
+ * @returns {boolean} True when the error should count as a failure
+ */
+function countsAsFailure(err) {
+  return err?.response?.status !== 404;
+}
 
 // ─── Account ──────────────────────────────────────────────────────────────────
 
@@ -23,7 +36,9 @@ async function getAccount(publicKey) {
   validatePublicKey(publicKey);
 
   try {
-    const account = await server.loadAccount(publicKey);
+    const account = await circuitBreaker.exec(() => server.loadAccount(publicKey), {
+      isFailure: countsAsFailure,
+    });
 
     const balances = account.balances.map((b) => {
       if (b.asset_type === "native") {
@@ -81,7 +96,9 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     query = query.cursor(cursor);
   }
 
-  const result = await query.call();
+  const result = await circuitBreaker.exec(() => query.call(), {
+    isFailure: countsAsFailure,
+  });
 
   const payments = [];
 

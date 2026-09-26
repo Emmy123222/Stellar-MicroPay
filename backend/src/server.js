@@ -20,6 +20,7 @@ const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
+const { requestId, LOG_FORMAT } = require("./middleware/requestId");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -30,13 +31,15 @@ const PORT = process.env.PORT || 4000;
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
 app.use(helmet());
-app.use(morgan("dev"));
+// Request ID must precede the logger so every log line carries a correlation ID.
+app.use(requestId);
+app.use(morgan(LOG_FORMAT));
 app.use(express.json({ limit: "10kb" }));
 
 // JSON parsing error handler
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res.status(400).json({ error: "Invalid JSON body" });
+    return res.status(400).json({ error: "Invalid JSON body", requestId: req.requestId });
   }
   next();
 });
@@ -69,10 +72,13 @@ app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/health",       healthRoutes);
 
-// Global rate limiting — 100 requests per 15 minutes per IP
+// Global rate limiting — 100 requests per 15 minutes per IP.
+// Overridable so the test suite is not coupled to a shared 100-request budget:
+// express-rate-limit keeps its store in a process-global registry, so every
+// spec file that requires this app draws from the same counter.
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX) || 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later." },
@@ -109,7 +115,7 @@ app.use((err, req, res, next) => {
   const status = err.status || 500;
   const message = err.message || "Internal Server Error";
 
-  res.status(status).json({ error: message });
+  res.status(status).json({ error: message, requestId: req.requestId });
 });
 
 // ─── Static Files ─────────────────────────────────────────────────────────────

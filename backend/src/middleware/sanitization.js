@@ -6,18 +6,20 @@
 "use strict";
 
 /**
- * Sanitizes and validates a Stellar public key.
+ * Sanitizes and validates the Stellar public key held in the named route param.
  * Expected format: G... (56 chars)
+ *
+ * @param {string} paramName - Route param holding the public key
  */
-function sanitizePublicKey(req, res, next) {
-  const { publicKey } = req.params;
+function sanitizeKeyParam(req, res, next, paramName) {
+  const publicKey = req.params[paramName];
 
   if (!publicKey) {
     return next();
   }
 
   // 1. Strip non-alphanumeric characters
-  const sanitized = publicKey.replace(/[^a-zA-Z0-9]/g, "");
+  const sanitized = String(publicKey).replace(/[^a-zA-Z0-9]/g, "");
 
   // 2. Return 400 if obviously invalid
   // Stellar public keys are exactly 56 chars and start with 'G'
@@ -28,8 +30,30 @@ function sanitizePublicKey(req, res, next) {
   }
 
   // Update params with sanitized version
-  req.params.publicKey = sanitized;
+  req.params[paramName] = sanitized;
   next();
+}
+
+/**
+ * Sanitizes and validates a Stellar public key from the `:publicKey` route param.
+ * Expected format: G... (56 chars)
+ */
+function sanitizePublicKey(req, res, next) {
+  return sanitizeKeyParam(req, res, next, "publicKey");
+}
+
+/**
+ * Builds middleware that sanitizes a Stellar public key from a named route param.
+ * Use this for routes whose key param is not literally `:publicKey`, e.g.
+ * `:creatorPublicKey` on the tips routes.
+ *
+ * @param {string} paramName - Route param holding the public key
+ * @returns {Function} Express middleware
+ */
+function sanitizePublicKeyParam(paramName) {
+  return function sanitizeNamedPublicKey(req, res, next) {
+    return sanitizeKeyParam(req, res, next, paramName);
+  };
 }
 
 /**
@@ -45,4 +69,4 @@ function sanitizeUsername(req, res, next) {
   next();
 }
 
-module.exports = { sanitizePublicKey, sanitizeUsername };
+module.exports = { sanitizePublicKey, sanitizePublicKeyParam, sanitizeUsername };

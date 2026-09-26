@@ -31,6 +31,7 @@ jest.mock("@stellar/stellar-sdk", () => {
 });
 
 const stellarService = require("../src/services/stellarService");
+const circuitBreaker = require("../src/services/horizonCircuitBreaker");
 
 describe("stellarService", () => {
   const validPublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
@@ -196,6 +197,69 @@ describe("stellarService", () => {
         "Invalid Stellar public key format"
       );
       expect(mockPayments).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("circuit breaker integration", () => {
+    beforeEach(() => {
+      circuitBreaker.reset();
+    });
+
+    afterAll(() => {
+      circuitBreaker.reset();
+    });
+
+    it("does not trip the breaker on unfunded-account 404s", async () => {
+      mockLoadAccount.mockRejectedValue({ response: { status: 404 } });
+
+      for (let i = 0; i < 8; i += 1) {
+        await expect(stellarService.getXLMBalance(validPublicKey)).rejects.toMatchObject({
+          status: 404,
+        });
+      }
+
+      expect(circuitBreaker.getState().state).toBe("closed");
+    });
+
+    it("opens the breaker after repeated Horizon failures", async () => {
+      mockLoadAccount.mockRejectedValue({ response: { status: 503 } });
+
+      for (let i = 0; i < 5; i += 1) {
+        await expect(stellarService.getXLMBalance(validPublicKey)).rejects.toBeDefined();
+      }
+
+      expect(circuitBreaker.getState().state).toBe("open");
+    });
+
+    it("serves a 503 without calling Horizon once the breaker is open", async () => {
+      mockLoadAccount.mockRejectedValue({ response: { status: 503 } });
+
+      for (let i = 0; i < 5; i += 1) {
+        await expect(stellarService.getXLMBalance(validPublicKey)).rejects.toBeDefined();
+      }
+
+      const callsBefore = mockLoadAccount.mock.calls.length;
+
+      await expect(stellarService.getXLMBalance(validPublicKey)).rejects.toMatchObject({
+        status: 503,
+      });
+      expect(mockLoadAccount.mock.calls.length).toBe(callsBefore);
+    });
+
+    it("recovers on the next successful call after a reset", async () => {
+      mockLoadAccount.mockRejectedValue({ response: { status: 503 } });
+      for (let i = 0; i < 5; i += 1) {
+        await expect(stellarService.getXLMBalance(validPublicKey)).rejects.toBeDefined();
+      }
+
+      circuitBreaker.reset();
+      mockLoadAccount.mockResolvedValue({
+        sequence: "1",
+        subentry_count: 0,
+        balances: [{ asset_type: "native", balance: "5.0000000" }],
+      });
+
+      await expect(stellarService.getXLMBalance(validPublicKey)).resolves.toBe("5.0000000");
     });
   });
 });

@@ -12,7 +12,24 @@ const stellarService = require("./stellarService");
 // ─── Cache Configuration ──────────────────────────────────────────────────────
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+// Upper bound on retained entries. Without this the cache grows without limit
+// in the number of distinct public keys ever queried, because expired entries
+// were previously never removed.
+const CACHE_MAX_ENTRIES = Number(process.env.ANALYTICS_CACHE_MAX_ENTRIES || 500);
+
 const cache = new Map();
+
+/**
+ * Drops the oldest entries until the cache is within its size bound.
+ * Map preserves insertion order, so the first key is the least recently added.
+ */
+function enforceCacheLimit() {
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
+}
 
 /**
  * Cache wrapper function.
@@ -22,9 +39,13 @@ const cache = new Map();
 async function withCache(key, fn) {
   const cached = cache.get(key);
 
-  // Return cached data if still fresh
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data;
+  if (cached) {
+    // Return cached data if still fresh, otherwise drop the stale entry so it
+    // does not occupy memory until the next write for this key.
+    if (Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+    cache.delete(key);
   }
 
   // Fetch fresh data
@@ -32,6 +53,7 @@ async function withCache(key, fn) {
 
   // Update cache
   cache.set(key, { data, timestamp: Date.now() });
+  enforceCacheLimit();
 
   return data;
 }
@@ -174,9 +196,27 @@ function clearCache(publicKey) {
   cache.delete(`activity:${publicKey}`);
 }
 
+/**
+ * Current number of retained cache entries.
+ * Exposed so eviction can be asserted in tests.
+ * @returns {number}
+ */
+function cacheSize() {
+  return cache.size;
+}
+
+/**
+ * Remove every cache entry.
+ */
+function clearAllCaches() {
+  cache.clear();
+}
+
 module.exports = {
   getSummary,
   getTopRecipients,
   getActivityByDay,
   clearCache,
+  cacheSize,
+  clearAllCaches,
 };

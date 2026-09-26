@@ -286,4 +286,98 @@ describe("Analytics Service", () => {
       expect(stellarService.getPayments).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe("cache eviction", () => {
+    afterEach(() => {
+      analyticsService.clearAllCaches();
+    });
+
+    it("starts empty", () => {
+      analyticsService.clearAllCaches();
+      expect(analyticsService.cacheSize()).toBe(0);
+    });
+
+    it("caches one entry per public key", async () => {
+      stellarService.getPayments.mockResolvedValue(mockPayments);
+
+      await analyticsService.getSummary(testPublicKey);
+      expect(analyticsService.cacheSize()).toBe(1);
+
+      await analyticsService.getSummary("GOTHERKEYOTHERKEYOTHERKEYOTHERKEYOTHERKEYOTHERKEYOTHERKEYO");
+      expect(analyticsService.cacheSize()).toBe(2);
+    });
+
+    it("does not grow when the same key is requested repeatedly", async () => {
+      stellarService.getPayments.mockResolvedValue(mockPayments);
+
+      for (let i = 0; i < 5; i += 1) {
+        await analyticsService.getSummary(testPublicKey);
+      }
+
+      expect(analyticsService.cacheSize()).toBe(1);
+    });
+
+    it("evicts an entry once the TTL has elapsed", async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      stellarService.getPayments.mockResolvedValue(mockPayments);
+
+      await analyticsService.getSummary(testPublicKey);
+      expect(analyticsService.cacheSize()).toBe(1);
+
+      // Still fresh — entry retained and served from cache.
+      jest.setSystemTime(new Date("2026-01-01T00:04:00Z"));
+      await analyticsService.getSummary(testPublicKey);
+      expect(analyticsService.cacheSize()).toBe(1);
+      expect(stellarService.getPayments).toHaveBeenCalledTimes(1);
+
+      // Expired — reading it must drop the stale entry, not just ignore it.
+      jest.setSystemTime(new Date("2026-01-01T00:06:00Z"));
+      await analyticsService.getSummary(testPublicKey);
+      expect(stellarService.getPayments).toHaveBeenCalledTimes(2);
+      expect(analyticsService.cacheSize()).toBe(1);
+
+      jest.useRealTimers();
+    });
+
+    it("never retains more entries than the configured bound", async () => {
+      stellarService.getPayments.mockResolvedValue(mockPayments);
+
+      // Insert well over the 500 entry default bound.
+      for (let i = 0; i < 520; i += 1) {
+        const key = `G${String(i).padStart(55, "0")}`;
+        await analyticsService.getSummary(key);
+      }
+
+      expect(analyticsService.cacheSize()).toBeLessThanOrEqual(500);
+    });
+
+    it("evicts the oldest entries first", async () => {
+      stellarService.getPayments.mockResolvedValue(mockPayments);
+
+      const first = `G${String(1).padStart(55, "0")}`;
+      await analyticsService.getSummary(first);
+      expect(stellarService.getPayments).toHaveBeenCalledTimes(1);
+
+      // Overflow the cache so the first entry becomes the oldest.
+      for (let i = 0; i < 500; i += 1) {
+        await analyticsService.getSummary(`G${String(i + 2).padStart(55, "0")}`);
+      }
+
+      // The original entry was evicted, so it is fetched again.
+      const callsBefore = stellarService.getPayments.mock.calls.length;
+      await analyticsService.getSummary(first);
+      expect(stellarService.getPayments.mock.calls.length).toBe(callsBefore + 1);
+    });
+
+    it("clearAllCaches empties the cache", async () => {
+      stellarService.getPayments.mockResolvedValue(mockPayments);
+
+      await analyticsService.getSummary(testPublicKey);
+      expect(analyticsService.cacheSize()).toBe(1);
+
+      analyticsService.clearAllCaches();
+      expect(analyticsService.cacheSize()).toBe(0);
+    });
+  });
 });

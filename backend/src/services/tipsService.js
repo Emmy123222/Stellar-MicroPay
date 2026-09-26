@@ -171,6 +171,62 @@ function getTipsSent(senderPublicKey, options = {}) {
 }
 
 /**
+ * Get the top creators ranked by total amount tipped.
+ * Creators with no tips are omitted.
+ *
+ * @param {object} [options]
+ * @param {number} [options.limit] - Maximum number of creators to return
+ * @returns {object} Object with entries array and total creator count
+ */
+function getLeaderboard(options = {}) {
+  const { limit = 10 } = options;
+
+  const entries = [];
+
+  for (const creatorPublicKey of tipsByCreator.keys()) {
+    const tips = tipsByCreator.get(creatorPublicKey);
+    if (!tips || tips.length === 0) {
+      continue;
+    }
+
+    const stats = getTipsStats(creatorPublicKey);
+
+    // Rank by total XLM-equivalent tipped, falling back to the tip count so
+    // creators are ordered deterministically when assets are mixed.
+    const totalAmount = Object.values(stats.totalByAsset).reduce(
+      (sum, byAsset) => sum + parseFloat(byAsset.amount),
+      0
+    );
+
+    entries.push({
+      creatorPublicKey,
+      totalTips: stats.totalTips,
+      totalByAsset: stats.totalByAsset,
+      totalAmount: String(totalAmount),
+      averageTip: stats.averageTip,
+      largestTip: stats.largestTip,
+    });
+  }
+
+  entries.sort((a, b) => {
+    const diff = parseFloat(b.totalAmount) - parseFloat(a.totalAmount);
+    if (diff !== 0) {
+      return diff;
+    }
+    if (b.totalTips !== a.totalTips) {
+      return b.totalTips - a.totalTips;
+    }
+    return a.creatorPublicKey.localeCompare(b.creatorPublicKey);
+  });
+
+  return {
+    entries: entries.slice(0, limit),
+    totalCreators: entries.length,
+    limit,
+  };
+}
+
+/**
  * Validate tip record input.
  */
 function validateTipInput(data) {
@@ -208,5 +264,6 @@ module.exports = {
   getTipsReceived,
   getTipsStats,
   getTipsSent,
+  getLeaderboard,
   validateTipInput,
 };
