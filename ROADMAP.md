@@ -86,8 +86,8 @@ This document outlines what's been built, what's in progress, and what's planned
 
 - [ ] Hold funds in Soroban smart contract escrow
 - [ ] Release on condition (time-lock, approval)
-- [ ] Milestone-based payment release
-- [ ] Dispute resolution flow
+- [x] Milestone-based payment release
+- [x] Dispute resolution flow
 
 ---
 
