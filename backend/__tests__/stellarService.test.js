@@ -104,6 +104,35 @@ describe("stellarService", () => {
     });
   });
 
+  describe("getFeeStats", () => {
+    it("returns a simplified Horizon fee summary and caches it for 10 seconds", async () => {
+      const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          fee_charged: {
+            min: "100",
+            mode: "200",
+            p10: "150",
+            p50: "250",
+            p90: "500",
+          },
+        }),
+      });
+
+      const first = await stellarService.getFeeStats();
+      const second = await stellarService.getFeeStats();
+
+      expect(first).toEqual({
+        baseFee: 200,
+        feeCharged: { p10: 150, p50: 250, p90: 500 },
+      });
+      expect(second).toEqual(first);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      fetchMock.mockRestore();
+    });
+  });
+
   describe("getPayments", () => {
     it("returns correctly shaped payment objects and filters non-payment ops", async () => {
       const textMemoTransaction = jest.fn().mockResolvedValue({ memo_type: "text", memo: "hello" });

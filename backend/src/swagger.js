@@ -71,6 +71,20 @@ const options = {
             totalTransactions: { type: "integer" },
           },
         },
+        FeeStats: {
+          type: "object",
+          properties: {
+            baseFee: { type: "integer", description: "Current base fee in stroops" },
+            feeCharged: {
+              type: "object",
+              properties: {
+                p10: { type: "integer" },
+                p50: { type: "integer" },
+                p90: { type: "integer" },
+              },
+            },
+          },
+        },
         AnalyticsSummary: {
           type: "object",
           properties: {
@@ -359,6 +373,50 @@ const options = {
           responses: {
             200: { description: "Username registered" },
             409: { description: "Username already taken" },
+          },
+        },
+      },
+      "/api/payments/fee-stats": {
+        get: {
+          tags: ["Payments"],
+          summary: "Get the current Horizon fee stats recommendation",
+          responses: {
+            200: {
+              description: "Current network fee recommendation in stroops",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: { $ref: "#/components/schemas/FeeStats" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/payments/estimate-fee": {
+        post: {
+          tags: ["Payments"],
+          summary: "Estimate a recommended fee based on the latest Horizon fee stats",
+          responses: {
+            200: {
+              description: "Network fee recommendation in stroops",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: { $ref: "#/components/schemas/FeeStats" },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
