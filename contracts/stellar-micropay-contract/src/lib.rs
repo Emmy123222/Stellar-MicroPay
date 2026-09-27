@@ -355,7 +355,12 @@ impl MicroPayContract {
 
         // Emit an event for indexers, including the fee collected (if any)
         env.events().publish(
-            (Symbol::new(&env, "tip"), from, to.clone()),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "send_tip"),
+                from,
+                to.clone(),
+            ),
             TipEventData { amount, fee_amount },
         );
     }
@@ -451,7 +456,7 @@ impl MicroPayContract {
 
         let receipt = ReceiptMetadata {
             from: from.clone(),
-            to,
+            to: to.clone(),
             amount,
             timestamp: env.ledger().timestamp(),
             memo,
@@ -467,7 +472,12 @@ impl MicroPayContract {
             .set(&DataKey::ReceiptCount(from.clone()), &(count + 1));
 
         env.events().publish(
-            (Symbol::new(&env, "receipt"), from),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "mint_receipt"),
+                from,
+                to,
+            ),
             count,
         );
 
@@ -743,7 +753,12 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::StreamCount, &(count + 1));
 
         env.events().publish(
-            (Symbol::new(&env, "stream_open"), payer, recipient),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "open_stream"),
+                payer,
+                recipient,
+            ),
             count,
         );
 
@@ -789,7 +804,12 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::Stream(stream_id), &stream);
 
         env.events().publish(
-            (Symbol::new(&env, "stream_claim"), recipient, stream_id),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "claim_stream"),
+                recipient,
+                stream_id,
+            ),
             payout,
         );
 
@@ -818,7 +838,12 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::Stream(stream_id), &stream);
 
         env.events().publish(
-            (Symbol::new(&env, "stream_topup"), payer, stream_id),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "top_up_stream"),
+                payer,
+                stream_id,
+            ),
             amount,
         );
     }
@@ -848,7 +873,12 @@ impl MicroPayContract {
         env.storage().instance().remove(&DataKey::Stream(stream_id));
 
         env.events().publish(
-            (Symbol::new(&env, "stream_close"), payer, stream_id),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "close_stream"),
+                payer,
+                stream_id,
+            ),
             refundable,
         );
 
@@ -876,7 +906,12 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::Stream(stream_id), &stream);
 
         env.events().publish(
-            (Symbol::new(&env, "stream_pause"), payer, stream_id),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "pause_stream"),
+                payer,
+                stream_id,
+            ),
             env.ledger().sequence(),
         );
     }
@@ -903,7 +938,12 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::Stream(stream_id), &stream);
 
         env.events().publish(
-            (Symbol::new(&env, "stream_resume"), payer, stream_id),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "resume_stream"),
+                payer,
+                stream_id,
+            ),
             current_ledger,
         );
     }
@@ -980,7 +1020,12 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::EscrowCount, &(count + 1));
 
         env.events().publish(
-            (Symbol::new(&env, "escrow_open"), payer, recipient),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "open_escrow"),
+                payer,
+                recipient,
+            ),
             count,
         );
 
@@ -1010,7 +1055,12 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::Escrow(escrow_id), &record);
 
         env.events().publish(
-            (Symbol::new(&env, "escrow_release"), record.recipient.clone(), escrow_id),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "release_escrow"),
+                record.recipient.clone(),
+                escrow_id,
+            ),
             record.amount,
         );
 
@@ -1044,7 +1094,12 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::Escrow(escrow_id), &record);
 
         env.events().publish(
-            (Symbol::new(&env, "escrow_cancel"), payer, escrow_id),
+            (
+                Symbol::new(&env, "MicroPayContract"),
+                Symbol::new(&env, "cancel_escrow"),
+                payer,
+                escrow_id,
+            ),
             record.amount,
         );
 
