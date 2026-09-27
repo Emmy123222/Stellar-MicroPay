@@ -780,6 +780,13 @@ export default function SendPaymentForm({
         stepTimings={stepTimings}
         timeoutSeconds={60}
         onClose={closeStatusModal}
+        receipt={{
+          sender: publicKey,
+          recipient: destination,
+          amount: hasAmount ? amountNum.toFixed(7) : undefined,
+          asset: selectedAsset,
+          memo: memo.trim() || undefined,
+        }}
       />
     </>
   );

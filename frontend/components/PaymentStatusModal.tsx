@@ -20,6 +20,21 @@ export interface PaymentStepTiming {
   error: string | null;
 }
 
+/**
+ * Details rendered on the printed receipt (Issue #1045). All fields are
+ * optional — unknown values print as an em dash so a receipt is always
+ * producible from whatever the caller knows.
+ */
+export interface PaymentReceiptDetails {
+  sender?: string;
+  recipient?: string;
+  amount?: string;
+  asset?: string;
+  memo?: string;
+  /** Completion timestamp (ms epoch or ISO string) shown as date/time. */
+  completedAt?: number | string;
+}
+
 interface PaymentStatusModalProps {
   isOpen: boolean;
   status: PaymentFlowStatus;
@@ -30,6 +45,8 @@ interface PaymentStatusModalProps {
   onClose: () => void;
   explorerHref?: string | null;
   timeoutSeconds?: number;
+  /** Payment details for the printable receipt (success state). */
+  receipt?: PaymentReceiptDetails | null;
 }
 
 const STEP_ORDER: Array<{ id: PaymentStepId; label: string }> = [
@@ -49,6 +66,7 @@ export default function PaymentStatusModal({
   onClose,
   explorerHref,
   timeoutSeconds = TX_TIMEOUT_SECONDS,
+  receipt,
 }: PaymentStatusModalProps) {
   const [now, setNow] = useState(() => Date.now());
 
@@ -93,6 +111,33 @@ export default function PaymentStatusModal({
   }, [status, stepTimings]);
 
   if (!isOpen) return null;
+
+  // Issue #1045 — print receipt: mark the body so the print stylesheet
+  // hides everything except the receipt block, then invoke the browser
+  // print dialog once the styles have painted (double rAF). `window.print`
+  // blocks until the dialog closes, so the class is also removed
+  // synchronously afterwards as a belt-and-braces cleanup.
+  const handlePrintReceipt = () => {
+    document.body.classList.add("receipt-modal-printing");
+    const cleanup = () => {
+      document.body.classList.remove("receipt-modal-printing");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.print();
+        cleanup();
+      });
+    });
+  };
+
+  const receiptDate = receipt?.completedAt
+    ? new Date(receipt.completedAt)
+    : new Date();
+  const receiptAmount = receipt?.amount
+    ? `${parseFloat(receipt.amount).toFixed(7)} ${receipt.asset ?? "XLM"}`
+    : null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
@@ -220,6 +265,17 @@ export default function PaymentStatusModal({
                   <ExternalLinkIcon className="h-4 w-4" />
                 </a>
               )}
+
+              {/* Issue #1045 — paper/PDF receipt from the success state */}
+              <button
+                type="button"
+                onClick={handlePrintReceipt}
+                data-testid="print-receipt-button"
+                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-emerald-400/30 px-3 py-1.5 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-400/10 hover:text-white print:hidden"
+              >
+                <PrinterIcon className="h-4 w-4" />
+                Print receipt
+              </button>
             </div>
           )}
 
@@ -229,6 +285,143 @@ export default function PaymentStatusModal({
             </div>
           )}
         </div>
+
+        {/* Printable receipt (Issue #1045) — hidden on screen, shown by the
+            print stylesheet while body has .receipt-modal-printing. */}
+        {status === "success" && (
+          <div className="receipt-modal-sheet hidden" data-testid="payment-receipt-sheet">
+            <p className="receipt-brand">Stellar MicroPay</p>
+            <h4 className="receipt-title">Payment Receipt</h4>
+            <dl className="receipt-grid">
+              <div>
+                <dt>Date / time</dt>
+                <dd>{receiptDate.toLocaleString()}</dd>
+              </div>
+              {receipt?.sender && (
+                <div>
+                  <dt>From</dt>
+                  <dd className="receipt-mono">{receipt.sender}</dd>
+                </div>
+              )}
+              {receipt?.recipient && (
+                <div>
+                  <dt>To</dt>
+                  <dd className="receipt-mono">{receipt.recipient}</dd>
+                </div>
+              )}
+              {receiptAmount && (
+                <div>
+                  <dt>Amount</dt>
+                  <dd>{receiptAmount}</dd>
+                </div>
+              )}
+              {receipt?.memo && (
+                <div>
+                  <dt>Memo</dt>
+                  <dd>{receipt.memo}</dd>
+                </div>
+              )}
+              {txHash && (
+                <div>
+                  <dt>Transaction hash</dt>
+                  <dd className="receipt-mono break-all">{txHash}</dd>
+                </div>
+              )}
+              {explorerHref && txHash && (
+                <div>
+                  <dt>Explorer</dt>
+                  <dd className="receipt-mono break-all">{explorerHref}</dd>
+                </div>
+              )}
+            </dl>
+            <p className="receipt-footer">
+              Generated by Stellar MicroPay — printed {new Date().toLocaleString()}.
+            </p>
+          </div>
+        )}
+
+        <style jsx global>{`
+          @media print {
+            /* Receipt print mode: hide everything, show only the sheet. */
+            body.receipt-modal-printing * {
+              visibility: hidden !important;
+            }
+
+            body.receipt-modal-printing .receipt-modal-sheet,
+            body.receipt-modal-printing .receipt-modal-sheet * {
+              visibility: visible !important;
+            }
+
+            body.receipt-modal-printing .receipt-modal-sheet {
+              display: block !important;
+              position: fixed !important;
+              inset: 0 !important;
+              width: 210mm;
+              min-height: 297mm;
+              margin: 0 auto !important;
+              padding: 18mm 16mm !important;
+              background: #fff !important;
+              color: #0f172a !important;
+              border: none !important;
+              border-radius: 0 !important;
+              box-shadow: none !important;
+            }
+
+            body.receipt-modal-printing .receipt-modal-sheet * {
+              color: inherit !important;
+            }
+
+            .receipt-modal-sheet .receipt-brand {
+              font-size: 11px;
+              letter-spacing: 0.24em;
+              text-transform: uppercase;
+              color: #64748b;
+              margin-bottom: 4px;
+            }
+
+            .receipt-modal-sheet .receipt-title {
+              font-size: 22px;
+              font-weight: 600;
+              margin-bottom: 18px;
+            }
+
+            .receipt-modal-sheet .receipt-grid {
+              display: grid;
+              gap: 10px;
+              font-size: 13px;
+            }
+
+            .receipt-modal-sheet dt {
+              font-size: 10px;
+              letter-spacing: 0.18em;
+              text-transform: uppercase;
+              color: #64748b;
+              margin-bottom: 2px;
+            }
+
+            .receipt-modal-sheet dd {
+              color: #0f172a;
+            }
+
+            .receipt-modal-sheet .receipt-mono {
+              font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+              word-break: break-all;
+            }
+
+            .receipt-modal-sheet .receipt-footer {
+              margin-top: 24px;
+              padding-top: 10px;
+              border-top: 1px solid #e2e8f0;
+              font-size: 11px;
+              color: #64748b;
+            }
+
+            @page {
+              size: A4;
+              margin: 0;
+            }
+          }
+        `}</style>
       </div>
     </div>
   );
@@ -407,6 +600,14 @@ function SparklesIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 3.75 13.688 8.313 18.25 10l-4.563 1.688L12 16.25l-1.688-4.563L5.75 10l4.563-1.688L12 3.75Z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="m18.75 15 .563 1.688L21 17.25l-1.688.563L18.75 19.5l-.563-1.688L16.5 17.25l1.688-.563L18.75 15Z" />
+    </svg>
+  );
+}
+
+function PrinterIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 9V3.75A1.75 1.75 0 018.5 2h7a1.75 1.75 0 011.75 1.75V9M7.5 18.75h9M5.25 9H18.75A2.25 2.25 0 0121 11.25v5.25a1.5 1.5 0 01-1.5 1.5h-2.25V15H6.75v3H4.5A1.5 1.5 0 013 16.5v-5.25A2.25 2.25 0 015.25 9z" />
     </svg>
   );
 }
