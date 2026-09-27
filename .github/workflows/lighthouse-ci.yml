@@ -34,15 +34,21 @@ jobs:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
+      # treosh/lighthouse-ci-action@v12 no longer accepts the
+      # startServerCommand/startServerReadyPattern/startServerReadyTimeout
+      # inputs, so start the static server here and wait until it responds
+      # before Lighthouse collects. The process outlives this step and is
+      # torn down when the job ends.
       - name: Start static site
         run: |
           npm run start > "$RUNNER_TEMP/frontend-server.log" 2>&1 &
-          for attempt in {1..30}; do
+          for attempt in {1..60}; do
             if curl --fail --silent http://localhost:3000/ > /dev/null; then
               exit 0
             fi
-            sleep 2
+            sleep 1
           done
+          echo "::error::Server did not become ready within 60s"
           cat "$RUNNER_TEMP/frontend-server.log"
           exit 1
       - name: Audit primary routes with Lighthouse CI
