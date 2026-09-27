@@ -8,6 +8,14 @@ const jwt = require("jsonwebtoken");
 
 const JWT_SECRET = process.env.JWT_SECRET || "stellar_micropay_secret_key";
 
+// CSRF Protection Analysis:
+// Although the authentication route sets a 'jwt' cookie, this middleware
+// strictly reads the token from the Authorization header (not from cookies).
+// Because a cross-site request (e.g. form submission) cannot automatically
+// set custom headers like Authorization, and XHR/fetch requests setting custom
+// headers are protected by CORS, there is no ambient credential vulnerability.
+// The existing stateless JWT mechanism via the Authorization header provides
+// sufficient CSRF protection on its own. No double-submit cookie is needed.
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
