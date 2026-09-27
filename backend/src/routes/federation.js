@@ -18,11 +18,12 @@ const federationController = require("../controllers/federationController");
  *     summary: SEP-0002 federation endpoint
  *     description: >-
  *       Resolves a Stellar address to an account ID (`type=name`) or an account ID
- *       to a Stellar address (`type=id`), per SEP-0002. Queries for local federation
- *       domains are answered from the local username registry. Queries for other
- *       domains are forwarded to the federation server advertised by that domain's
- *       `stellar.toml`, and the external server's response body is returned
- *       unchanged (so it may contain additional SEP-0002 fields such as `memo`).
+ *       to a Stellar address (`type=id`), per SEP-0002. Queries matching the local
+ *       federation domain (`DOMAIN`, default `stellarmicropay.com`) are answered
+ *       from the local username registry. Queries for other domains are forwarded
+ *       to the federation server advertised by that domain's `stellar.toml`, and
+ *       the external server's response body is returned unchanged (so it may
+ *       contain additional SEP-0002 fields such as `memo`).
  *     parameters:
  *       - name: q
  *         in: query
@@ -32,7 +33,7 @@ const federationController = require("../controllers/federationController");
  *           key when `type=id`.
  *         schema:
  *           type: string
- *           example: alice*stellarmicropay.io
+ *           example: alice*stellarmicropay.com
  *       - name: type
  *         in: query
  *         required: true
@@ -42,7 +43,12 @@ const federationController = require("../controllers/federationController");
  *           enum: [name, id]
  *     responses:
  *       "200":
- *         description: Federation record for the query
+ *         description: >-
+ *           Federation record for the query. `type=name` returns
+ *           `stellar_address` and `account_id`; `type=id` returns
+ *           `stellar_address` only. Queries for external domains return the
+ *           external federation server's response body unchanged, which may
+ *           contain additional SEP-0002 fields such as `memo`.
  *         content:
  *           application/json:
  *             schema:
@@ -51,15 +57,17 @@ const federationController = require("../controllers/federationController");
  *                 stellar_address:
  *                   type: string
  *                   description: "`username*domain` federated address"
- *                   example: alice*stellarmicropay.io
+ *                   example: alice*stellarmicropay.com
  *                 account_id:
  *                   type: string
- *                   description: Stellar public key of the account
+ *                   description: >-
+ *                     Stellar public key of the account (present for
+ *                     `type=name` local lookups).
  *                   example: GABC...XYZ
  *       "400":
  *         description: >-
- *           Missing or non-string `q`/`type`, `type` other than `name` or `id`,
- *           or a malformed stellar address.
+ *           Missing `q` or `type`, `type` other than `name` or `id`, or a
+ *           malformed stellar address.
  *         content:
  *           application/json:
  *             schema:

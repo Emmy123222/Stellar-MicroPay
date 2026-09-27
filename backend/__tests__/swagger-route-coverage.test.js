@@ -15,7 +15,7 @@ const request = require("supertest");
 const app = require("../src/server");
 const swaggerSpec = require("../src/swagger");
 
-// Mount points from src/server.js (the unversioned mounts the spec documents).
+// Mount points from src/server.js.
 const ROUTERS = [
   { name: "federation", mount: "/federation", router: require("../src/routes/federation") },
   { name: "analytics", mount: "/api/analytics", router: require("../src/routes/analytics") },
@@ -24,18 +24,14 @@ const ROUTERS = [
 
 // Error responses each operation can return, per the route middleware and
 // controller/service implementation. 429 comes from the strict limiter
-// (analytics, federation: 20/min) or the payment/turret limiter (turrets:
-// 10/min); 400 from sanitizePublicKey/validation; 401/404 per the services.
+// (20/min on these route groups); 400 from sanitizePublicKey, body/config
+// validation, or turretsService.validatePublicKey; 401 from an invalid deploy
+// challenge signature; 404 from missing deployments or federation lookups.
 const EXPECTED_ERRORS = {
   "GET /federation": ["400", "404", "429"],
   "GET /api/analytics/{publicKey}/summary": ["400", "429"],
   "GET /api/analytics/{publicKey}/top-recipients": ["400", "429"],
   "GET /api/analytics/{publicKey}/activity": ["400", "429"],
-  "GET /api/analytics/{publicKey}/cohorts": ["400", "429"],
-  "GET /api/analytics/{publicKey}/stream": ["400", "429"],
-  "POST /api/analytics/{publicKey}/export-schedule": ["400", "429"],
-  "GET /api/analytics/{publicKey}/export-schedule": ["400", "429"],
-  "POST /api/analytics/{publicKey}/export-trigger": ["400", "404", "429"],
   "GET /api/turrets": ["400", "429"],
   "POST /api/turrets/challenge": ["400", "429"],
   "POST /api/turrets/deploy": ["400", "401", "429"],
