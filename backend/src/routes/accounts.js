@@ -19,6 +19,18 @@ const accountController = require("../controllers/accountController");
 router.get("/resolve/:username", strictLimiter, sanitizeUsername, accountController.resolveUsername);
 
 /**
+ * GET /api/accounts/:publicKey/has-usdc-trustline
+ * Check whether an account has a USDC trustline.
+ * Must be registered before /:publicKey or Express matches it as a key.
+ */
+router.get(
+  "/:publicKey/has-usdc-trustline",
+  strictLimiter,
+  sanitizePublicKey,
+  accountController.hasUSDCTrustline
+);
+
+/**
  * GET /api/accounts/:publicKey
  * Fetch account info and balances from Horizon.
  */

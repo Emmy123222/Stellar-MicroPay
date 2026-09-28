@@ -64,6 +64,8 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
     exposedHeaders: ["X-Request-ID"],
     credentials: true,
+    optionsSuccessStatus: 204,
+    maxAge: 600,
   })
 );
 

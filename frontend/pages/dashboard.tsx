@@ -30,6 +30,7 @@ const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: fa
 const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
 const AIPaymentAssistant = dynamic(() => import("../components/AIPaymentAssistant"), { ssr: false });
 const PaymentInsightsCard = dynamic(() => import("../components/PaymentInsightsCard"), { ssr: false });
+const AddUsdcTrustline = dynamic(() => import("../components/AddUsdcTrustline"), { ssr: false });
 
 import {
   ResponsiveContainer,
@@ -1004,6 +1005,12 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           </div>
         </div>
       )}
+
+      {/* USDC trustline onboarding (#1069) — one-click "Add USDC" when missing */}
+      <AddUsdcTrustline
+        publicKey={publicKey}
+        onTrustlineAdded={() => setRefreshKey((k) => k + 1)}
+      />
 
       {/* USDC balance card — shown only when account has USDC trustline */}
       {usdcBalance !== null && (
