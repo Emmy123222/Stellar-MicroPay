@@ -1,6 +1,8 @@
 const request = require('supertest');
 const express = require('express');
 const jwt = require('jsonwebtoken');
+
+process.env.JWT_SECRET = 'test_secret_for_tests';
 const { verifyJWT, JWT_SECRET } = require('../src/middleware/auth');
 
 describe('Auth Middleware', () => {
