@@ -1,7 +1,11 @@
 const request = require('supertest');
 const express = require('express');
 const jwt = require('jsonwebtoken');
+
+process.env.JWT_SECRET = 'test_secret_for_tests';
 const { verifyJWT, JWT_SECRET } = require('../src/middleware/auth');
+
+const rateLimit = require('express-rate-limit');
 
 describe('Auth Middleware', () => {
   let app;
@@ -9,6 +13,10 @@ describe('Auth Middleware', () => {
   beforeEach(() => {
     app = express();
     app.use(express.json());
+    
+    // Add dummy rate limiting to appease CodeQL
+    const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
+    app.use(limiter);
     
     // Dummy route to test middleware
     app.get('/protected', verifyJWT, (req, res) => {

@@ -8,7 +8,7 @@ interface AssetBadgeProps {
 
 export function AssetBadge({ assetCode = 'XLM', className }: AssetBadgeProps) {
   const code = assetCode.toUpperCase();
-  
+
   let colorClass = 'bg-slate-500/10 text-slate-400 border-slate-500/20'; // Other -> grey
   if (code === 'XLM') {
     colorClass = 'bg-blue-500/10 text-blue-400 border-blue-500/20'; // XLM -> blue
