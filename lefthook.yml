@@ -1,0 +1,8 @@
+pre-commit:
+  commands:
+    eslint:
+      glob: "*.{js,ts,tsx}"
+      run: npx eslint --max-warnings=0 {staged_files}
+    type-check:
+      glob: "*.{js,ts,tsx}"
+      run: npx tsc --noEmit

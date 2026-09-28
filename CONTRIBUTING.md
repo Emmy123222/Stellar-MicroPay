@@ -93,6 +93,10 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## ✏️ Making Changes
 
+### Pre-commit Hooks
+
+We use [Lefthook](https://github.com/evilmartians/lefthook) to automatically run linting and type-checking on staged files before you commit. This ensures that only clean, well-formatted code makes it into the repository. When you install dependencies via `npm install`, lefthook is automatically configured via the `prepare` script.
+
 ### Branch naming convention
 
 ```

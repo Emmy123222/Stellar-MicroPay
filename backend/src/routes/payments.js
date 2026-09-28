@@ -12,6 +12,13 @@ const { sanitizePublicKey } = require("../middleware/sanitization");
 const paymentController = require("../controllers/paymentController");
 
 /**
+ * GET /api/payments/stream-status/:streamId
+ * Return status of a Soroban streaming payment contract.
+ * Must be defined before :publicKey to avoid route conflicts.
+ */
+router.get("/stream-status/:streamId", strictLimiter, paymentController.getStreamStatus);
+
+/**
  * GET /api/payments/:publicKey
  * Fetch payment history for an account via Horizon.
  *

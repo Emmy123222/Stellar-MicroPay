@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "concurrently -k -n backend,frontend -c green,blue \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
     "dev:backend": "npm run dev --prefix backend",
-    "dev:frontend": "npm run dev --prefix frontend"
+    "dev:frontend": "npm run dev --prefix frontend",
+    "prepare": "lefthook install"
   },
   "dependencies": {
     "clsx": "^2.1.1"

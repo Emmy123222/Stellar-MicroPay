@@ -135,6 +135,17 @@ The contract includes comprehensive tests covering:
 
 ## Installation and Deployment
 
+### Docker
+
+You can run the pre-built images from GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/emmy123222/stellar-micropay-backend:latest
+docker pull ghcr.io/emmy123222/stellar-micropay-frontend:latest
+```
+
+### Manual Setup
+
 1. Install Rust and Soroban SDK
 2. Clone this repository
 3. Build the contract: `cargo build --release --target wasm32-unknown-unknown`

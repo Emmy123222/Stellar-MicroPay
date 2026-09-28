@@ -101,10 +101,17 @@ export default function TipPage() {
         ? `Tip @${routeUsername} | Stellar MicroPay`
         : "Tip Creator | Stellar MicroPay";
 
+  const ogUsername =
+    resolveState.status === "ready" ? resolveState.account.username : routeUsername || "creator";
+
   return (
     <>
       <Head>
         <title>{pageTitle}</title>
+        <meta property="og:title" content={`Tip @${ogUsername} on Stellar MicroPay`} />
+        <meta property="og:description" content={`Send a micropayment to ${ogUsername} instantly on the Stellar network`} />
+        <meta property="og:image" content="/logo.png" />
+        <meta name="twitter:card" content="summary" />
       </Head>
 
       <div className="relative min-h-[calc(100vh-88px)] overflow-hidden px-4 py-10 sm:px-6">

@@ -215,12 +215,22 @@ export async function performSEP0010Auth(
 // ─── Signing ─────────────────────────────────────────────────────────────────
 
 /**
+ * Wallet type for signing strategy.
+ */
+export type WalletType = "freighter" | "ledger";
+
+/**
  * Ask Freighter to sign a transaction XDR.
  * Returns the signed XDR string.
  */
 export async function signTransactionWithWallet(
-  transactionXDR: string
+  transactionXDR: string,
+  walletType: WalletType = "freighter"
 ): Promise<{ signedXDR: string | null; error: string | null }> {
+  if (walletType === "ledger") {
+    return signTransactionWithLedger(transactionXDR);
+  }
+
   try {
     const config = getNetworkConfig();
     const network = config.network === "mainnet" ? "MAINNET" : "TESTNET";
@@ -261,21 +271,118 @@ export function disconnectWallet(): void {
   setJwtToken(null);
 }
 
-/**
- * Placeholder for Ledger support (not implemented in this version).
- */
-export const isLedgerSupported = async () => false;
+// ─── Ledger Hardware Wallet Support ─────────────────────────────────────────────
+
+let ledgerTransport: any = null;
+let ledgerApp: any = null;
 
 /**
- * Placeholder for Ledger signing.
+ * Check if Ledger hardware wallet is supported (WebUSB available).
  */
-export async function signTransactionWithLedger(xdr: string): Promise<{ signedXDR: string | null; error: string | null }> {
-  return { signedXDR: null, error: "Ledger support not implemented." };
+export const isLedgerSupported = async (): Promise<boolean> => {
+  if (typeof window === "undefined") return false;
+  if (!navigator || !(navigator as any).usb) return false;
+  
+  try {
+    // Dynamic import to avoid SSR issues
+    const TransportWebUSB = (await import("@ledgerhq/hw-transport-webusb")).default;
+    return TransportWebUSB.isSupported();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Get public key from Ledger device.
+ */
+export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; error: string | null }> {
+  try {
+    const TransportWebUSB = (await import("@ledgerhq/hw-transport-webusb")).default;
+    const AppStellar = (await import("@ledgerhq/hw-app-stellar")).default;
+    
+    ledgerTransport = await TransportWebUSB.create();
+    ledgerApp = new AppStellar(ledgerTransport);
+    
+    const result = await ledgerApp.getPublicKey("", "44'", true);
+    const publicKey = result.publicKey;
+    
+    await ledgerTransport.close();
+    ledgerTransport = null;
+    ledgerApp = null;
+    
+    return { publicKey, error: null };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    
+    if (ledgerTransport) {
+      try {
+        await ledgerTransport.close();
+      } catch {
+        // Ignore close errors
+      }
+      ledgerTransport = null;
+      ledgerApp = null;
+    }
+    
+    if (message.includes("No device found")) {
+      return { publicKey: null, error: "Ledger device not found. Please connect your Ledger and unlock it." };
+    }
+    if (message.includes("Locked")) {
+      return { publicKey: null, error: "Ledger device is locked. Please unlock it." };
+    }
+    if (message.includes("Stellar app is not open")) {
+      return { publicKey: null, error: "Please open the Stellar app on your Ledger device." };
+    }
+    
+    return { publicKey: null, error: `Ledger error: ${message}` };
+  }
 }
 
 /**
- * Placeholder for fetching Ledger public key.
+ * Sign transaction with Ledger device.
  */
-export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; error: string | null }> {
-  return { publicKey: null, error: "Ledger support not implemented." };
+export async function signTransactionWithLedger(xdr: string): Promise<{ signedXDR: string | null; error: string | null }> {
+  try {
+    const TransportWebUSB = (await import("@ledgerhq/hw-transport-webusb")).default;
+    const AppStellar = (await import("@ledgerhq/hw-app-stellar")).default;
+    
+    ledgerTransport = await TransportWebUSB.create();
+    ledgerApp = new AppStellar(ledgerTransport);
+    
+    const result = await ledgerApp.signTransaction("", xdr);
+    const signedXDR = result.signature;
+    
+    await ledgerTransport.close();
+    ledgerTransport = null;
+    ledgerApp = null;
+    
+    return { signedXDR, error: null };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    
+    if (ledgerTransport) {
+      try {
+        await ledgerTransport.close();
+      } catch {
+        // Ignore close errors
+      }
+      ledgerTransport = null;
+      ledgerApp = null;
+    }
+    
+    if (message.includes("No device found")) {
+      return { signedXDR: null, error: "Ledger device not found. Please connect your Ledger and unlock it." };
+    }
+    if (message.includes("Locked")) {
+      return { signedXDR: null, error: "Ledger device is locked. Please unlock it." };
+    }
+    if (message.includes("Stellar app is not open")) {
+      return { signedXDR: null, error: "Please open the Stellar app on your Ledger device." };
+    }
+    if (message.includes("Transaction rejected")) {
+      return { signedXDR: null, error: "Transaction rejected on Ledger device." };
+    }
+    
+    return { signedXDR: null, error: `Ledger signing error: ${message}` };
+  }
 }

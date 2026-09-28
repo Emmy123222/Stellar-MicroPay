@@ -77,6 +77,9 @@ export default function BatchPaymentForm({
         recipient.address !== publicKey
     );
   const exceedsBalance = totalXLM > availableXLM;
+  const allRowsValid = recipients.every(
+    (r) => isValidStellarAddress(r.address) && parseFloat(r.amount) > 0 && r.address !== publicKey
+  );
 
   const updateRecipient = (
     id: string,
@@ -325,6 +328,12 @@ export default function BatchPaymentForm({
           </div>
         </div>
 
+        <table className="w-full text-sm">
+          <thead className="text-left text-xs uppercase tracking-wide text-slate-500"><tr><th>Recipient</th><th>Amount</th><th>Asset</th></tr></thead>
+          <tbody>{recipients.map((r) => <tr key={r.id} className={!isValidStellarAddress(r.address) ? "bg-rose-500/10 text-rose-300" : "text-slate-300"}><td className="font-mono">{r.address.slice(0, 8) || "G..."}</td><td>{Number(r.amount || 0).toFixed(2)}</td><td>XLM</td></tr>)}</tbody>
+          <tfoot className="border-t border-white/10 text-slate-300"><tr><td>Total</td><td className="font-semibold text-white">{totalXLM.toFixed(2)} XLM</td><td /></tr></tfoot>
+        </table>
+
         {exceedsBalance ? (
           <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-100">
             Total exceeds your available XLM balance after reserve.
@@ -341,10 +350,10 @@ export default function BatchPaymentForm({
           <button
             type="button"
             onClick={handleSendBatch}
-            disabled={!canSubmit || isProcessing || exceedsBalance}
+            disabled={!canSubmit || isProcessing || exceedsBalance || !allRowsValid}
             className="btn-primary w-full sm:w-auto py-2.5"
           >
-            {isProcessing ? "Sending batch..." : "Send batch"}
+            {isProcessing ? "Sending batch..." : "Confirm & Send"}
           </button>
           <button
             type="button"

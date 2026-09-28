@@ -62,13 +62,6 @@ app.use(
   })
 );
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
-
-app.use("/api/auth",     authRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/health",       healthRoutes);
-
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -81,8 +74,10 @@ app.use(limiter);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
+app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/health", healthRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
