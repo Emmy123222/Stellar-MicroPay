@@ -298,7 +298,7 @@ export const isLedgerSupported = async (): Promise<boolean> => {
 export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; error: string | null }> {
   try {
     const TransportWebUSB = (await import("@ledgerhq/hw-transport-webusb")).default;
-    const AppStellar = (await import("@ledgerhq/hw-app-stellar")).default;
+    const AppStellar = (await import("@ledgerhq/hw-app-str")).default;
     
     ledgerTransport = await TransportWebUSB.create();
     ledgerApp = new AppStellar(ledgerTransport);
@@ -344,7 +344,7 @@ export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; 
 export async function signTransactionWithLedger(xdr: string): Promise<{ signedXDR: string | null; error: string | null }> {
   try {
     const TransportWebUSB = (await import("@ledgerhq/hw-transport-webusb")).default;
-    const AppStellar = (await import("@ledgerhq/hw-app-stellar")).default;
+    const AppStellar = (await import("@ledgerhq/hw-app-str")).default;
     
     ledgerTransport = await TransportWebUSB.create();
     ledgerApp = new AppStellar(ledgerTransport);
