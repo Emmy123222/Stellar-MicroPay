@@ -37,7 +37,15 @@ Output: `target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm`
 
 ```bash
 cargo test
+
+# Only the WASM-upgrade tests, with the before/after state printed
+cargo test upgrade -- --nocapture
 ```
+
+The upgrade tests swap the contract's executable for
+`test_wasm/stub_new_wasm.wasm` (a 639-byte WASM blob checked into the repo, so
+`cargo test` needs no stellar-cli build step) and then assert that every stored
+tip, receipt and the admin address survive the swap.
 
 ## Deploy to Testnet
 
@@ -84,6 +92,43 @@ stellar contract invoke \
   -- get_tip_total \
   --recipient <RECIPIENT_ADDRESS>
 ```
+
+## Soroban error reference (#1217)
+
+Every failure this contract can produce, its trigger, and the functions that
+raise it. There is no per-error numeric code: a panic in the WASM is always
+reported to the caller as `Error(WasmVm, InvalidAction)`, and only the text in
+the *Diagnostic* column survives — in a diagnostic event, not in the returned
+code. So key your tooling on the message, not on the code.
+
+| Name | Soroban error | Message / diagnostic text | Trigger condition | Affected functions |
+| --- | --- | --- | --- | --- |
+| `ALREADY_INITIALIZED` | `Error(WasmVm, InvalidAction)` | `Contract already initialized` | `initialize` is called when `DataKey::Admin` already holds a value. Initialization is one-shot; there is no re-key path. | `initialize` |
+| `SENDER_AUTH_REQUIRED` | `Error(Auth, InvalidAction)` | `Unauthorized function call for address` (auth layer, not a panic) | The `from` address did not authorize the call: no matching `Requirement` was signed. | `send_tip`, `mint_receipt` |
+| `TIP_AMOUNT_NOT_POSITIVE` | `Error(WasmVm, InvalidAction)` | `Tip amount must be positive` | `amount <= 0`, in the token's smallest unit (stroops for XLM). Checked before the transfer, so no tokens move. | `send_tip` |
+| `RECEIPT_AMOUNT_NOT_POSITIVE` | `Error(WasmVm, InvalidAction)` | `Receipt amount must be positive` | `amount <= 0` when minting a receipt. | `mint_receipt` |
+| `NOT_INITIALIZED` | `Error(WasmVm, InvalidAction)` | `Contract not initialized` | `get_admin` reads `DataKey::Admin` on a contract nobody has initialized. | `get_admin` |
+| `TIP_RECORD_NOT_FOUND` | `Error(WasmVm, InvalidAction)` | `Tip record not found` | `get_tip_record` index is outside `0..get_tip_count(recipient)`. Tip records are stored from index `0` upward, so an index equal to the count is the usual off-by-one. | `get_tip_record` |
+| `RECEIPT_NOT_FOUND` | `Error(WasmVm, InvalidAction)` | `Receipt not found` | `get_receipt` index is outside `0..get_receipt_count(payer)`. | `get_receipt` |
+| `TOKEN_TRANSFER_FAILED` | whatever the SAC returns (e.g. `Error(Auth, InvalidAction)`, balance/trustline errors) | surfaces from the token contract, not from MicroPay | The underlying `token.transfer` aborts: sender has insufficient balance, is not authorized, or the destination asset needs a trustline. Recorded tips are rolled back with it. | `send_tip` |
+| `ESCROW_NOT_IMPLEMENTED` | `Error(WasmVm, InvalidAction)` | `Escrow payments coming in v2.1 — see ROADMAP.md` | Placeholder entry point, still unimplemented on `main`. | `create_escrow` |
+| `BATCH_NOT_IMPLEMENTED` | `Error(WasmVm, InvalidAction)` | `Batch payments coming in v2.0 — see ROADMAP.md` | Placeholder entry point, still unimplemented on `main`. | `batch_send` |
+
+Notes that apply to the whole table:
+
+- **A panic is a hard stop.** The invocation aborts and *nothing* is persisted,
+  including the admin and counters — see
+  `test_panics_are_reported_as_context_invalid_action` in `src/lib.rs`.
+- **Storage eviction looks like a new contract.** Tips, receipts and the admin
+  all live in *instance* storage, whose TTL is renewed by reads and writes. A
+  contract left untouched for longer than the network's maximum entry lifetime
+  (65,176 ledgers on pubnet, a few days) has its storage evicted, and the values
+  simply read as absent: `get_tip_total` returns `0`, `get_admin` hits
+  `NOT_INITIALIZED`. This is the one failure mode that produces no error at the
+  call that exposes it.
+- **Reading the message.** `stellar contract invoke` prints the diagnostic
+  events on a failed simulation; the line looks like
+  `["caught panic 'Tip amount must be positive' from contract function ..."]`.
 
 ## Troubleshooting (#153)
 
