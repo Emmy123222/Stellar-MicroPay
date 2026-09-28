@@ -86,42 +86,10 @@ export function getHorizonUrl(): string {
   return config.horizonUrl;
 }
 
-// Deprecated: These constants evaluate at module load time and can cause SSR crashes.
-// Use getNetwork(), getHorizonUrl(), and getNetworkPassphrase() functions instead.
-// These are kept only for backwards compatibility and will be lazily initialized.
-let _legacyNetworkCache: "testnet" | "mainnet" | undefined;
-let _legacyHorizonUrlCache: string | undefined;
-let _legacyNetworkPassphraseCache: string | undefined;
-
-Object.defineProperty(exports as any, "NETWORK", {
-  get: function() {
-    if (_legacyNetworkCache === undefined) {
-      _legacyNetworkCache = getNetwork();
-    }
-    return _legacyNetworkCache;
-  },
-  enumerable: true
-});
-
-Object.defineProperty(exports as any, "HORIZON_URL", {
-  get: function() {
-    if (_legacyHorizonUrlCache === undefined) {
-      _legacyHorizonUrlCache = getHorizonUrl();
-    }
-    return _legacyHorizonUrlCache;
-  },
-  enumerable: true
-});
-
-Object.defineProperty(exports as any, "NETWORK_PASSPHRASE", {
-  get: function() {
-    if (_legacyNetworkPassphraseCache === undefined) {
-      _legacyNetworkPassphraseCache = getNetworkPassphrase();
-    }
-    return _legacyNetworkPassphraseCache;
-  },
-  enumerable: true
-});
+// Note: callers must use getNetwork(), getHorizonUrl() and getNetworkPassphrase()
+// rather than the former NETWORK / HORIZON_URL / NETWORK_PASSPHRASE constants.
+// Those were installed with Object.defineProperty(exports, ...), which TypeScript
+// cannot see and webpack cannot resolve, so they broke both `tsc` and the build.
 
 /** Pre-configured Horizon server instance for the active network. */
 let _server: Horizon.Server | null = null;
@@ -191,7 +159,6 @@ const ELEVATED_FEE_MAX_STROOPS = STELLAR_BASE_FEE_STROOPS * 10;
  * control characters that have no business being rendered as text.
  */
 function stripNonPrintableCharacters(memo: string): string {
-  // eslint-disable-next-line no-control-regex -- intentionally matching C0/C1 control characters
   return memo.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 }
 
@@ -1173,7 +1140,7 @@ export async function buildSorobanTipTransaction({
   const contract = new Contract(CONTRACT_ID);
 
   // Derive the XLM Asset Contract ID
-  const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+  const xlmContractId = Asset.native().contractId(getNetworkPassphrase());
 
   const stroops = BigInt(Math.round(parseFloat(amount) * STELLAR_STROOPS_PER_XLM));
 
