@@ -6,6 +6,8 @@
 
 "use strict";
 
+const { assertNotDust, isDustAmount, MIN_PAYMENT_ERROR } = require("./paymentLimits");
+
 // In-memory storage for tips
 // Structure: Map<creatorPublicKey, TipRecord[]>
 const tipsByCreator = new Map();
@@ -31,6 +33,11 @@ function recordTip({ senderPublicKey, creatorPublicKey, amount, asset = "XLM", m
     error.status = 400;
     throw error;
   }
+
+  // Also enforced by validateTipInput, but recordTip is callable from outside
+  // the HTTP layer (scheduled transactions), and the dust floor is a property
+  // of the network rather than of one route.
+  assertNotDust(amount);
 
   const tip = {
     id: tipIdCounter++,
@@ -192,6 +199,8 @@ function validateTipInput(data) {
     errors.push("amount is required");
   } else if (isNaN(parseFloat(data.amount)) || parseFloat(data.amount) <= 0) {
     errors.push("amount must be a positive number");
+  } else if (isDustAmount(data.amount)) {
+    errors.push(MIN_PAYMENT_ERROR);
   }
 
   if (errors.length > 0) {

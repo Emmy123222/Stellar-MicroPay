@@ -13,7 +13,8 @@ const tipsController = require("../controllers/tipsController");
 
 /**
  * POST /api/tips
- * Record a new tip.
+ * Record a new tip. Amounts under the 0.0001 XLM dust floor are rejected with
+ * 400 by tipsService.validateTipInput before anything is stored.
  */
 router.post("/", strictLimiter, tipsController.recordTip);
 

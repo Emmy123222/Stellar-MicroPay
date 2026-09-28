@@ -655,7 +655,10 @@ const options = {
           },
           responses: {
             200: { description: "Tip recorded" },
-            400: { description: "Invalid tip data" },
+            400: {
+              description:
+                "Invalid tip data, or an amount below the 0.0001 XLM dust floor",
+            },
           },
         },
       },
