@@ -10,6 +10,7 @@ import { getNetworkPassphrase } from "../lib/stellar";
 function getSignerHints(unsignedXDR: string, signedXDRs: string[]): string[] {
   try {
     const hints: string[] = [];
+    const NETWORK_PASSPHRASE = getNetworkPassphrase();
     for (const sxdr of signedXDRs) {
       const tx = new Transaction(sxdr, getNetworkPassphrase());
       for (const sig of tx.signatures) {

@@ -14,6 +14,55 @@ This guide provides step-by-step instructions for deploying the Stellar-MicroPay
 
 2. **Stellar Account**: Have a funded Stellar account for deployment
 3. **Git**: For version control and PR creation
+4. **JWT Secret**: Generate a strong random secret for JWT token signing
+   ```bash
+   openssl rand -base64 48
+   ```
+   Add this value to your `.env` file as `JWT_SECRET=<generated_value>`
+
+## Backend Configuration
+
+### Required Environment Variables
+
+Before deploying the backend, you must configure the following environment variables:
+
+1. **JWT_SECRET** (REQUIRED): Generate a secure secret for JWT token signing
+   ```bash
+   # Generate a cryptographically secure random secret
+   openssl rand -base64 48
+   ```
+   
+   Add this to your `.env` file or environment:
+   ```bash
+   JWT_SECRET=<generated_secret_here>
+   ```
+   
+   **IMPORTANT**: 
+   - NEVER commit the JWT_SECRET to version control
+   - Use a different secret for each environment (dev, staging, production)
+   - The application will refuse to start if JWT_SECRET is not set
+
+## Backend Configuration
+
+### Required Environment Variables
+
+Before deploying the backend, you must configure the following environment variables:
+
+1. **JWT_SECRET** (REQUIRED): Generate a secure secret for JWT token signing
+   ```bash
+   # Generate a cryptographically secure random secret
+   openssl rand -base64 48
+   ```
+   
+   Add this to your `.env` file or environment:
+   ```bash
+   JWT_SECRET=<generated_secret_here>
+   ```
+   
+   **IMPORTANT**: 
+   - NEVER commit the JWT_SECRET to version control
+   - Use a different secret for each environment (dev, staging, production)
+   - The application will refuse to start if JWT_SECRET is not set
 
 ## Build Instructions
 
