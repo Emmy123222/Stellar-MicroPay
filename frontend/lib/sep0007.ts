@@ -31,8 +31,11 @@ export interface URIParseResult {
  */
 export function parseStellarURI(uri: string): URIParseResult {
   try {
-    // Handle both stellar:pay and web+stellar:pay
-    const stellarRegex = /^(?:web\+)?stellar:pay\?(.+)$/;
+    // Handle stellar:pay, web+stellar:pay, and the web+stellar://pay
+    // (double-slash) variant some wallets emit — the leading "//" after the
+    // scheme is not part of SEP-0007's own format, so it is stripped before
+    // matching rather than treated as a distinct URI shape.
+    const stellarRegex = /^(?:web\+)?stellar:\/{0,2}pay\?(.+)$/;
     const match = uri.match(stellarRegex);
 
     if (!match) {
