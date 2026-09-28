@@ -6,10 +6,15 @@
 
 const jwt = require("jsonwebtoken");
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET environment variable is required");
+// Require JWT_SECRET environment variable - no default value for security
+if (!process.env.JWT_SECRET) {
+  throw new Error(
+    "FATAL: JWT_SECRET environment variable is not set. " +
+    "Generate a secure secret with: openssl rand -base64 48"
+  );
 }
+
+const JWT_SECRET = process.env.JWT_SECRET;
 
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
