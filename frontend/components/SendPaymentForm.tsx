@@ -433,7 +433,7 @@ export default function SendPaymentForm({
           return;
         }
 
-        const result = await Federation.resolve(domain, name);
+        const result = await Federation.Server.resolve(`${name}*${domain}`);
         if (result.account_id) {
           setFederationResolvedAddress(result.account_id);
         } else {
