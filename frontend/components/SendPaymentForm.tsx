@@ -29,6 +29,7 @@ import {
   type StellarMemoType,
 } from "@/lib/stellar";
 import { Federation } from "@stellar/stellar-sdk";
+import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
@@ -735,8 +736,8 @@ export default function SendPaymentForm({
       setStatus("success");
       saveRecipient(destination);
       onSuccess?.(result.hash);
-    } catch (err: any) {
-      const message = err?.message || "An unexpected error occurred";
+    } catch (err: unknown) {
+      const { message } = parseHorizonSubmissionError(err);
       setError(message);
       markStepFailed(activeStep, message);
       setStatus("error");

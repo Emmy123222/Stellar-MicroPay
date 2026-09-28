@@ -803,17 +803,10 @@ export async function buildAccountMergeTransaction({
 */
 export async function submitTransaction(signedXDR: string) {
   const transaction = TransactionBuilder.fromXDR(signedXDR, getNetworkPassphrase()) as Transaction;
-  try {
-    const result = await server.submitTransaction(transaction);
-    return result;
-  } catch (err: unknown) {
-    const horizonErr = err as { response?: { data?: { extras?: { result_codes?: unknown } } } };
-    if (horizonErr?.response?.data?.extras?.result_codes) {
-      const codes = horizonErr.response.data.extras.result_codes;
-      throw new Error(`Transaction failed: ${JSON.stringify(codes)}`);
-    }
-    throw err;
-  }
+  // Re-throws Horizon's own error object unchanged (rather than stringifying
+  // result_codes into a generic Error's message) so callers can parse the
+  // structured codes with lib/horizonErrors.ts's parseHorizonSubmissionError.
+  return server.submitTransaction(transaction);
 }
 
 /**
