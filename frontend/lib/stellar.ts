@@ -184,13 +184,26 @@ export const STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM =
 const STELLAR_BASE_FEE_STROOPS_STRING = String(STELLAR_BASE_FEE_STROOPS);
 const ELEVATED_FEE_MAX_STROOPS = STELLAR_BASE_FEE_STROOPS * 10;
 
+/**
+ * Strips ASCII/Unicode control characters (non-printable bytes) from memo
+ * text. Stellar MEMO_TEXT values are arbitrary bytes, so a memo — whether
+ * typed locally or read back from an on-chain transaction — can carry
+ * control characters that have no business being rendered as text.
+ */
+function stripNonPrintableCharacters(memo: string): string {
+  // eslint-disable-next-line no-control-regex -- intentionally matching C0/C1 control characters
+  return memo.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+}
+
 export function truncateMemoText(memo: string): string {
-  if (memoTextByteLength(memo) <= STELLAR_MEMO_TEXT_MAX_BYTES) {
-    return memo;
+  const safeMemo = stripNonPrintableCharacters(memo);
+
+  if (memoTextByteLength(safeMemo) <= STELLAR_MEMO_TEXT_MAX_BYTES) {
+    return safeMemo;
   }
 
   let truncated = "";
-  for (const char of memo) {
+  for (const char of safeMemo) {
     const next = truncated + char;
     if (memoTextByteLength(next) > STELLAR_MEMO_TEXT_MAX_BYTES) {
       break;

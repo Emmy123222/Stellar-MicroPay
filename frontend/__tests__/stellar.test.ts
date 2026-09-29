@@ -5,6 +5,8 @@ import {
   collectSignatures,
   buildPaymentTransaction,
   getNetworkPassphrase,
+  truncateMemoText,
+  memoTextByteLength,
 } from "@/lib/stellar";
 import { Account, Keypair, Transaction } from "@stellar/stellar-sdk";
 
@@ -128,6 +130,44 @@ describe("Stellar helper", () => {
       await expect(
         collectSignatures("INVALID_XDR", ["ALSO_INVALID"])
       ).rejects.toThrow("Invalid transaction XDR or signature collection failed");
+    });
+  });
+
+  describe("truncateMemoText", () => {
+    it("preserves memo text that already fits within the byte limit", () => {
+      expect(truncateMemoText("Coffee money")).toBe("Coffee money");
+    });
+
+    it("strips non-printable control characters from the memo", () => {
+      const withControlChars = "Rent\u0000\u0007\u001Fpayment\u007F";
+      expect(truncateMemoText(withControlChars)).toBe("Rentpayment");
+    });
+
+    it("preserves markup-like text as plain characters, not HTML", () => {
+      const memo = "<script>alert(1)</script>";
+      const result = truncateMemoText(memo);
+
+      // The sanitizer only strips non-printable bytes — it is not an HTML
+      // sanitizer. Printable markup characters survive as inert text; it is
+      // up to the renderer (React's default escaping) to keep it inert.
+      expect(result).toContain("<script>");
+      expect(result.length).toBeLessThanOrEqual(28);
+    });
+
+    it("truncates to the 28-byte MEMO_TEXT limit after stripping control characters", () => {
+      const longMemo = "\u0000This memo is definitely longer than twenty eight bytes";
+      const result = truncateMemoText(longMemo);
+
+      expect(result.startsWith("\u0000")).toBe(false);
+      expect(memoTextByteLength(result)).toBeLessThanOrEqual(28);
+    });
+
+    it("truncates multi-byte UTF-8 characters without splitting a codepoint", () => {
+      const emojiMemo = "🎉".repeat(20);
+      const result = truncateMemoText(emojiMemo);
+
+      expect(memoTextByteLength(result)).toBeLessThanOrEqual(28);
+      expect([...result].every((char) => char === "🎉")).toBe(true);
     });
   });
 });

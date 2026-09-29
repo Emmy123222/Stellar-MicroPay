@@ -138,6 +138,15 @@ const options = {
             averageAmount: { type: "string" },
           },
         },
+        Webhook: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            url: { type: "string", format: "uri" },
+            publicKey: { type: "string" },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
       },
     },
     paths: {
@@ -657,6 +666,36 @@ const options = {
             200: { description: "Tip recorded" },
             400: { description: "Invalid tip data" },
           },
+        },
+      },
+      "/api/tips/leaderboard": {
+        get: {
+          tags: ["Tips"],
+          summary: "Get the top XLM tip senders and recipients",
+          responses: { 200: { description: "Community tip leaderboard" } },
+        },
+      },
+      "/api/webhooks/register": {
+        post: {
+          tags: ["Webhooks"],
+          summary: "Register a payment-event webhook",
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: {
+              type: "object",
+              required: ["url", "publicKey", "secret"],
+              properties: { url: { type: "string", format: "uri" }, publicKey: { type: "string" }, secret: { type: "string", format: "password" } },
+            } } },
+          },
+          responses: { 201: { description: "Webhook registered", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } } }, 400: { description: "Invalid registration" } },
+        },
+      },
+      "/api/webhooks/{id}": {
+        delete: {
+          tags: ["Webhooks"],
+          summary: "Deregister a webhook",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          responses: { 204: { description: "Webhook removed" }, 404: { description: "Webhook not found" } },
         },
       },
       "/api/turrets": {

@@ -12,6 +12,32 @@ This project implements a Soroban smart contract for streaming payment channels 
 - **Close Streams**: Payers can close streams and receive refunds for unstreamed portions
 - **Rate-based Streaming**: Payments are calculated based on ledger progression
 
+## Architecture
+
+Stellar-MicroPay is a three-tier Web3 application. The diagram below shows how the
+pieces fit together, from the browser down to the Soroban contract on the Stellar
+network. A more detailed breakdown lives in [`docs/architecture.md`](docs/architecture.md).
+
+```mermaid
+flowchart TD
+    subgraph Browser["User's Browser"]
+        FE["Next.js Frontend<br/>(React + Tailwind)"]
+        FW["Freighter Wallet<br/>(signs transactions)"]
+        FE <--> FW
+    end
+
+    BE["Node.js / Express Backend API"]
+    HZ["Stellar Horizon API"]
+    SN["Stellar Network<br/>(validators)"]
+    SC["Soroban Smart Contract<br/>(Rust/WASM)"]
+
+    FE -->|"REST / HTTP"| BE
+    BE -->|"Horizon REST"| HZ
+    FE -.->|"submit signed XDR"| HZ
+    HZ <--> SN
+    SN <-->|"Soroban"| SC
+```
+
 ## Contract Structure
 
 ### Stream Struct
@@ -166,6 +192,44 @@ docker pull ghcr.io/emmy123222/stellar-micropay-frontend:latest
 - **Gas Efficiency**: Efficient storage and computation patterns
 - **Security**: Comprehensive input validation and access controls
 - **Compliance**: Follows Soroban best practices and standards
+
+## Contributors
+
+Thanks to everyone who has contributed to Stellar-MicroPay! 🎉
+
+<a href="https://github.com/Emmy123222/Stellar-MicroPay/graphs/contributors">
+  <img src="https://contributors-img.web.app/image?repo=Emmy123222/Stellar-MicroPay" alt="Contributors" />
+</a>
+
+The contributor graph above is rendered by the [`contributors-img`](https://contributors-img.web.app)
+service (the maintained successor to the `contributors-img` GitHub Action). Each name below links
+to its GitHub profile.
+
+### Thanks to
+
+- [@Emmy123222](https://github.com/Emmy123222)
+- [@emmanuel](https://github.com/emmanuel)
+- [@iamTissan](https://github.com/iamTissan)
+- [@zeemscript](https://github.com/zeemscript)
+- [@Ennyhorla1](https://github.com/Ennyhorla1)
+- [@Seunfunmi-319509](https://github.com/Seunfunmi-319509)
+- [@AGWAM001](https://github.com/AGWAM001)
+- [@johnsmccain](https://github.com/johnsmccain)
+- [@alabiopeyemi](https://github.com/alabiopeyemi)
+- [@Hollujay](https://github.com/Hollujay)
+- [@Gojv-byte](https://github.com/Gojv-byte)
+- [@Manuelshub](https://github.com/Manuelshub)
+- [@Cjay-Cyber-2](https://github.com/Cjay-Cyber-2)
+- [@Nanle-code](https://github.com/Nanle-code)
+- [@Robinsonchiziterem](https://github.com/Robinsonchiziterem)
+- [@gboigwe](https://github.com/gboigwe)
+- [@devfoma](https://github.com/devfoma)
+- [@nonso7](https://github.com/nonso7)
+- [@Emelie-Dev](https://github.com/Emelie-Dev)
+- [@harystyleseze](https://github.com/harystyleseze)
+
+...and [all the other contributors](https://github.com/Emmy123222/Stellar-MicroPay/graphs/contributors)
+who have helped shape this project.
 
 ## License
 
