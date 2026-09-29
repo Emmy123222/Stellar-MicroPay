@@ -10,6 +10,7 @@ const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
 const { validatePublicKey } = require("../middleware/sanitization");
 const paymentController = require("../controllers/paymentController");
+const { horizonCircuitBreakerMiddleware } = require("../middleware/horizonCircuitBreaker");
 
 /**
  * GET /api/payments/stream-status/:streamId
@@ -26,12 +27,12 @@ router.get("/stream-status/:streamId", strictLimiter, paymentController.getStrea
  *   limit  — number of results (default: 20, max: 100)
  *   cursor — pagination cursor
  */
-router.get("/:publicKey", strictLimiter, validatePublicKey(), paymentController.getPayments);
+router.get("/:publicKey", strictLimiter, validatePublicKey(), horizonCircuitBreakerMiddleware, paymentController.getPayments);
 
 /**
  * GET /api/payments/:publicKey/stats
  * Return aggregate stats for an account (total sent, received, count).
  */
-router.get("/:publicKey/stats", validatePublicKey(), paymentController.getStats);
+router.get("/:publicKey/stats", validatePublicKey(), horizonCircuitBreakerMiddleware, paymentController.getStats);
 
 module.exports = router;

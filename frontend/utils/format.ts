@@ -243,9 +243,15 @@ function triggerDownload(contents: string, filename: string, type: string): void
  * Convert an array of PaymentRecords to a CSV string and trigger a browser
  * file download. No server required — uses a Blob URL.
  *
- * Columns: Date, Type, Amount, Asset, From, To, Memo, Transaction Hash
+ * Columns: Date, Type, Amount, Asset, From, To, Memo, Transaction Hash, Private Note
+ *
+ * @param payments - Array of payment records to export.
+ * @param notes - Optional map of transactionHash → private note (Issue #1189).
  */
-export function exportToCSV(payments: PaymentRecord[]): void {
+export function exportToCSV(
+  payments: PaymentRecord[],
+  notes?: Record<string, string>
+): void {
   const HEADERS = [
     "Date",
     "Type",
@@ -255,6 +261,7 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     "To",
     "Memo",
     "Transaction Hash",
+    "Private Note",
   ];
 
   const rows = payments.map((tx) => [
@@ -266,6 +273,7 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     csvCell(tx.to),
     csvCell(tx.memo ?? ""),
     csvCell(tx.transactionHash),
+    csvCell(notes?.[tx.transactionHash] ?? ""),
   ]);
 
   const csv = [

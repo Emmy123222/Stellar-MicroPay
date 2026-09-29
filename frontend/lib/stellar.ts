@@ -761,6 +761,143 @@ export async function buildAccountMergeTransaction({
   return builder.build();
 }
 
+// ─── Path Payments (#1190) ──────────────────────────────────────────────────
+
+/**
+ * Represents a single path payment route returned by Horizon strictSendPaths.
+ */
+export interface PathPaymentRoute {
+  /** The asset sent by the source account. */
+  sourceAsset: Asset;
+  /** Amount the source account sends. */
+  sourceAmount: string;
+  /** The asset received by the destination account. */
+  destinationAsset: Asset;
+  /** Amount the destination account receives. */
+  destinationAmount: string;
+  /** Intermediate assets in the conversion path. */
+  path: Asset[];
+  /** Human-readable exchange rate: destAmount / sourceAmount */
+  exchangeRate: number;
+}
+
+/**
+ * Query Horizon for the best strict-send paths converting one asset to another via the DEX.
+ *
+ * @param sourceAsset - Asset to send (e.g. XLM native).
+ * @param sourceAmount - Amount to send in string form, e.g. "10.0000000".
+ * @param destinationAsset - Asset the recipient should receive.
+ * @returns Array of available path payment routes, sorted by best destination amount.
+ */
+export async function findStrictSendPaths({
+  sourceAsset,
+  sourceAmount,
+  destinationAsset,
+}: {
+  sourceAsset: Asset;
+  sourceAmount: string;
+  destinationAsset: Asset;
+}): Promise<PathPaymentRoute[]> {
+  try {
+    const result = await server
+      .strictSendPaths(sourceAsset, sourceAmount, [destinationAsset])
+      .call();
+
+    return result.records.map((record: any) => {
+      const srcAsset =
+        record.source_asset_type === "native"
+          ? Asset.native()
+          : new Asset(record.source_asset_code, record.source_asset_issuer);
+
+      const destAsset =
+        record.destination_asset_type === "native"
+          ? Asset.native()
+          : new Asset(record.destination_asset_code, record.destination_asset_issuer);
+
+      const intermediaryPath: Asset[] = (record.path || []).map((p: any) =>
+        p.asset_type === "native"
+          ? Asset.native()
+          : new Asset(p.asset_code, p.asset_issuer)
+      );
+
+      const srcAmt = parseFloat(record.source_amount || sourceAmount);
+      const destAmt = parseFloat(record.destination_amount || "0");
+      const exchangeRate = srcAmt > 0 ? destAmt / srcAmt : 0;
+
+      return {
+        sourceAsset: srcAsset,
+        sourceAmount: record.source_amount || sourceAmount,
+        destinationAsset: destAsset,
+        destinationAmount: record.destination_amount || "0",
+        path: intermediaryPath,
+        exchangeRate,
+      };
+    });
+  } catch (err) {
+    console.error("Failed to find strict send paths:", err);
+    return [];
+  }
+}
+
+/**
+ * Build an unsigned pathPaymentStrictSend transaction ready for Freighter to sign.
+ *
+ * Sends an exact `sendAmount` of `sendAsset` and delivers at least `minDestAmount`
+ * of `destAsset` to the recipient. Any DEX conversion happens automatically.
+ *
+ * @param params.fromPublicKey - Sender's Stellar public key.
+ * @param params.toPublicKey - Recipient's Stellar public key.
+ * @param params.sendAsset - Asset being sent (e.g. XLM native).
+ * @param params.sendAmount - Exact amount to send.
+ * @param params.destAsset - Asset to be received by the recipient.
+ * @param params.minDestAmount - Minimum amount recipient should receive (slippage protection).
+ * @param params.path - Intermediate conversion assets found via {@link findStrictSendPaths}.
+ * @param params.memo - Optional memo text.
+ */
+export async function buildPathPaymentStrictSendTransaction({
+  fromPublicKey,
+  toPublicKey,
+  sendAsset,
+  sendAmount,
+  destAsset,
+  minDestAmount,
+  path = [],
+  memo,
+}: {
+  fromPublicKey: string;
+  toPublicKey: string;
+  sendAsset: Asset;
+  sendAmount: string;
+  destAsset: Asset;
+  minDestAmount: string;
+  path?: Asset[];
+  memo?: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const builder = new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(
+      Operation.pathPaymentStrictSend({
+        sendAsset,
+        sendAmount,
+        destination: toPublicKey,
+        destAsset,
+        destMin: minDestAmount,
+        path,
+      })
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
+
+  if (memo) {
+    builder.addMemo(Memo.text(truncateMemoText(memo)));
+  }
+
+  return builder.build();
+}
+
 /**
  * Submit a signed transaction XDR string to the Stellar network.
  *

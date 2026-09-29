@@ -10,6 +10,7 @@ import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar
 import { disconnectWallet } from "@/lib/wallet";
 import { shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+import WalletHealthPanel from "@/components/WalletHealthPanel";
 
 export default function SettingsPage() {
   const { publicKey, disconnectWallet: disconnectCurrentWallet } = useWallet();
@@ -348,6 +349,9 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+
+            {/* Wallet Health Check Section - Issue #1192 */}
+            {publicKey && <WalletHealthPanel publicKey={publicKey} />}
           </div>
         </main>
       </div>

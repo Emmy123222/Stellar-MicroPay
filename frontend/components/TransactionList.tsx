@@ -13,6 +13,7 @@ import {
   PaymentHistoryResponse,
 } from "@/lib/stellar";
 import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
+import { loadAllPaymentNotes, savePaymentNote } from "@/lib/usePaymentNotes";
 import clsx from "clsx";
 
 export type TransactionDirectionFilter = "all" | "sent" | "received";
@@ -134,6 +135,11 @@ export default function TransactionList({
   const [stalePaymentsAt, setStalePaymentsAt] = useState<number | null>(null);
   const router = useRouter();
 
+  // Private off-chain payment notes — Issue #1189
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [editingNoteHash, setEditingNoteHash] = useState<string | null>(null);
+  const [noteInputValue, setNoteInputValue] = useState("");
+
   const updatePayments = useCallback(
     (next: PaymentRecord[]) => {
       setPayments(next);
@@ -141,6 +147,36 @@ export default function TransactionList({
     },
     [onPaymentsChange]
   );
+
+  // Load all saved notes on mount
+  useEffect(() => {
+    setNotes(loadAllPaymentNotes());
+  }, []);
+
+  const handleStartEditNote = (hash: string) => {
+    setEditingNoteHash(hash);
+    setNoteInputValue(notes[hash] ?? "");
+  };
+
+  const handleSaveNote = (hash: string) => {
+    savePaymentNote(hash, noteInputValue);
+    setNotes((prev) => {
+      const next = { ...prev };
+      if (noteInputValue.trim() === "") {
+        delete next[hash];
+      } else {
+        next[hash] = noteInputValue.trim();
+      }
+      return next;
+    });
+    setEditingNoteHash(null);
+    setNoteInputValue("");
+  };
+
+  const handleCancelEditNote = () => {
+    setEditingNoteHash(null);
+    setNoteInputValue("");
+  };
 
   const fetchPayments = useCallback(
     async (isLoadMore = false) => {
@@ -402,6 +438,44 @@ export default function TransactionList({
                   </span>
                 )}
               </div>
+
+              {/* Private note display (Issue #1189) */}
+              {notes[tx.transactionHash] && editingNoteHash !== tx.transactionHash && (
+                <p className="text-xs italic text-slate-500 mt-0.5 truncate max-w-xs">
+                  📝 {notes[tx.transactionHash]}
+                </p>
+              )}
+
+              {/* Inline note editor */}
+              {editingNoteHash === tx.transactionHash && (
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={noteInputValue}
+                    onChange={(e) => setNoteInputValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveNote(tx.transactionHash);
+                      if (e.key === "Escape") handleCancelEditNote();
+                    }}
+                    placeholder="Private note (local only)…"
+                    maxLength={200}
+                    autoFocus
+                    className="flex-1 text-xs bg-white/5 border border-white/10 rounded-md px-2 py-1 text-slate-300 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-stellar-500/40"
+                  />
+                  <button
+                    onClick={() => handleSaveNote(tx.transactionHash)}
+                    className="text-xs text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={handleCancelEditNote}
+                    className="text-xs text-slate-500 hover:text-slate-300 px-1 py-1 rounded"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Amount + link */}
@@ -415,6 +489,18 @@ export default function TransactionList({
                 {tx.type === "sent" ? "-" : "+"}
                 {formatAsset(tx.amount, tx.asset)}
               </span>
+
+              {/* Add / edit private note button - Issue #1189 */}
+              {editingNoteHash !== tx.transactionHash && (
+                <button
+                  onClick={() => handleStartEditNote(tx.transactionHash)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-400 hover:text-stellar-400 px-1 py-0.5 rounded"
+                  title={notes[tx.transactionHash] ? "Edit note" : "Add note (stored locally)"}
+                  aria-label={notes[tx.transactionHash] ? "Edit note" : "Add note"}
+                >
+                  {notes[tx.transactionHash] ? "✏️" : "📝"}
+                </button>
+              )}
 
               {/* Send Again — only for sent transactions */}
               {tx.type === "sent" && (
@@ -462,6 +548,13 @@ export default function TransactionList({
               )}
             </button>
           </div>
+        )}
+
+        {/* Privacy disclaimer for local notes — Issue #1189 */}
+        {Object.keys(notes).length > 0 && (
+          <p className="text-xs text-slate-600 text-center mt-4">
+            📝 Notes are stored locally and only visible to you.
+          </p>
         )}
       </div>
     </div>
