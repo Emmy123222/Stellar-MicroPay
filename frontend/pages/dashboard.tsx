@@ -12,7 +12,7 @@
  *  4. The service worker's push event handler calls showNotification().
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -35,12 +35,13 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
 } from "recharts";
-
 
 import Toast from "@/components/Toast";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
@@ -152,8 +153,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   // Build prefill object from query parameters.
   // Supports legacy ?prefillDestination= (contacts page) and
-  // new ?to=&amount= (Send Again from transaction history).
-  const { prefillDestination, to, amount: queryAmount } = router.query;
+  // new ?to=&amount=&memo= (Send Again / Repeat Payment from transaction history).
+  const { prefillDestination, to, amount: queryAmount, memo: queryMemo } = router.query;
   const prefill =
     prefillDestination
       ? { destination: prefillDestination as string, amount: "", memo: "" }
@@ -161,7 +162,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       ? {
           destination: to as string,
           amount: typeof queryAmount === "string" ? queryAmount : "",
-          memo: "",
+          memo: typeof queryMemo === "string" ? queryMemo : "",
           fromHistory: true,
         }
       : null;
@@ -184,13 +185,62 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Creator username for tips dashboard
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
 
-  // Stats and charts state
+  // Stats and charts state (#1188)
+  const [activeChartTab, setActiveChartTab] = useState<"spending" | "balance_history">("spending");
   const [spendingData, setSpendingData] = useState<any[]>([]);
   const [spendingLoading, setSpendingLoading] = useState(false);
   const [recentPaymentsForStats, setRecentPaymentsForStats] = useState<PaymentRecord[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<any | null>(null);
   const [sparklineData, setSparklineData] = useState<any[]>([]);
   const [sparklineLoading, setSparklineLoading] = useState(false);
+
+  // Balance history calculation over past 30 days (#1188)
+  const balanceHistoryData = useMemo(() => {
+    if (!recentPaymentsForStats.length || !xlmBalance) return [];
+
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const thirtyDaysAgo = now - THIRTY_DAYS_MS;
+
+    const payments30d = recentPaymentsForStats
+      .filter((p) => new Date(p.createdAt).getTime() >= thirtyDaysAgo)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    if (payments30d.length < 2) {
+      return [];
+    }
+
+    const currentBalance = parseFloat(xlmBalance);
+    let netChange = 0;
+    for (const p of payments30d) {
+      const amt = parseFloat(p.amount) || 0;
+      if (p.type === "received") {
+        netChange += amt;
+      } else if (p.type === "sent") {
+        netChange -= amt;
+      }
+    }
+
+    let runningBal = Math.max(0, currentBalance - netChange);
+    const points: Array<{ date: string; balance: number; timestamp: number }> = [];
+
+    for (const p of payments30d) {
+      const amt = parseFloat(p.amount) || 0;
+      if (p.type === "received") {
+        runningBal += amt;
+      } else if (p.type === "sent") {
+        runningBal = Math.max(0, runningBal - amt);
+      }
+      const d = new Date(p.createdAt);
+      points.push({
+        date: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        balance: parseFloat(runningBal.toFixed(4)),
+        timestamp: d.getTime(),
+      });
+    }
+
+    return points;
+  }, [recentPaymentsForStats, xlmBalance]);
 
   // Notification state
   const [notificationEnabled, setNotificationEnabled] = useState(false);
@@ -787,36 +837,71 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         onRetry={fetchPaymentStats}
       />
 
-      <MonthlySpendingChart
-        data={spendingData}
-        loading={spendingLoading}
-        onBarClick={setSelectedMonth}
-      />
+      {/* Chart Section with Tabs (#1188) */}
+      <div className="flex gap-2 p-1 mb-4 rounded-xl bg-white/5 w-fit border border-white/10">
+        <button
+          type="button"
+          onClick={() => setActiveChartTab("spending")}
+          className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition cursor-pointer ${
+            activeChartTab === "spending"
+              ? "bg-stellar-400 text-black shadow-sm"
+              : "text-slate-300 hover:bg-white/10"
+          }`}
+        >
+          Monthly Spending
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveChartTab("balance_history")}
+          className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition cursor-pointer ${
+            activeChartTab === "balance_history"
+              ? "bg-stellar-400 text-black shadow-sm"
+              : "text-slate-300 hover:bg-white/10"
+          }`}
+        >
+          Balance History
+        </button>
+      </div>
 
-      {selectedMonth && (
-        <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
-          <div>
-            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">
-              Selected Period: {selectedMonth.label}
-            </p>
-            <div className="flex items-center gap-6">
+      {activeChartTab === "spending" ? (
+        <>
+          <MonthlySpendingChart
+            data={spendingData}
+            loading={spendingLoading}
+            onBarClick={setSelectedMonth}
+          />
+
+          {selectedMonth && (
+            <div className="mb-8 p-4 rounded-xl bg-stellar-500/5 border border-stellar-500/10 flex items-center justify-between animate-fade-in">
               <div>
-                <span className="text-xs text-slate-400">Total Sent</span>
-                <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
+                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">
+                  Selected Period: {selectedMonth.label}
+                </p>
+                <div className="flex items-center gap-6">
+                  <div>
+                    <span className="text-xs text-slate-400">Total Sent</span>
+                    <p className="text-lg font-bold text-white">{selectedMonth.sent.toFixed(2)} XLM</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-400">Total Received</span>
+                    <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="text-xs text-slate-400">Total Received</span>
-                <p className="text-lg font-bold text-stellar-400">{selectedMonth.received.toFixed(2)} XLM</p>
-              </div>
+              <button
+                onClick={() => setSelectedMonth(null)}
+                className="p-2 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5 cursor-pointer"
+              >
+                <CloseIcon className="w-5 h-5" />
+              </button>
             </div>
-          </div>
-          <button
-            onClick={() => setSelectedMonth(null)}
-            className="p-2 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5"
-          >
-            <CloseIcon className="w-5 h-5" />
-          </button>
-        </div>
+          )}
+        </>
+      ) : (
+        <BalanceHistoryChart
+          data={balanceHistoryData}
+          loading={spendingLoading}
+        />
       )}
 
       <div className="card mb-8 bg-gradient-to-br from-cosmos-800 to-cosmos-900 border-stellar-500/20 relative overflow-hidden">
@@ -1072,7 +1157,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
               xlmBalance={xlmBalance || "0"}
               usdcBalance={usdcBalance}
               onSuccess={handlePaymentSuccess}
-              prefill={stellarURI && stellarURI.success ? uriToPrefillData(stellarURI.data!) : null}
+              prefill={prefill || (stellarURI && stellarURI.success ? uriToPrefillData(stellarURI.data!) : null)}
             />
           ) : (
             <BatchPaymentForm
@@ -1276,6 +1361,84 @@ function MonthlySpendingChart({
             />
             <Bar dataKey="sent" fill="#38bdf8" radius={[4, 4, 0, 0]} />
           </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function BalanceHistoryChart({
+  data,
+  loading,
+}: {
+  data: Array<{ date: string; balance: number; timestamp: number }>;
+  loading: boolean;
+}) {
+  if (loading && data.length === 0) {
+    return (
+      <div className="card mb-6 h-[350px] animate-pulse bg-white/[0.03] border-white/10" />
+    );
+  }
+
+  if (data.length < 2) {
+    return (
+      <div className="card mb-6 overflow-hidden">
+        <h2 className="font-display text-lg font-semibold text-white mb-4">
+          Balance History (Past 30 Days)
+        </h2>
+        <div className="flex flex-col items-center justify-center h-[200px] text-center border border-dashed border-white/10 rounded-xl bg-white/[0.02] p-4">
+          <p className="text-slate-300 font-medium text-sm">Insufficient history</p>
+          <p className="text-slate-500 text-xs mt-1">
+            At least 2 payment events in the last 30 days are required to render the balance chart.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card mb-6 overflow-hidden">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="font-display text-lg font-semibold text-white">
+          Balance History (Past 30 Days)
+        </h2>
+        <span className="text-xs text-stellar-400 font-medium">
+          {data.length} payment events
+        </span>
+      </div>
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <XAxis
+              dataKey="date"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tickFormatter={(value: any) => `${value}`}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "#0f172a",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+              }}
+              formatter={(val: any) => [`${val} XLM`, "Balance"]}
+            />
+            <Line
+              type="monotone"
+              dataKey="balance"
+              stroke="#38bdf8"
+              strokeWidth={2}
+              dot={{ fill: "#38bdf8", r: 3 }}
+              activeDot={{ r: 5, fill: "#0284c7" }}
+            />
+          </LineChart>
         </ResponsiveContainer>
       </div>
     </div>
