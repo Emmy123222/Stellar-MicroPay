@@ -399,3 +399,260 @@ mod tests {
         assert_eq!(client.get_tip_count(&recipient), 0);
     }
 }
+
+/// Dedicated unit tests for the tipping path (#1084): `send_tip` plus the
+/// `get_tip_*` getters that read back what it recorded.
+#[cfg(test)]
+mod tip_tests {
+    use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        vec,
+    };
+
+    /// Balance every sender in these tests starts with, in stroops.
+    const SENDER_FLOAT: i128 = 10_000;
+
+    /// Arrangement shared by every test: an initialised contract, a Stellar
+    /// asset contract to tip with, and a sender funded on it.
+    struct TipTest {
+        env: Env,
+        contract_id: Address,
+        token: Address,
+        sender: Address,
+        recipient: Address,
+    }
+
+    impl TipTest {
+        fn new() -> Self {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            let contract_id = env.register_contract(None, MicroPayContract);
+            MicroPayContractClient::new(&env, &contract_id).initialize(&Address::generate(&env));
+
+            let token = env
+                .register_stellar_asset_contract_v2(Address::generate(&env))
+                .address();
+            let sender = Address::generate(&env);
+            let recipient = Address::generate(&env);
+            token::StellarAssetClient::new(&env, &token).mint(&sender, &SENDER_FLOAT);
+
+            Self {
+                env,
+                contract_id,
+                token,
+                sender,
+                recipient,
+            }
+        }
+
+        fn client(&self) -> MicroPayContractClient<'_> {
+            MicroPayContractClient::new(&self.env, &self.contract_id)
+        }
+
+        fn address(&self) -> Address {
+            Address::generate(&self.env)
+        }
+
+        /// Fund a second sender so a test can tip from several addresses.
+        fn funded_sender(&self) -> Address {
+            let sender = self.address();
+            token::StellarAssetClient::new(&self.env, &self.token).mint(&sender, &SENDER_FLOAT);
+            sender
+        }
+
+        fn balance(&self, holder: &Address) -> i128 {
+            token::Client::new(&self.env, &self.token).balance(holder)
+        }
+
+        fn tip(&self, to: &Address, amount: i128) {
+            self.tip_from(&self.sender, to, amount);
+        }
+
+        fn tip_from(&self, from: &Address, to: &Address, amount: i128) {
+            self.client().send_tip(&self.token, from, to, &amount);
+        }
+
+        /// Assert the `TipRecord` stored at `index` for `to`, including the
+        /// ledger it was stamped with.
+        fn assert_tip_record(&self, to: &Address, index: u32, from: &Address, amount: i128) {
+            let record = self.client().get_tip_record(to, &index);
+            assert_eq!(record.from, *from);
+            assert_eq!(record.to, *to);
+            assert_eq!(record.amount, amount);
+            assert_eq!(record.ledger, self.env.ledger().sequence());
+        }
+    }
+
+    #[test]
+    fn test_single_tip_records_total_and_count() {
+        let t = TipTest::new();
+
+        t.tip(&t.recipient, 1_500);
+
+        let client = t.client();
+        assert_eq!(client.get_tip_total(&t.recipient), 1_500);
+        assert_eq!(client.get_tip_count(&t.recipient), 1);
+    }
+
+    #[test]
+    fn test_single_tip_transfers_the_tokens() {
+        let t = TipTest::new();
+
+        t.tip(&t.recipient, 1_500);
+
+        assert_eq!(t.balance(&t.sender), SENDER_FLOAT - 1_500);
+        assert_eq!(t.balance(&t.recipient), 1_500);
+    }
+
+    #[test]
+    fn test_single_tip_records_the_tip_record() {
+        let t = TipTest::new();
+
+        t.tip(&t.recipient, 1_500);
+
+        t.assert_tip_record(&t.recipient, 0, &t.sender, 1_500);
+    }
+
+    #[test]
+    fn test_three_tips_from_same_sender_accumulate() {
+        let t = TipTest::new();
+
+        t.tip(&t.recipient, 100);
+        t.tip(&t.recipient, 250);
+        t.tip(&t.recipient, 700);
+
+        let client = t.client();
+        assert_eq!(client.get_tip_total(&t.recipient), 1_050);
+        assert_eq!(client.get_tip_count(&t.recipient), 3);
+        assert_eq!(t.balance(&t.sender), SENDER_FLOAT - 1_050);
+        assert_eq!(t.balance(&t.recipient), 1_050);
+
+        // Every tip keeps its own record, indexed in the order it arrived.
+        for (index, amount) in [(0_u32, 100_i128), (1, 250), (2, 700)] {
+            t.assert_tip_record(&t.recipient, index, &t.sender, amount);
+        }
+    }
+
+    #[test]
+    fn test_tips_from_multiple_senders_accumulate_for_one_recipient() {
+        let t = TipTest::new();
+        let other_sender = t.funded_sender();
+
+        t.tip_from(&other_sender, &t.recipient, 300);
+        t.tip(&t.recipient, 200);
+
+        let client = t.client();
+        assert_eq!(client.get_tip_total(&t.recipient), 500);
+        assert_eq!(client.get_tip_count(&t.recipient), 2);
+        t.assert_tip_record(&t.recipient, 0, &other_sender, 300);
+        t.assert_tip_record(&t.recipient, 1, &t.sender, 200);
+    }
+
+    #[test]
+    fn test_tip_totals_are_tracked_per_recipient() {
+        let t = TipTest::new();
+        let second_recipient = t.address();
+
+        t.tip(&t.recipient, 400);
+        t.tip(&second_recipient, 900);
+
+        let client = t.client();
+        assert_eq!(client.get_tip_total(&t.recipient), 400);
+        assert_eq!(client.get_tip_count(&t.recipient), 1);
+        assert_eq!(client.get_tip_total(&second_recipient), 900);
+        assert_eq!(client.get_tip_count(&second_recipient), 1);
+    }
+
+    #[test]
+    fn test_tip_record_stamps_the_tip_ledger() {
+        let t = TipTest::new();
+        t.env.ledger().set_sequence_number(4_242);
+
+        t.tip(&t.recipient, 100);
+
+        let record = t.client().get_tip_record(&t.recipient, &0);
+        assert_eq!(record.ledger, 4_242);
+    }
+
+    #[test]
+    fn test_tip_publishes_one_contract_event() {
+        use soroban_sdk::testutils::Events as _;
+
+        let t = TipTest::new();
+
+        t.tip(&t.recipient, 100);
+
+        // The asset contract publishes its own transfer event, so filter to
+        // the MicroPay contract before counting.
+        let events = t.env.events().all().filter_by_contract(&t.contract_id);
+        assert_eq!(events.events().len(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Tip amount must be positive")]
+    fn test_zero_amount_tip_panics() {
+        let t = TipTest::new();
+
+        t.tip(&t.recipient, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Tip amount must be positive")]
+    fn test_negative_amount_tip_panics() {
+        let t = TipTest::new();
+
+        t.tip(&t.recipient, -1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Tip record not found")]
+    fn test_get_tip_record_beyond_the_count_panics() {
+        let t = TipTest::new();
+
+        t.tip(&t.recipient, 100);
+
+        t.client().get_tip_record(&t.recipient, &1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized function call for address")]
+    fn test_send_tip_requires_the_sender_to_authorise() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        client.initialize(&Address::generate(&env));
+
+        let token = env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address();
+        let sender = Address::generate(&env);
+        token::StellarAssetClient::new(&env, &token).mint(&sender, &SENDER_FLOAT);
+
+        // Deliberately no `mock_all_auths`: the sender never signed the call.
+        client.send_tip(&token, &sender, &Address::generate(&env), &100);
+    }
+
+    /// #1084 asks for a `batch_tip` test over five recipients, but no such
+    /// entry point exists on `main` yet (#1080 is the feature issue). This
+    /// pins the placeholder's contract so the batch suite has something to
+    /// replace rather than add when the implementation lands.
+    #[test]
+    #[should_panic(expected = "Batch payments coming in v2.0")]
+    fn test_batch_tip_is_a_placeholder_that_panics() {
+        let t = TipTest::new();
+
+        let recipients = vec![
+            &t.env,
+            t.address(),
+            t.address(),
+            t.address(),
+            t.address(),
+            t.address(),
+        ];
+        let amounts = vec![&t.env, 100_i128, 200, 300, 400, 500];
+
+        t.client().batch_send(&t.sender, &recipients, &amounts);
+    }
+}
