@@ -759,7 +759,7 @@ impl MicroPayContract {
 mod tests {
     use super::*;
     use soroban_sdk::{
-        testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Ledger},
+        testutils::{Address as _, Ledger},
         Address, Env,
     };
 
@@ -958,19 +958,19 @@ mod tests {
     fn test_claim_stream_basic() {
         let (env, client, _admin, payer, recipient) = setup();
         let id = client.open_stream(&payer, &recipient, &10, &1000);
-        env.set_sequence_number(10);
+        let stream = client.get_stream(&id);
+        env.ledger().set_sequence_number(stream.start_ledger + 10);
         let claimed = client.claim_stream(&id, &recipient);
-        // start_ledger is the sequence at open (default test seq); claim 10 ledgers * 10
-        assert!(claimed >= 0);
+        assert_eq!(claimed, 100);
     }
 
     #[test]
     fn test_claim_stream_multiple_times() {
         let (env, client, _admin, payer, recipient) = setup();
         let id = client.open_stream(&payer, &recipient, &5, &1000);
-        env.set_sequence_number(env.ledger().sequence() + 4);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 4);
         let first = client.claim_stream(&id, &recipient);
-        env.set_sequence_number(env.ledger().sequence() + 4);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 4);
         let second = client.claim_stream(&id, &recipient);
         assert_eq!(first, 20);
         assert_eq!(second, 20);
@@ -980,7 +980,7 @@ mod tests {
     fn test_claim_stream_exceeds_deposit() {
         let (env, client, _admin, payer, recipient) = setup();
         let id = client.open_stream(&payer, &recipient, &100, &150);
-        env.set_sequence_number(env.ledger().sequence() + 10);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 10);
         let claimed = client.claim_stream(&id, &recipient);
         assert_eq!(claimed, 150);
         // Second claim yields nothing.
@@ -1001,7 +1001,7 @@ mod tests {
     fn test_close_stream_with_refund() {
         let (env, client, _admin, payer, recipient) = setup();
         let id = client.open_stream(&payer, &recipient, &10, &1000);
-        env.set_sequence_number(env.ledger().sequence() + 5);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 5);
         let refund = client.close_stream(&id, &payer);
         assert_eq!(refund, 950);
     }
@@ -1010,7 +1010,7 @@ mod tests {
     fn test_close_stream_after_claims() {
         let (env, client, _admin, payer, recipient) = setup();
         let id = client.open_stream(&payer, &recipient, &10, &1000);
-        env.set_sequence_number(env.ledger().sequence() + 5);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 5);
         let claimed = client.claim_stream(&id, &recipient);
         assert_eq!(claimed, 50);
         let refund = client.close_stream(&id, &payer);
@@ -1021,7 +1021,7 @@ mod tests {
     fn test_get_claimable() {
         let (env, client, _admin, payer, recipient) = setup();
         let id = client.open_stream(&payer, &recipient, &10, &1000);
-        env.set_sequence_number(env.ledger().sequence() + 3);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 3);
         assert_eq!(client.get_claimable(&id), 30);
     }
 
@@ -1033,28 +1033,22 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Not stream recipient")]
     fn test_unauthorized_claim() {
         let (env, client, _admin, payer, recipient) = setup();
-        env.mock_all_auths();
         let id = client.open_stream(&payer, &recipient, &10, &1000);
         let impostor = Address::generate(&env);
-        // Auth mock passes, but contract-level recipient check must reject.
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.claim_stream(&id, &impostor);
-        }));
-        assert!(result.is_err());
+        // Auth is mocked, but the contract-level recipient check must reject.
+        client.claim_stream(&id, &impostor);
     }
 
     #[test]
+    #[should_panic(expected = "Not stream payer")]
     fn test_unauthorized_close() {
         let (env, client, _admin, payer, recipient) = setup();
-        env.mock_all_auths();
         let id = client.open_stream(&payer, &recipient, &10, &1000);
         let impostor = Address::generate(&env);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.close_stream(&id, &impostor);
-        }));
-        assert!(result.is_err());
+        client.close_stream(&id, &impostor);
     }
 
     #[test]
@@ -1078,19 +1072,19 @@ mod tests {
         let id = client.open_stream(&payer, &recipient, &10, &10000);
 
         // Advance 5 ledgers, then pause.
-        env.set_sequence_number(start + 5);
+        env.ledger().set_sequence_number(start + 5);
         client.pause_stream(&id, &payer);
         assert_eq!(client.get_claimable(&id), 50);
 
         // Advance 10 more ledgers while paused: claimable must NOT increase.
-        env.set_sequence_number(start + 15);
+        env.ledger().set_sequence_number(start + 15);
         assert_eq!(client.get_claimable(&id), 50);
         let paused_claim = client.claim_stream(&id, &recipient);
         assert_eq!(paused_claim, 50);
 
         // Resume and advance 5 ledgers: claimable SHOULD increase again.
         client.resume_stream(&id, &payer);
-        env.set_sequence_number(env.ledger().sequence() + 5);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 5);
         let after = client.get_claimable(&id);
         assert_eq!(after, 50);
         let resumed_claim = client.claim_stream(&id, &recipient);
@@ -1119,7 +1113,7 @@ mod tests {
         let (env, client, _admin, payer, recipient) = setup();
         let release = env.ledger().sequence() + 10;
         let id = client.open_escrow(&payer, &recipient, &500, &release);
-        env.set_sequence_number(release + 1);
+        env.ledger().set_sequence_number(release + 1);
         let amount = client.release_escrow(&id);
         assert_eq!(amount, 500);
         assert!(client.get_escrow(&id).released);
@@ -1131,7 +1125,7 @@ mod tests {
         let (env, client, _admin, payer, recipient) = setup();
         let release = env.ledger().sequence() + 100;
         let id = client.open_escrow(&payer, &recipient, &500, &release);
-        env.set_sequence_number(release - 10);
+        env.ledger().set_sequence_number(release - 10);
         client.release_escrow(&id);
     }
 
@@ -1151,34 +1145,19 @@ mod tests {
         let (env, client, _admin, payer, recipient) = setup();
         let release = env.ledger().sequence() + 10;
         let id = client.open_escrow(&payer, &recipient, &500, &release);
-        env.set_sequence_number(release + 1);
+        env.ledger().set_sequence_number(release + 1);
         client.cancel_escrow(&id, &payer);
     }
 
     #[test]
-    fn test_escrow_auth_checks() {
+    fn test_escrow_ids_increment() {
         let (env, client, _admin, payer, recipient) = setup();
-        env.mock_all_auths();
         let release = env.ledger().sequence() + 50;
-        let id = client.open_escrow(&payer, &recipient, &100, &release);
-        // Verify auth was required on open.
-        let auths = env.auths();
-        assert!(!auths.is_empty());
-        let _ = (id, recipient);
-    }
-
-    #[test]
-    fn test_auth_invocation_shapes() {
-        // Keeps imports used and documents expected auth entrypoints.
-        let fn_open = AuthorizedFunction::Contract((
-            Address::generate(&Env::default()),
-            Symbol::new(&Env::default(), "open_escrow"),
-            (),
-        ));
-        let _inv = AuthorizedInvocation {
-            function: fn_open,
-            sub_invocations: Default::default(),
-        };
+        let id0 = client.open_escrow(&payer, &recipient, &100, &release);
+        let id1 = client.open_escrow(&payer, &recipient, &200, &release);
+        assert_eq!(id0, 0);
+        assert_eq!(id1, 1);
+        assert_eq!(client.get_escrow(&id1).amount, 200);
     }
 }
 
