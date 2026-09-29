@@ -26,6 +26,7 @@ const navLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/trade", label: "Trade" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/leaderboard", label: "Leaderboard" },
   { href: "/network", label: "Network" },
   { href: "/settings", label: "Settings" },
 ];
@@ -348,4 +349,3 @@ function CheckIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-

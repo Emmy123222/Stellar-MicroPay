@@ -20,6 +20,8 @@ const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
+const webhooksRoutes = require("./routes/webhooks");
+const requestId = require("./middleware/requestId");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -29,8 +31,10 @@ const PORT = process.env.PORT || 4000;
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
+app.use(requestId);
 app.use(helmet());
-app.use(morgan("dev"));
+morgan.token("request-id", (req) => req.requestId);
+app.use(morgan(":method :url :status :response-time ms requestId=:request-id"));
 app.use(express.json({ limit: "10kb" }));
 
 // JSON parsing error handler
@@ -56,8 +60,9 @@ app.use(
         callback(new Error(`CORS: origin ${origin} not allowed`));
       }
     },
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
+    exposedHeaders: ["X-Request-ID"],
     credentials: true,
   })
 );
@@ -82,6 +87,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
+app.use("/api/webhooks", webhooksRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
@@ -103,6 +109,8 @@ app.use((err, req, res, next) => {
   void next;
   const status = err.status || 500;
   const message = err.message || "Internal Server Error";
+
+  console.error({ requestId: req.requestId, status, message });
 
   res.status(status).json({ error: message });
 });

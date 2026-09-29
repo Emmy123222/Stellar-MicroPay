@@ -6,6 +6,7 @@
 "use strict";
 
 const tipsService = require("../services/tipsService");
+const webhookService = require("../services/webhookService");
 
 /**
  * POST /api/tips
@@ -27,6 +28,12 @@ async function recordTip(req, res, next) {
       txHash: txHash || "",
     });
 
+    void webhookService.publishPayment(tip).then((results) => {
+      for (const result of results) {
+        if (result.status === "rejected") console.error({ requestId: req.requestId, message: result.reason?.message || "Webhook delivery failed" });
+      }
+    });
+
     res.status(201).json({
       success: true,
       data: tip,
@@ -35,6 +42,12 @@ async function recordTip(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+function getLeaderboard(req, res, next) {
+  try {
+    res.json({ success: true, data: tipsService.getLeaderboard() });
+  } catch (err) { next(err); }
 }
 
 /**
@@ -111,4 +124,5 @@ module.exports = {
   getTipsReceived,
   getTipsStats,
   getTipsSent,
+  getLeaderboard,
 };

@@ -6,6 +6,8 @@
 
 "use strict";
 
+const usernameService = require("./usernameService");
+
 // In-memory storage for tips
 // Structure: Map<creatorPublicKey, TipRecord[]>
 const tipsByCreator = new Map();
@@ -170,6 +172,36 @@ function getTipsSent(senderPublicKey, options = {}) {
   };
 }
 
+function getLeaderboard() {
+  const recipientTotals = new Map();
+  const senderTotals = new Map();
+  let totalTips = 0;
+  let totalXLM = 0;
+
+  for (const tips of tipsByCreator.values()) {
+    for (const tip of tips) {
+      if ((tip.asset || "XLM") !== "XLM") continue;
+      const amount = Number.parseFloat(tip.amount);
+      if (!Number.isFinite(amount)) continue;
+      totalTips += 1;
+      totalXLM += amount;
+      recipientTotals.set(tip.creatorPublicKey, (recipientTotals.get(tip.creatorPublicKey) || 0) + amount);
+      senderTotals.set(tip.senderPublicKey, (senderTotals.get(tip.senderPublicKey) || 0) + amount);
+    }
+  }
+  const federationNames = new Map(
+    usernameService.getAllUsernames().map(({ username, publicKey }) => [
+      publicKey,
+      `${username}*${process.env.DOMAIN || "stellarmicropay.com"}`,
+    ])
+  );
+  const ranked = (totals) => [...totals.entries()]
+    .map(([publicKey, amount]) => ({ publicKey, federationName: federationNames.get(publicKey) || null, totalXLM: amount.toFixed(7) }))
+    .sort((a, b) => Number(b.totalXLM) - Number(a.totalXLM))
+    .slice(0, 10);
+  return { recipients: ranked(recipientTotals), senders: ranked(senderTotals), totalTips, totalXLM: totalXLM.toFixed(7) };
+}
+
 /**
  * Validate tip record input.
  */
@@ -208,5 +240,6 @@ module.exports = {
   getTipsReceived,
   getTipsStats,
   getTipsSent,
+  getLeaderboard,
   validateTipInput,
 };
