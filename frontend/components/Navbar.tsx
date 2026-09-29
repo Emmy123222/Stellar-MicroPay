@@ -29,7 +29,12 @@ const navLinks = [
   { href: "/settings", label: "Settings" },
 ];
 
-export default function Navbar() {
+export interface NavbarProps {
+  /** Opens the global AI payment assistant (also reachable via Cmd/Ctrl+K). */
+  onOpenAssistant?: () => void;
+}
+
+export default function Navbar({ onOpenAssistant }: NavbarProps) {
   const router = useRouter();
   const { publicKey, connectWallet, disconnectWallet } = useWallet();
   const { theme, toggleTheme } = useTheme();
@@ -101,13 +106,13 @@ export default function Navbar() {
 
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(14,165,233,0.12)] bg-white/80 backdrop-blur-xl transition-colors duration-300 dark:bg-cosmos-900/80">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="group flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-stellar-500/30 bg-stellar-500/20 transition-colors group-hover:border-stellar-500/60">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-4">
+          <Link href="/" className="group flex min-w-0 items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-stellar-500/30 bg-stellar-500/20 transition-colors group-hover:border-stellar-500/60">
               <StarIcon className="h-4 w-4 text-stellar-400" />
             </div>
-            <span className="font-display font-semibold tracking-tight text-slate-900 dark:text-white">
+            <span className="truncate font-display font-semibold tracking-tight text-slate-900 dark:text-white">
               Stellar<span className="text-stellar-400">MicroPay</span>
             </span>
           </Link>
@@ -152,19 +157,34 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
+          {onOpenAssistant && (
+            <button
+              onClick={onOpenAssistant}
+              title="Open AI payment assistant (Cmd+K / Ctrl+K)"
+              aria-label="Open AI payment assistant. Keyboard shortcut: Command K on Mac, Control K on Windows and Linux."
+              className="hidden h-9 items-center gap-1.5 rounded-lg border border-stellar-500/20 bg-stellar-500/5 px-3 text-xs font-medium text-stellar-400 transition-colors hover:bg-stellar-500/10 sm:inline-flex"
+            >
+              <SparkleIcon className="h-3.5 w-3.5" />
+              Ask AI
+              <kbd className="ml-1 hidden select-none rounded border border-stellar-500/20 bg-stellar-500/10 px-1 py-0.5 font-mono text-[10px] md:inline">
+                &#8984;K
+              </kbd>
+            </button>
+          )}
+
           <button
             onClick={toggleTheme}
             aria-label={
               theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
             }
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300/30 bg-white/90 text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-100 dark:border-slate-700/50 dark:bg-cosmos-800/80 dark:text-slate-100 dark:hover:bg-cosmos-700/90"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-300/30 bg-white/90 text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-100 dark:border-slate-700/50 dark:bg-cosmos-800/80 dark:text-slate-100 dark:hover:bg-cosmos-700/90"
           >
             {theme === "dark" ? <MoonIcon /> : <SunIcon />}
           </button>
 
           {publicKey ? (
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <kbd
                 title="Press Ctrl+K / Cmd+K to quick-send"
                 className="hidden select-none items-center gap-1 rounded-md border border-stellar-500/20 bg-stellar-500/5 px-2 py-1 font-mono text-xs text-stellar-400 md:inline-flex"
@@ -172,14 +192,14 @@ export default function Navbar() {
                 Ctrl+K
               </kbd>
 
-              <div className="address-pill flex items-center gap-2">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                <span>{shortenAddress(publicKey)}</span>
+              <div className="address-pill flex min-w-0 max-w-[7.5rem] items-center gap-2 sm:max-w-none">
+                <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" />
+                <span className="truncate">{shortenAddress(publicKey)}</span>
               </div>
               <button
                 onClick={() => setShowDisconnectConfirm(true)}
                 aria-label="Show disconnect confirmation"
-                className="px-2 py-1 text-xs text-slate-500 transition-colors hover:text-slate-300"
+                className="shrink-0 px-2 py-1 text-xs text-slate-500 transition-colors hover:text-slate-300"
               >
                 Disconnect
               </button>
@@ -259,6 +279,17 @@ function SunIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M12 3v1m0 16v1m8.66-9h-1M4.34 12h-1m15.07-6.07-.71.71M6.34 17.66l-.71.71m12.02 0-.71-.71M6.34 6.34l-.71-.71M12 7a5 5 0 100 10A5 5 0 0012 7z"
+      />
+    </svg>
+  );
+}
+
+function SparkleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"
+        fill="currentColor"
       />
     </svg>
   );

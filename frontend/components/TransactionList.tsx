@@ -237,7 +237,7 @@ export default function TransactionList({
 
   if (loading) {
     return (
-      <div className={compact ? "" : "card"}>
+      <div className={compact ? "" : "card"} aria-busy="true">
         {!compact && (
           <div className="flex items-center justify-between mb-6">
             <div className="h-5 w-36 rounded-lg bg-cosmos-700 animate-pulse" />
