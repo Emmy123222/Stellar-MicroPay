@@ -682,12 +682,14 @@ export async function buildPaymentTransaction({
   amount,
   memo,
   asset = "XLM",
+  baseFee,
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
   memo?: string;
   asset?: "XLM" | "USDC";
+  baseFee?: string | number;
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
 
@@ -710,8 +712,10 @@ export async function buildPaymentTransaction({
     }
   }
 
+  const feeValue = baseFee ? String(baseFee) : STELLAR_BASE_FEE_STROOPS_STRING;
+
   const builder = new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    fee: feeValue,
     networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
@@ -1472,6 +1476,53 @@ export async function fetchNetworkFeeStats(): Promise<NetworkFeeStats> {
   }
 
   return { feeLevel, baseFeeXlm };
+}
+
+export type FeeSpeed = "slow" | "normal" | "fast";
+
+export interface FeeSpeedDetail {
+  stroops: number;
+  xlm: string;
+}
+
+export interface FeeSpeedOptions {
+  slow: FeeSpeedDetail;
+  normal: FeeSpeedDetail;
+  fast: FeeSpeedDetail;
+}
+
+/**
+ * Fetches fee percentiles (p10, p50, p90) from Horizon /fee_stats
+ * for slow/normal/fast transaction speed options.
+ */
+export async function fetchFeePercentiles(): Promise<FeeSpeedOptions> {
+  try {
+    const config = getNetworkConfig();
+    const url = `${config.horizonUrl}/fee_stats`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Horizon fee_stats returned ${res.status}`);
+    }
+    const data = (await res.json()) as {
+      fee_charged?: { p10?: string; p50?: string; p90?: string; mode?: string };
+    };
+
+    const p10 = Math.max(100, parseInt(data.fee_charged?.p10 ?? "100", 10) || 100);
+    const p50 = Math.max(p10, parseInt(data.fee_charged?.p50 ?? "200", 10) || 200);
+    const p90 = Math.max(p50, parseInt(data.fee_charged?.p90 ?? "500", 10) || 500);
+
+    return {
+      slow: { stroops: p10, xlm: (p10 / STELLAR_STROOPS_PER_XLM).toFixed(7) },
+      normal: { stroops: p50, xlm: (p50 / STELLAR_STROOPS_PER_XLM).toFixed(7) },
+      fast: { stroops: p90, xlm: (p90 / STELLAR_STROOPS_PER_XLM).toFixed(7) },
+    };
+  } catch {
+    return {
+      slow: { stroops: 100, xlm: "0.0000100" },
+      normal: { stroops: 200, xlm: "0.0000200" },
+      fast: { stroops: 500, xlm: "0.0000500" },
+    };
+  }
 }
 
 // ── DEX Trading Helpers ───────────────────────────────────────────────────
