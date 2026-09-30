@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+  statuses: write
 
 jobs:
   lighthouse:
@@ -43,12 +45,13 @@ jobs:
           done
           cat "$RUNNER_TEMP/frontend-server.log"
           exit 1
-      - name: Audit primary routes
+      - name: Audit primary routes with Lighthouse CI
         uses: treosh/lighthouse-ci-action@v12
         with:
+          configPath: ./lighthouserc.json
           urls: |
             http://localhost:3000/
             http://localhost:3000/dashboard
             http://localhost:3000/pay
           uploadArtifacts: true
-          temporaryPublicStorage: false
+          temporaryPublicStorage: true

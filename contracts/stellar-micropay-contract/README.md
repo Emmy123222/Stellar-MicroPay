@@ -11,7 +11,11 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 - On-chain tip recording with event emission
 - Tip total and count queries per recipient
 - Optional operator fee (basis points) collected on every tip
-- Placeholder stubs for escrow and batch payments
+- Streaming payments (open/claim/top-up/close, with pause/resume)
+- Time-locked escrow (open/release/cancel)
+- Milestone escrow: funds held by the contract, released by a designated
+  approver, or reclaimed by the payer once a dispute times out
+- Placeholder stub for batch payments
 
 ## Prerequisites
 
@@ -94,6 +98,79 @@ stellar contract invoke \
   --admin <YOUR_PUBLIC_KEY> \
   --fee_bps 50
 ```
+
+## Milestone escrow
+
+Funds are held by the contract until a third-party `approver` confirms the
+milestone. The payer can freeze the escrow by disputing it, and gets the funds
+back once `dispute_timeout` ledgers have elapsed.
+
+```bash
+# Lock funds: payer -> contract, released to recipient by approver
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- create_milestone_escrow \
+  --token <XLM_SAC_ADDRESS> \
+  --payer <PAYER_ADDRESS> \
+  --recipient <RECIPIENT_ADDRESS> \
+  --amount 5000000 \
+  --approver <APPROVER_ADDRESS> \
+  --dispute_timeout 500
+
+# Release the funds to the recipient (approver only, escrow must be pending)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source carol \
+  --network testnet \
+  -- approve_milestone \
+  --escrow_id 0 \
+  --approver <APPROVER_ADDRESS>
+
+# Freeze the funds pending resolution (payer only)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- dispute_milestone \
+  --escrow_id 0 \
+  --payer <PAYER_ADDRESS>
+
+# Reclaim a disputed escrow after the timeout has elapsed (payer only)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- cancel_milestone_escrow \
+  --escrow_id 0 \
+  --payer <PAYER_ADDRESS>
+
+# Read the escrow record (status: pending / approved / disputed / cancelled)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_milestone_escrow \
+  --escrow_id 0
+```
+
+Every state change publishes a `milestone_escrow` event whose second topic is
+`created`, `approved`, `disputed` or `cancelled`, followed by the escrow id and
+the address that authorised the change, so indexers can follow an escrow without
+reading storage.
+
+Rules the contract enforces:
+
+| Action | Who | Preconditions |
+| --- | --- | --- |
+| `create_milestone_escrow` | payer | `amount > 0`, `0 < dispute_timeout <= 50000` ledgers |
+| `approve_milestone` | the escrow's `approver` | status `pending` |
+| `dispute_milestone` | the escrow's `payer` | status `pending` |
+| `cancel_milestone_escrow` | the escrow's `payer` | status `disputed` and `dispute_timeout` ledgers elapsed since the dispute |
+
+A disputed escrow can no longer be approved: once the payer disputes, the only
+ways out are the payer reclaiming the funds after the timeout, or waiting it out
+and creating a new escrow.
 
 ## Troubleshooting (#153)
 

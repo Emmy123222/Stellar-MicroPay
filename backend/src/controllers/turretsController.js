@@ -141,4 +141,6 @@ module.exports = {
   getHistory,
   pause,
   resume,
+  cancel,
+  createDca,
 };

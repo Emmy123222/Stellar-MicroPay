@@ -22,10 +22,12 @@ import {
   resolveFederationAddress,
   server,
   STELLAR_BASE_FEE_XLM,
+  STELLAR_MEMO_HASH_HEX_LENGTH,
   STELLAR_MEMO_TEXT_MAX_BYTES,
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
+  type StellarMemoType,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLM, shortenAddress } from "@/utils/format";
@@ -120,6 +122,8 @@ export default function SendPaymentForm({
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
+  const [memoType, setMemoType] = useState<StellarMemoType>("text");
+  const [memoError, setMemoError] = useState<string | null>(null);
   const [isResolvingUsername, setIsResolvingUsername] = useState(false);
   const [usernameResolutionError, setUsernameResolutionError] = useState<string | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
@@ -317,7 +321,33 @@ export default function SendPaymentForm({
 
   const memoTemplates = ["Rent", "Salary", "Invoice", "Gift", "Coffee ☕"];
 
+  const handleMemoTypeChange = (nextType: StellarMemoType) => {
+    setMemoType(nextType);
+    setMemo("");
+    setSelectedMemoTemplate(null);
+    setMemoError(null);
+  };
+
+  const validateMemoValue = (type: StellarMemoType, value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (type === "id") {
+      if (!/^\d+$/.test(trimmed)) return "MEMO_ID must be a uint64 integer";
+      return null;
+    }
+    if (type === "hash" || type === "return") {
+      const hex = trimmed.toLowerCase().replace(/^0x/, "");
+      if (!/^[0-9a-f]*$/.test(hex)) return `MEMO_${type.toUpperCase()} must be hexadecimal`;
+      if (hex.length !== STELLAR_MEMO_HASH_HEX_LENGTH) {
+        return `MEMO_${type.toUpperCase()} requires ${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters (32 bytes)`;
+      }
+      return null;
+    }
+    return null;
+  };
+
   const handleMemoTemplateClick = (template: string) => {
+    if (memoType !== "text") return;
     if (selectedMemoTemplate === template) {
       setSelectedMemoTemplate(null);
       setMemo("");
@@ -325,14 +355,33 @@ export default function SendPaymentForm({
     }
     setSelectedMemoTemplate(template);
     setMemo(template);
+    setMemoError(null);
   };
 
   const handleMemoChange = (value: string) => {
-    setMemo(value);
-    if (value !== selectedMemoTemplate) {
+    let next = value;
+    if (memoType === "text") {
+      next = truncateMemoText(value);
+    } else if (memoType === "id") {
+      next = value.replace(/\D/g, "");
+    } else {
+      next = value.replace(/[^0-9a-fA-Fx]/g, "").slice(0, STELLAR_MEMO_HASH_HEX_LENGTH + 2);
+    }
+    setMemo(next);
+    setMemoError(validateMemoValue(memoType, next));
+    if (next !== selectedMemoTemplate) {
       setSelectedMemoTemplate(null);
     }
   };
+
+  const memoPlaceholder =
+    memoType === "text"
+      ? "Payment note..."
+      : memoType === "id"
+        ? "uint64 integer, e.g. 12345"
+        : "64-character hex (32 bytes)";
+
+  const isMemoValid = !memo.trim() || !validateMemoValue(memoType, memo);
 
   useEffect(() => {
     let cancelled = false;
@@ -382,7 +431,7 @@ export default function SendPaymentForm({
   const isValidAmt = !Number.isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
 
   const canSubmit = (isValidDest || (isUsernameDestination && !isResolvingUsername && !usernameResolutionError)) &&
-    isValidAmt && status === "idle" && destination !== publicKey;
+    isValidAmt && isMemoValid && status === "idle" && destination !== publicKey;
 
   const resolveUsername = async (username: string) => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
@@ -534,6 +583,8 @@ export default function SendPaymentForm({
       setDestination("");
       setAmount("");
       setMemo("");
+      setMemoType("text");
+      setMemoError(null);
     }
     setStatus("idle");
   };
@@ -578,6 +629,7 @@ export default function SendPaymentForm({
             toPublicKey: destination,
             amount: amountNum.toFixed(7),
             memo: memo.trim() || undefined,
+            memoType,
           });
       markStepCompleted("building");
 
@@ -959,41 +1011,72 @@ export default function SendPaymentForm({
 
         {!hideMemoField && (
           <div>
-            <label className="label">Memo (optional)</label>
-            <input
-              type="text"
-              value={memo}
-              onChange={(e) => handleMemoChange(truncateMemoText(e.target.value))}
-              placeholder="Payment note..."
-              className="input-field"
+            <label className="label" htmlFor="memo-type">Memo (optional)</label>
+            <select
+              id="memo-type"
+              value={memoType}
+              onChange={(e) => handleMemoTypeChange(e.target.value as StellarMemoType)}
+              className="input-field mb-2"
               disabled={status !== "idle"}
-              maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
+              aria-label="Memo type"
+            >
+              <option value="text">MEMO_TEXT</option>
+              <option value="id">MEMO_ID</option>
+              <option value="hash">MEMO_HASH</option>
+              <option value="return">MEMO_RETURN</option>
+            </select>
+            <input
+              type={memoType === "id" ? "text" : "text"}
+              inputMode={memoType === "id" ? "numeric" : "text"}
+              value={memo}
+              onChange={(e) => handleMemoChange(e.target.value)}
+              placeholder={memoPlaceholder}
+              className={clsx("input-field", memoError && "border-red-500/50")}
+              disabled={status !== "idle"}
+              maxLength={
+                memoType === "text"
+                  ? STELLAR_MEMO_TEXT_MAX_BYTES
+                  : memoType === "id"
+                    ? 20
+                    : STELLAR_MEMO_HASH_HEX_LENGTH + 2
+              }
+              aria-label="Memo value"
             />
-            <div className="mt-3 flex flex-wrap gap-2">
-              {memoTemplates.map((template) => {
-                const isActive = selectedMemoTemplate === template;
-                return (
-                  <button
-                    key={template}
-                    type="button"
-                    onClick={() => handleMemoTemplateClick(template)}
-                    disabled={status !== "idle"}
-                    className={clsx(
-                      "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
-                      isActive
-                        ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
-                        : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
-                      status !== "idle" && "cursor-not-allowed opacity-50",
-                    )}
-                  >
-                    {template}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-3 text-xs text-slate-500">
-              {memoTextByteLength(memo)}/{STELLAR_MEMO_TEXT_MAX_BYTES} characters
-            </p>
+            {memoType === "text" && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {memoTemplates.map((template) => {
+                  const isActive = selectedMemoTemplate === template;
+                  return (
+                    <button
+                      key={template}
+                      type="button"
+                      onClick={() => handleMemoTemplateClick(template)}
+                      disabled={status !== "idle"}
+                      className={clsx(
+                        "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
+                          : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
+                        status !== "idle" && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      {template}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {memoError ? (
+              <p className="mt-3 text-xs text-red-400">{memoError}</p>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">
+                {memoType === "text"
+                  ? `${memoTextByteLength(memo)}/${STELLAR_MEMO_TEXT_MAX_BYTES} characters`
+                  : memoType === "id"
+                    ? "Unsigned 64-bit integer (uint64)"
+                    : `${memo.replace(/^0x/i, "").length}/${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters`}
+              </p>
+            )}
           </div>
         )}
 
@@ -1012,6 +1095,7 @@ export default function SendPaymentForm({
         destination={destination}
         amount={amountNum}
         memo={memo}
+        memoType={memoType}
         estimatedFee={ESTIMATED_NETWORK_FEE}
         usdValue={amountNum * XLM_USD_RATE}
         isTipOnChain={isTipOnChain}
@@ -1119,6 +1203,7 @@ interface SendConfirmationModalProps {
   destination: string;
   amount: number;
   memo: string;
+  memoType: StellarMemoType;
   estimatedFee: string;
   usdValue: number;
   isTipOnChain: boolean;
@@ -1126,7 +1211,7 @@ interface SendConfirmationModalProps {
   onConfirm: () => void;
 }
 
-function SendConfirmationModal({ isOpen, destination, amount, memo, estimatedFee, usdValue, onCancel, onConfirm }: SendConfirmationModalProps) {
+function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, estimatedFee, usdValue, onCancel, onConfirm }: SendConfirmationModalProps) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -1150,8 +1235,8 @@ function SendConfirmationModal({ isOpen, destination, amount, memo, estimatedFee
           </div>
           {memo && (
             <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">Memo</p>
-              <p className="text-sm text-slate-200">{memo}</p>
+              <p className="text-xs text-slate-500 uppercase font-bold">Memo ({memoType.toUpperCase()})</p>
+              <p className="text-sm text-slate-200 break-all">{memo}</p>
             </div>
           )}
         </div>

@@ -675,17 +675,69 @@ export async function buildChangeTrustTransaction({
 /**
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
  */
+/** Supported Stellar memo types for payment construction. */
+export type StellarMemoType = "text" | "id" | "hash" | "return";
+
+/** Maximum uint64 value accepted by MEMO_ID. */
+export const STELLAR_MEMO_ID_MAX = "18446744073709551615";
+
+/** MEMO_HASH / MEMO_RETURN must be exactly 32 bytes (64 hex characters). */
+export const STELLAR_MEMO_HASH_HEX_LENGTH = 64;
+
+/**
+ * Validate and build a Stellar Memo for the given type and value.
+ * @throws {Error} When the memo value is invalid for the selected type.
+ */
+export function createStellarMemo(type: StellarMemoType, value: string): Memo {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Memo value is required for the selected memo type");
+  }
+
+  switch (type) {
+    case "text":
+      return Memo.text(truncateMemoText(trimmed));
+    case "id": {
+      if (!/^\d+$/.test(trimmed)) {
+        throw new Error("MEMO_ID must be a non-negative uint64 integer");
+      }
+      // Reject values that exceed uint64 max by comparing digit-length / lexicographically.
+      if (
+        trimmed.length > STELLAR_MEMO_ID_MAX.length ||
+        (trimmed.length === STELLAR_MEMO_ID_MAX.length && trimmed > STELLAR_MEMO_ID_MAX)
+      ) {
+        throw new Error("MEMO_ID exceeds the maximum uint64 value");
+      }
+      return Memo.id(trimmed);
+    }
+    case "hash":
+    case "return": {
+      const hex = trimmed.toLowerCase().replace(/^0x/, "");
+      if (!/^[0-9a-f]{64}$/.test(hex)) {
+        throw new Error(
+          `MEMO_${type.toUpperCase()} must be a 32-byte hex string (${STELLAR_MEMO_HASH_HEX_LENGTH} characters)`
+        );
+      }
+      return type === "hash" ? Memo.hash(hex) : Memo.return(hex);
+    }
+    default:
+      throw new Error(`Unsupported memo type: ${String(type)}`);
+  }
+}
+
 export async function buildPaymentTransaction({
   fromPublicKey,
   toPublicKey,
   amount,
   memo,
+  memoType = "text",
   asset = "XLM",
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
   memo?: string;
+  memoType?: StellarMemoType;
   asset?: "XLM" | "USDC";
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
@@ -723,7 +775,7 @@ export async function buildPaymentTransaction({
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
 
   if (memo) {
-    builder.addMemo(Memo.text(truncateMemoText(memo)));
+    builder.addMemo(createStellarMemo(memoType, memo));
   }
 
   return builder.build();
@@ -1682,7 +1734,7 @@ export async function buildBuyOfferTransaction({
 }
 
 /**
- * Build a transaction for a path payment.
+ * Build a transaction for a path payment (strict receive).
  */
 export async function buildPathPaymentTransaction({
   fromPublicKey,
@@ -1718,6 +1770,115 @@ export async function buildPathPaymentTransaction({
     )
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
     .build();
+}
+
+/** A quoted DEX path from Horizon `strictSendPaths`. */
+export interface StrictSendPathQuote {
+  sourceAmount: string;
+  destinationAmount: string;
+  /** Intermediate assets between send and destination (excludes endpoints). */
+  path: Asset[];
+  exchangeRate: number;
+}
+
+function horizonAssetToAsset(record: {
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+}): Asset {
+  if (record.asset_type === "native") return Asset.native();
+  if (!record.asset_code || !record.asset_issuer) {
+    throw new Error("Invalid path asset returned by Horizon");
+  }
+  return new Asset(record.asset_code, record.asset_issuer);
+}
+
+/**
+ * Query Horizon for the best strict-send path payment quote.
+ */
+export async function fetchStrictSendPaths({
+  sendAsset,
+  sendAmount,
+  destAsset,
+}: {
+  sendAsset: Asset;
+  sendAmount: string;
+  destAsset: Asset;
+}): Promise<StrictSendPathQuote | null> {
+  const result = await server
+    .strictSendPaths(sendAsset, sendAmount, [destAsset])
+    .limit(10)
+    .call();
+
+  const best = result.records[0];
+  if (!best) return null;
+
+  const sourceAmount = best.source_amount;
+  const destinationAmount = best.destination_amount;
+  const sendNum = parseFloat(sourceAmount);
+  const destNum = parseFloat(destinationAmount);
+  const exchangeRate = sendNum > 0 ? destNum / sendNum : 0;
+
+  const path = (best.path || []).map((asset) => horizonAssetToAsset(asset));
+
+  return {
+    sourceAmount,
+    destinationAmount,
+    path,
+    exchangeRate,
+  };
+}
+
+/**
+ * Build a pathPaymentStrictSend transaction for DEX swaps.
+ */
+export async function buildPathPaymentStrictSendTransaction({
+  fromPublicKey,
+  toPublicKey,
+  sendAsset,
+  sendAmount,
+  destAsset,
+  destMin,
+  path,
+}: {
+  fromPublicKey: string;
+  toPublicKey: string;
+  sendAsset: Asset;
+  sendAmount: string;
+  destAsset: Asset;
+  destMin: string;
+  path: Asset[];
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(
+      Operation.pathPaymentStrictSend({
+        sendAsset,
+        sendAmount,
+        destination: toPublicKey,
+        destAsset,
+        destMin,
+        path,
+      })
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+/**
+ * Read the actual destination amount received from a path_payment_strict_send result.
+ */
+export async function getPathPaymentReceivedAmount(txHash: string): Promise<string | null> {
+  const ops = await server.operations().forTransaction(txHash).call();
+  const pathOp = ops.records.find(
+    (op) =>
+      op.type === "path_payment_strict_send" ||
+      op.type === "path_payment_strict_receive"
+  ) as { amount?: string } | undefined;
+  return pathOp?.amount ?? null;
 }
 
 

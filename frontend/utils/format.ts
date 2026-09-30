@@ -359,17 +359,69 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     "To",
     "Memo",
     "Transaction Hash",
+    "Note",
   ];
 
-  const rows = payments.map((tx) => [
-    csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
-    csvCell(tx.type === "sent" ? "Sent" : "Received"),
-    csvCell(parseFloat(tx.amount).toFixed(7)),
-    csvCell(tx.asset ?? "XLM"),
-    csvCell(tx.from),
-    csvCell(tx.to),
-    csvCell(tx.memo ?? ""),
-    csvCell(tx.transactionHash),
+  const rows = payments.map((tx) => {
+    // Fetch note from localStorage by txhash
+    let note = "";
+    if (typeof window !== "undefined" && tx.transactionHash) {
+      try {
+        const notes = localStorage.getItem("paymentNotes");
+        if (notes) {
+          const notesMap = JSON.parse(notes);
+          note = notesMap[tx.transactionHash] || "";
+        }
+      } catch (err) {
+        console.error("Failed to read payment notes from localStorage:", err);
+      }
+    }
+
+    return [
+      csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
+      csvCell(tx.type === "sent" ? "Sent" : "Received"),
+      csvCell(parseFloat(tx.amount).toFixed(7)),
+      csvCell(tx.asset ?? "XLM"),
+      csvCell(tx.from),
+      csvCell(tx.to),
+      csvCell(tx.memo ?? ""),
+      csvCell(tx.transactionHash),
+      csvCell(note),
+    ];
+  });
+
+  const csv = [
+    HEADERS.map(csvCell).join(","),
+    ...rows.map((r) => r.join(",")),
+  ].join("\r\n");
+
+  const dateStamp = format(new Date(), "yyyy-MM-dd");
+  const filename = `stellar-micropay-transactions-${dateStamp}.csv`;
+  triggerDownload(csv, filename, "text/csv;charset=utf-8;");
+}
+
+interface TipCSVRecord {
+  timestamp: string;
+  senderPublicKey: string;
+  amount: string;
+  asset: string;
+  memo?: string;
+}
+
+/**
+ * Convert an array of received tips to a CSV string and trigger a browser
+ * file download, for creator bookkeeping (#612).
+ *
+ * Columns: Date, Sender, Amount, Memo
+ */
+export function exportTipsToCSV(tips: TipCSVRecord[]): void {
+  const HEADERS = ["Date", "Sender", "Amount", "Memo"];
+
+  const rows = tips.map((tip) => [
+    csvCell(format(new Date(tip.timestamp), "yyyy-MM-dd HH:mm:ss")),
+    csvCell(tip.senderPublicKey),
+    csvCell(`${tip.amount} ${tip.asset}`),
+    csvCell(tip.memo ?? ""),
   ]);
 
   const csv = [

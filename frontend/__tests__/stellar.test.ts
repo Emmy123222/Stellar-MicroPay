@@ -175,6 +175,79 @@ describe("Stellar helper", () => {
       expect([...result].every((char) => char === "🎉")).toBe(true);
     });
   });
+
+  describe("memo types in buildPaymentTransaction", () => {
+    const sourcePublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+    const destinationPublicKey = VALID_MAINNET_ADDRESS;
+    const HASH_HEX = "a".repeat(64);
+
+    beforeEach(() => {
+      const mockAccount = new Account(sourcePublicKey, "1234567890");
+      jest.spyOn(server, "loadAccount").mockResolvedValue(mockAccount as any);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("adds MEMO_TEXT via Memo.text", async () => {
+      const tx = await buildPaymentTransaction({
+        fromPublicKey: sourcePublicKey,
+        toPublicKey: destinationPublicKey,
+        amount: "1",
+        memo: "Invoice",
+        memoType: "text",
+      });
+      expect(tx.memo.type).toBe("text");
+      expect(tx.memo.value).toBe("Invoice");
+      expect(createStellarMemo("text", "Invoice").type).toBe("text");
+    });
+
+    it("adds MEMO_ID via Memo.id for uint64 input", async () => {
+      const tx = await buildPaymentTransaction({
+        fromPublicKey: sourcePublicKey,
+        toPublicKey: destinationPublicKey,
+        amount: "1",
+        memo: "123456789",
+        memoType: "id",
+      });
+      expect(tx.memo.type).toBe("id");
+      expect(String(tx.memo.value)).toBe("123456789");
+      expect(createStellarMemo("id", "42").type).toBe("id");
+    });
+
+    it("adds MEMO_HASH via Memo.hash for 32-byte hex", async () => {
+      const tx = await buildPaymentTransaction({
+        fromPublicKey: sourcePublicKey,
+        toPublicKey: destinationPublicKey,
+        amount: "1",
+        memo: HASH_HEX,
+        memoType: "hash",
+      });
+      expect(tx.memo.type).toBe("hash");
+      expect(Buffer.from(tx.memo.value as Buffer).toString("hex")).toBe(HASH_HEX);
+      expect(createStellarMemo("hash", HASH_HEX).type).toBe("hash");
+    });
+
+    it("adds MEMO_RETURN via Memo.return for 32-byte hex", async () => {
+      const tx = await buildPaymentTransaction({
+        fromPublicKey: sourcePublicKey,
+        toPublicKey: destinationPublicKey,
+        amount: "1",
+        memo: HASH_HEX,
+        memoType: "return",
+      });
+      expect(tx.memo.type).toBe("return");
+      expect(Buffer.from(tx.memo.value as Buffer).toString("hex")).toBe(HASH_HEX);
+      expect(createStellarMemo("return", HASH_HEX).type).toBe("return");
+    });
+
+    it("rejects invalid MEMO_ID and MEMO_HASH values", () => {
+      expect(() => createStellarMemo("id", "not-a-number")).toThrow(/uint64/i);
+      expect(() => createStellarMemo("hash", "deadbeef")).toThrow(/32-byte hex/i);
+      expect(() => createStellarMemo("return", "xyz")).toThrow(/32-byte hex/i);
+    });
+  });
 });
 
 describe("isValidStellarAddress", () => {

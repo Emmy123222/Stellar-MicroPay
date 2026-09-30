@@ -67,6 +67,13 @@ jobs:
   contracts:
     name: Soroban contract (check, test, WASM)
     runs-on: ubuntu-latest
+    # Installing stellar-cli is not enough: soroban-sdk 28's build script only
+    # accepts the build when it is driven by `stellar contract build`, which
+    # declares that spec shaking happens out-of-band. The job still calls plain
+    # `cargo check/build`, so set that declaration here. The proc-macro spec
+    # (contractspecv0/contractmetav0) is still emitted into the WASM.
+    env:
+      SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

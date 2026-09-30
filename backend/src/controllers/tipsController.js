@@ -119,10 +119,50 @@ async function getTipsSent(req, res, next) {
   }
 }
 
+/**
+ * GET /api/tips/leaderboard/:creatorPublicKey
+ * Get top tippers for a creator.
+ */
+async function getTopTippers(req, res, next) {
+  try {
+    const { creatorPublicKey } = req.params;
+    const { limit } = req.query;
+    
+    const parsedLimit = limit ? parseInt(limit, 10) : 5;
+    
+    const result = tipsService.getTopTippers(creatorPublicKey, parsedLimit);
+    
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/tips/leaderboard
+ * Get global leaderboard with top recipients and senders.
+ */
+async function getGlobalLeaderboard(req, res, next) {
+  try {
+    const result = tipsService.getGlobalLeaderboard();
+    
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   recordTip,
   getTipsReceived,
   getTipsStats,
   getTipsSent,
-  getLeaderboard,
+  getTopTippers,
+  getGlobalLeaderboard,
 };
