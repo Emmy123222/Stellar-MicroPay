@@ -47,7 +47,19 @@ export function formatXLM(amount: string | number): string {
   return formatAsset(amount, "XLM");
 }
 
-export function formatAmount(
+/**
+ * Format XLM amount with precise decimal display (no trailing zeros).
+ */
+export function formatXLMPrecise(amount: string | number): string {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (!Number.isFinite(num)) return "0 XLM";
+  return `${num.toFixed(7).replace(/\.?0+$/, "")} XLM`;
+}
+
+/**
+ * Format a Stellar asset amount with asset-specific precision rules.
+ */
+export function formatAsset(
   amount: string | number,
   assetCode = DEFAULT_ASSET_CODE
 ): string {
@@ -204,6 +216,101 @@ export function parseAddressBookCSV(csv: string) {
   });
 }
 
+export interface BatchRecipientCSVRow {
+  rowNumber: number;
+  address: string;
+  amount: string;
+  asset?: string;
+  memo: string;
+  error: string | null;
+}
+
+/**
+ * Parse a batch recipients CSV with columns: address, amount, asset (optional), memo (optional).
+ * Supports both header row and positional columns.
+ * Returns all rows, including those with errors, so the caller can flag them without losing data.
+ * the caller can flag it without discarding the valid rows around it.
+ */
+export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
+  const rows = parseCSV(csv);
+  if (rows.length === 0) return [];
+
+  // Check if first row looks like a header
+  const firstRow = rows[0].map((cell) => cell.trim().toLowerCase());
+  const hasHeader =
+    firstRow.includes("address") ||
+    firstRow.includes("recipient") ||
+    firstRow.includes("amount");
+
+  let dataRows = rows;
+  let headerMap: Record<string, number> = {};
+
+  if (hasHeader) {
+    dataRows = rows.slice(1);
+    // Build a map of column name to index
+    firstRow.forEach((name, index) => {
+      if (name === "recipient") {
+        headerMap["address"] = index;
+      } else if (["address", "amount", "asset", "memo"].includes(name)) {
+        headerMap[name] = index;
+      }
+    });
+  }
+
+  return dataRows.map((cells, index) => {
+    const rowNumber = index + 1;
+
+    // Extract values based on header or position
+    let address: string;
+    let amount: string;
+    let asset: string | undefined;
+    let memo: string;
+
+    if (hasHeader && Object.keys(headerMap).length > 0) {
+      address = (cells[headerMap["address"]] ?? "").trim();
+      amount = (cells[headerMap["amount"]] ?? "").trim();
+      asset = headerMap["asset"] !== undefined ? (cells[headerMap["asset"]] ?? "").trim() : undefined;
+      memo = (cells[headerMap["memo"]] ?? "").trim();
+    } else {
+      // Positional: address, amount, asset (optional), memo (optional)
+      address = (cells[0] ?? "").trim();
+      amount = (cells[1] ?? "").trim();
+      asset = cells[2] ? cells[2].trim() : undefined;
+      memo = (cells[3] ?? "").trim();
+    }
+
+    // Validate and flag errors
+    let error: string | null = null;
+
+    if (!address) {
+      error = "Missing address.";
+    }
+
+    if (!amount) {
+      if (!error) error = "Missing amount.";
+    } else {
+      const parsedAmount = parseFloat(amount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        error = "Amount must be a positive number.";
+      }
+    }
+
+    // Asset validation (optional - only XLM supported for now per BatchPaymentForm)
+    if (asset && asset.toUpperCase() !== "XLM" && asset !== "") {
+      if (!error) error = "Only XLM asset is currently supported.";
+    }
+
+    return {
+      rowNumber,
+      address,
+      amount,
+      asset: asset && asset !== "" ? asset.toUpperCase() : undefined,
+      memo,
+      error,
+    };
+  });
+}
+
 /**
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
  */
@@ -262,17 +369,69 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     "To",
     "Memo",
     "Transaction Hash",
+    "Note",
   ];
 
-  const rows = payments.map((tx) => [
-    csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
-    csvCell(tx.type === "sent" ? "Sent" : "Received"),
-    csvCell(parseFloat(tx.amount).toFixed(7)),
-    csvCell(tx.asset ?? "XLM"),
-    csvCell(tx.from),
-    csvCell(tx.to),
-    csvCell(tx.memo ?? ""),
-    csvCell(tx.transactionHash),
+  const rows = payments.map((tx) => {
+    // Fetch note from localStorage by txhash
+    let note = "";
+    if (typeof window !== "undefined" && tx.transactionHash) {
+      try {
+        const notes = localStorage.getItem("paymentNotes");
+        if (notes) {
+          const notesMap = JSON.parse(notes);
+          note = notesMap[tx.transactionHash] || "";
+        }
+      } catch (err) {
+        console.error("Failed to read payment notes from localStorage:", err);
+      }
+    }
+
+    return [
+      csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
+      csvCell(tx.type === "sent" ? "Sent" : "Received"),
+      csvCell(parseFloat(tx.amount).toFixed(7)),
+      csvCell(tx.asset ?? "XLM"),
+      csvCell(tx.from),
+      csvCell(tx.to),
+      csvCell(tx.memo ?? ""),
+      csvCell(tx.transactionHash),
+      csvCell(note),
+    ];
+  });
+
+  const csv = [
+    HEADERS.map(csvCell).join(","),
+    ...rows.map((r) => r.join(",")),
+  ].join("\r\n");
+
+  const dateStamp = format(new Date(), "yyyy-MM-dd");
+  const filename = `stellar-micropay-transactions-${dateStamp}.csv`;
+  triggerDownload(csv, filename, "text/csv;charset=utf-8;");
+}
+
+interface TipCSVRecord {
+  timestamp: string;
+  senderPublicKey: string;
+  amount: string;
+  asset: string;
+  memo?: string;
+}
+
+/**
+ * Convert an array of received tips to a CSV string and trigger a browser
+ * file download, for creator bookkeeping (#612).
+ *
+ * Columns: Date, Sender, Amount, Memo
+ */
+export function exportTipsToCSV(tips: TipCSVRecord[]): void {
+  const HEADERS = ["Date", "Sender", "Amount", "Memo"];
+
+  const rows = tips.map((tip) => [
+    csvCell(format(new Date(tip.timestamp), "yyyy-MM-dd HH:mm:ss")),
+    csvCell(tip.senderPublicKey),
+    csvCell(`${tip.amount} ${tip.asset}`),
+    csvCell(tip.memo ?? ""),
   ]);
 
   const csv = [

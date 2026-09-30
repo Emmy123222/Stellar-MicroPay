@@ -45,11 +45,18 @@ router.get(
  * GET /api/tips/sent/:senderPublicKey
  * Get all tips sent by a user.
  */
-router.get(
-  "/sent/:senderPublicKey",
-  strictLimiter,
-  validatePublicKey("senderPublicKey"),
-  tipsController.getTipsSent
-);
+router.get("/sent/:senderPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsSent);
+
+/**
+ * GET /api/tips/leaderboard/:creatorPublicKey
+ * Get top tippers for a creator.
+ */
+router.get("/leaderboard/:creatorPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTopTippers);
+
+/**
+ * GET /api/tips/leaderboard
+ * Get global leaderboard with top recipients and senders.
+ */
+router.get("/leaderboard", strictLimiter, tipsController.getGlobalLeaderboard);
 
 module.exports = router;

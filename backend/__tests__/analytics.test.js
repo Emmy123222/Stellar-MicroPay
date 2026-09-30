@@ -287,3 +287,44 @@ describe("Analytics Service", () => {
     });
   });
 });
+
+describe('Analytics Service Cache Archiving (#1210)', () => {
+  beforeEach(() => {
+    clearAnalyticsCache();
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    stopCacheSweep();
+    jest.useRealTimers();
+  });
+
+  it('evicts entries older than 1 hour during sweep and logs eviction count', () => {
+    const logSpy = jest.spyOn(loggerModule.logger, 'info').mockImplementation(() => {});
+
+    // Set an entry with current timestamp
+    setCachedAnalytics('G_TEST_USER_1', { volume: 100 });
+    
+    expect(getCachedAnalytics('G_TEST_USER_1')).toEqual({ volume: 100 });
+
+    // Advance time past 1 hour (e.g., 61 minutes)
+    jest.advanceTimersByTime(61 * 60 * 1000);
+
+    // Trigger the 10-minute interval sweep by advancing timer or calling sweep logic
+    // We advance by SWEEP_INTERVAL_MS (10 mins) or trigger interval tick
+    jest.advanceTimersByTime(10 * 60 * 1000);
+
+    // Verify entry has been evicted
+    expect(getCachedAnalytics('G_TEST_USER_1')).toBeNull();
+    expect(logSpy).toHaveBeenCalledWith('Cache sweep: evicted 1 entries');
+
+    logSpy.mockRestore();
+  });
+
+  it('stops cache sweep correctly when stopCacheSweep is called', () => {
+    const clearIntervalSpy = jest.spyOn(global, 'clearInterval');
+    stopCacheSweep();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    clearIntervalSpy.mockRestore();
+  });
+});

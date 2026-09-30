@@ -20,8 +20,9 @@ const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
-const webhooksRoutes = require("./routes/webhooks");
-const requestId = require("./middleware/requestId");
+const webhookRoutes = require("./routes/webhooks");
+const networkRoutes = require("./routes/network");
+const priceAlertsRoutes = require("./routes/priceAlerts");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -64,6 +65,8 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
     exposedHeaders: ["X-Request-ID"],
     credentials: true,
+    optionsSuccessStatus: 204,
+    maxAge: 600,
   })
 );
 
@@ -87,7 +90,8 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
-app.use("/api/webhooks", webhooksRoutes);
+app.use("/api/network", networkRoutes);
+app.use("/api/price-alerts", priceAlertsRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────

@@ -1068,7 +1068,8 @@ export function shortenAddress(address: string, chars = 6): string {
  * ```
 */
 export function isValidStellarAddress(address: string): boolean {
-  return /^G[A-Z0-9]{55}$/.test(address);
+  // Stellar public keys: 'G' + 55 characters from the base32 alphabet (A-Z, 2-7).
+  return /^G[A-Z2-7]{55}$/.test(address);
 }
 
 /**

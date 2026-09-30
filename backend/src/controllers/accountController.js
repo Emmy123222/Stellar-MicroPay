@@ -74,4 +74,18 @@ async function resolveUsername(req, res, next) {
   }
 }
 
-module.exports = { getAccount, getBalance, registerUsername, resolveUsername };
+/**
+ * GET /api/accounts/:publicKey/has-usdc-trustline
+ * Returns { hasTrustline: boolean }.
+ */
+async function hasUSDCTrustline(req, res, next) {
+  try {
+    const { publicKey } = req.params;
+    const hasTrustline = await stellarService.hasUSDCTrustline(publicKey);
+    res.json({ hasTrustline });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getAccount, getBalance, registerUsername, resolveUsername, hasUSDCTrustline };

@@ -6,24 +6,16 @@
  * Stellar MicroPay — Soroban Smart Contract
  *
  * Provides:
+ *   - Streaming payments (open/claim/top-up/close + pause/resume)
  *   - Escrow payments (ROADMAP v2.1)
+ *   - Milestone-based escrow release with dispute timeout (ROADMAP v2.1)
  *   - Creator tipping (ROADMAP v1.4)
  *   - Micro-transaction batching (ROADMAP v2.0)
  *   - NFT payment receipts (ROADMAP v1.5)
- *
- * Build:
- *   cargo build --target wasm32-unknown-unknown --release
- *
- * Deploy (Stellar CLI):
- *   stellar contract deploy \
- *     --wasm target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm \
- *     --source YOUR_SECRET_KEY \
- *     --network testnet
  */
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype,
-    token, Address, BytesN, Env, Symbol,
+    contract, contractevent, contractimpl, contracttype, token, Address, BytesN, Env, Symbol,
 };
 
 // ─── Data types ───────────────────────────────────────────────────────────────
@@ -60,7 +52,135 @@ pub struct ReceiptMetadata {
     pub ledger: u32,
 }
 
-/// Storage key for per-recipient tip totals
+/// A streaming payment channel: payer deposits funds streamed at a fixed rate.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Stream {
+    pub payer: Address,
+    pub recipient: Address,
+    pub rate_per_ledger: i128,
+    pub deposited: i128,
+    pub claimed: i128,
+    pub start_ledger: u32,
+    /// Ledger at which the stream was paused (None = running).
+    pub pause_ledger: Option<u32>,
+}
+
+/// An escrow payment locked until a release ledger.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EscrowRecord {
+    pub payer: Address,
+    pub recipient: Address,
+    pub amount: i128,
+    pub release_ledger: u32,
+    pub released: bool,
+    pub cancelled: bool,
+}
+
+// ─── Milestone escrow ─────────────────────────────────────────────────────────
+
+/// Escrow records live in persistent storage and are re-extended on every read
+/// and write, so a record cannot be evicted while it still holds funds.
+/// `ESCROW_TTL_BUMP` has to stay below the network's maximum entry lifetime.
+const ESCROW_TTL_THRESHOLD: u32 = 100_000;
+const ESCROW_TTL_BUMP: u32 = 200_000;
+
+/// Upper bound on `dispute_timeout`. It must stay below
+/// `ESCROW_TTL_THRESHOLD` so the record outlives the dispute window it was
+/// created with.
+const MAX_DISPUTE_TIMEOUT: u32 = 50_000;
+
+/// Lifecycle of a milestone escrow.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EscrowStatus {
+    /// Funds are locked, awaiting approval or dispute.
+    Pending,
+    /// The approver released the funds to the recipient.
+    Approved,
+    /// The payer disputed the milestone; funds are held until the timeout.
+    Disputed,
+    /// The payer reclaimed the funds after the dispute timeout elapsed.
+    Cancelled,
+}
+
+/// Funds locked in the contract until a milestone is approved or a dispute
+/// times out.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEscrowRecord {
+    /// SAC of the token the funds are held in
+    pub token: Address,
+    /// Who locked the funds and may reclaim them
+    pub payer: Address,
+    /// Who receives the funds when the milestone is approved
+    pub recipient: Address,
+    /// The third party whose approval releases the funds
+    pub approver: Address,
+    /// Amount in the token's smallest unit (stroops for XLM)
+    pub amount: i128,
+    pub status: EscrowStatus,
+    /// Ledger the escrow was created in
+    pub created_ledger: u32,
+    /// Ledger the dispute was raised in; `0` while undisputed
+    pub dispute_ledger: u32,
+    /// Ledgers the payer must wait after disputing before reclaiming
+    pub dispute_timeout: u32,
+}
+
+/// Emitted when funds are locked into a milestone escrow.
+#[contractevent(topics = ["milestone_escrow", "created"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEscrowCreated {
+    #[topic]
+    pub escrow_id: u32,
+    #[topic]
+    pub payer: Address,
+    pub recipient: Address,
+    pub approver: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub dispute_timeout: u32,
+}
+
+/// Emitted when the approver releases the funds to the recipient.
+#[contractevent(topics = ["milestone_escrow", "approved"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEscrowApproved {
+    #[topic]
+    pub escrow_id: u32,
+    #[topic]
+    pub approver: Address,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+/// Emitted when the payer disputes the milestone and the funds go on hold.
+#[contractevent(topics = ["milestone_escrow", "disputed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEscrowDisputed {
+    #[topic]
+    pub escrow_id: u32,
+    #[topic]
+    pub payer: Address,
+    pub amount: i128,
+    /// First ledger in which `cancel_milestone_escrow` will succeed
+    pub reclaim_after: u32,
+}
+
+/// Emitted when the payer reclaims disputed funds after the timeout.
+#[contractevent(topics = ["milestone_escrow", "cancelled"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneEscrowCancelled {
+    #[topic]
+    pub escrow_id: u32,
+    #[topic]
+    pub payer: Address,
+    pub amount: i128,
+}
+
+/// Storage keys.
 #[contracttype]
 pub enum DataKey {
     Admin,
@@ -74,6 +194,18 @@ pub enum DataKey {
     ReceiptRecord(Address, u32),
     /// Operator fee, in basis points, charged on every tip
     FeeBps,
+    /// Total number of streams ever opened
+    StreamCount,
+    /// Stream record indexed by stream id
+    Stream(u32),
+    /// Total number of escrows ever opened
+    EscrowCount,
+    /// Escrow record indexed by escrow id
+    Escrow(u32),
+    /// Milestone escrow record, indexed by escrow id
+    MilestoneEscrow(u32),
+    /// Number of milestone escrows ever created (the next escrow id)
+    MilestoneEscrowCount,
 }
 
 /// Event payload emitted when a tip is sent, capturing the gross tip
@@ -298,16 +430,6 @@ impl MicroPayContract {
     // ─── NFT Receipts ───────────────────────────────────────────────────────
 
     /// Mint an on-chain receipt as proof of payment.
-    ///
-    /// Stores receipt metadata (amount, timestamp, memo) under the payer's
-    /// address and emits a `receipt` event. The returned `u32` is the receipt
-    /// index (NFT ID) for this payer.
-    ///
-    /// Parameters:
-    ///   - from:   The payer (must authorize this call)
-    ///   - to:     The payee
-    ///   - amount: Amount in stroops
-    ///   - memo:   Optional payment memo (max 28 chars, passed as a Symbol)
     pub fn mint_receipt(
         env: Env,
         from: Address,
@@ -368,24 +490,576 @@ impl MicroPayContract {
             .expect("Receipt not found")
     }
 
-    // ─── Placeholders (future features) ──────────────────────────────────────
+    // ─── Milestone escrow ────────────────────────────────────────────────────
 
-    /// [PLACEHOLDER] Create an escrow payment that releases after a time lock.
-    /// See ROADMAP.md v2.1 — Soroban Escrow Payments.
+    /// Lock `amount` of `token` in the contract until a third party confirms
+    /// the milestone was met.
     ///
-    /// Future implementation:
-    ///   - Lock funds in the contract
-    ///   - Release to recipient after `release_ledger`
-    ///   - Allow sender to cancel before release
-    pub fn create_escrow(
-        _env: Env,
-        _from: Address,
-        _to: Address,
-        _amount: i128,
-        _release_ledger: u32,
-    ) {
-        panic!("Escrow payments coming in v2.1 — see ROADMAP.md");
+    /// The payer funds the escrow up front. `approver` alone can release it
+    /// with [`approve_milestone`]; the payer alone can freeze it with
+    /// [`dispute_milestone`] and reclaim it through [`cancel_milestone_escrow`] once
+    /// `dispute_timeout` ledgers have passed.
+    ///
+    /// Returns the escrow id used by every other escrow call.
+    pub fn create_milestone_escrow(
+        env: Env,
+        token: Address,
+        payer: Address,
+        recipient: Address,
+        amount: i128,
+        approver: Address,
+        dispute_timeout: u32,
+    ) -> u32 {
+        payer.require_auth();
+
+        if amount <= 0 {
+            panic!("Escrow amount must be positive");
+        }
+        if dispute_timeout == 0 || dispute_timeout > MAX_DISPUTE_TIMEOUT {
+            panic!("Escrow dispute timeout is out of range");
+        }
+
+        // Hold the funds in the contract until the milestone resolves.
+        let contract = env.current_contract_address();
+        token::Client::new(&env, &token).transfer(&payer, &contract, &amount);
+
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MilestoneEscrowCount)
+            .unwrap_or(0);
+
+        let escrow = MilestoneEscrowRecord {
+            token: token.clone(),
+            payer: payer.clone(),
+            recipient: recipient.clone(),
+            approver: approver.clone(),
+            amount,
+            status: EscrowStatus::Pending,
+            created_ledger: env.ledger().sequence(),
+            dispute_ledger: 0,
+            dispute_timeout,
+        };
+        Self::save_escrow(&env, id, &escrow);
+        env.storage()
+            .instance()
+            .set(&DataKey::MilestoneEscrowCount, &(id + 1));
+
+        MilestoneEscrowCreated {
+            escrow_id: id,
+            payer,
+            recipient,
+            approver,
+            token,
+            amount,
+            dispute_timeout,
+        }
+        .publish(&env);
+
+        id
     }
+
+    /// Release the escrowed funds to the recipient because the milestone was met.
+    ///
+    /// Callable only by the escrow's `approver`, and only while the escrow is
+    /// still pending — a disputed escrow is frozen until the payer reclaims it.
+    pub fn approve_milestone(env: Env, escrow_id: u32, approver: Address) {
+        let escrow = Self::load_escrow(&env, escrow_id);
+
+        approver.require_auth();
+        if approver != escrow.approver {
+            panic!("Only the designated approver can approve this escrow");
+        }
+        if escrow.status != EscrowStatus::Pending {
+            panic!("Escrow is no longer pending");
+        }
+
+        let contract = env.current_contract_address();
+        token::Client::new(&env, &escrow.token).transfer(
+            &contract,
+            &escrow.recipient,
+            &escrow.amount,
+        );
+
+        let mut released = escrow.clone();
+        released.status = EscrowStatus::Approved;
+        Self::save_escrow(&env, escrow_id, &released);
+
+        MilestoneEscrowApproved {
+            escrow_id,
+            approver,
+            recipient: escrow.recipient.clone(),
+            amount: escrow.amount,
+        }
+        .publish(&env);
+    }
+
+    /// Freeze a pending escrow because the payer contests the milestone.
+    ///
+    /// The funds stay in the contract; after `dispute_timeout` ledgers the
+    /// payer may reclaim them with [`cancel_milestone_escrow`].
+    pub fn dispute_milestone(env: Env, escrow_id: u32, payer: Address) {
+        let escrow = Self::load_escrow(&env, escrow_id);
+
+        payer.require_auth();
+        if payer != escrow.payer {
+            panic!("Only the payer can dispute this escrow");
+        }
+        if escrow.status != EscrowStatus::Pending {
+            panic!("Escrow is no longer pending");
+        }
+
+        let mut disputed = escrow.clone();
+        disputed.status = EscrowStatus::Disputed;
+        disputed.dispute_ledger = env.ledger().sequence();
+        Self::save_escrow(&env, escrow_id, &disputed);
+
+        MilestoneEscrowDisputed {
+            escrow_id,
+            payer,
+            amount: escrow.amount,
+            reclaim_after: Self::reclaim_ledger(&disputed),
+        }
+        .publish(&env);
+    }
+
+    /// Reclaim a disputed escrow once its dispute timeout has elapsed.
+    ///
+    /// The funds go back to the payer and the escrow is closed.
+    ///
+    /// Named `cancel_milestone_escrow` rather than `cancel_escrow` because the
+    /// contract already exposes `cancel_escrow` for time-locked escrows.
+    pub fn cancel_milestone_escrow(env: Env, escrow_id: u32, payer: Address) {
+        let escrow = Self::load_escrow(&env, escrow_id);
+
+        payer.require_auth();
+        if payer != escrow.payer {
+            panic!("Only the payer can cancel this escrow");
+        }
+        if escrow.status != EscrowStatus::Disputed {
+            panic!("Escrow is not disputed");
+        }
+        if env.ledger().sequence() < Self::reclaim_ledger(&escrow) {
+            panic!("Escrow dispute timeout has not elapsed");
+        }
+
+        let contract = env.current_contract_address();
+        token::Client::new(&env, &escrow.token).transfer(&contract, &escrow.payer, &escrow.amount);
+
+        let mut cancelled = escrow.clone();
+        cancelled.status = EscrowStatus::Cancelled;
+        Self::save_escrow(&env, escrow_id, &cancelled);
+
+        MilestoneEscrowCancelled {
+            escrow_id,
+            payer,
+            amount: escrow.amount,
+        }
+        .publish(&env);
+    }
+
+    /// Get a milestone escrow record by id.
+    pub fn get_milestone_escrow(env: Env, escrow_id: u32) -> MilestoneEscrowRecord {
+        Self::load_escrow(&env, escrow_id)
+    }
+
+    /// Get the number of milestone escrows created so far.
+    pub fn get_milestone_escrow_count(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MilestoneEscrowCount)
+            .unwrap_or(0)
+    }
+
+    /// First ledger in which the payer of `escrow` may reclaim a disputed escrow.
+    fn reclaim_ledger(escrow: &MilestoneEscrowRecord) -> u32 {
+        escrow.dispute_ledger.saturating_add(escrow.dispute_timeout)
+    }
+
+    /// Read an escrow, bumping its storage lifetime so a long-running escrow
+    /// outlives the ledger gap between state changes.
+    fn load_escrow(env: &Env, escrow_id: u32) -> MilestoneEscrowRecord {
+        let key = DataKey::MilestoneEscrow(escrow_id);
+        let escrow: MilestoneEscrowRecord = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("Escrow not found");
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        escrow
+    }
+
+    /// Write an escrow and keep both the record and the contract instance
+    /// alive for another window.
+    fn save_escrow(env: &Env, escrow_id: u32, escrow: &MilestoneEscrowRecord) {
+        let key = DataKey::MilestoneEscrow(escrow_id);
+        env.storage().persistent().set(&key, escrow);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        env.storage()
+            .instance()
+            .extend_ttl(ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+    }
+
+    // ─── Streaming ─────────────────────────────────────────────────────────
+
+    /// Open a new payment stream. Returns the stream id.
+    pub fn open_stream(
+        env: Env,
+        payer: Address,
+        recipient: Address,
+        rate_per_ledger: i128,
+        deposit: i128,
+    ) -> u32 {
+        payer.require_auth();
+
+        if rate_per_ledger <= 0 {
+            panic!("Rate must be positive");
+        }
+        if deposit <= 0 {
+            panic!("Deposit must be positive");
+        }
+
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StreamCount)
+            .unwrap_or(0);
+
+        let stream = Stream {
+            payer: payer.clone(),
+            recipient: recipient.clone(),
+            rate_per_ledger,
+            deposited: deposit,
+            claimed: 0,
+            start_ledger: env.ledger().sequence(),
+            pause_ledger: None,
+        };
+
+        env.storage().instance().set(&DataKey::Stream(count), &stream);
+        env.storage().instance().set(&DataKey::StreamCount, &(count + 1));
+
+        env.events().publish(
+            (Symbol::new(&env, "stream_open"), payer, recipient),
+            count,
+        );
+
+        count
+    }
+
+    /// Claim all currently claimable funds for a stream.
+    pub fn claim_stream(env: Env, stream_id: u32, recipient: Address) -> i128 {
+        recipient.require_auth();
+
+        let mut stream: Stream = env
+            .storage()
+            .instance()
+            .get(&DataKey::Stream(stream_id))
+            .expect("Stream not found");
+
+        if stream.recipient != recipient {
+            panic!("Not stream recipient");
+        }
+
+        let current_ledger = env.ledger().sequence();
+        let elapsed_ledgers = current_ledger.saturating_sub(stream.start_ledger);
+        let total_streamed = stream.rate_per_ledger * elapsed_ledgers as i128;
+        let claimable = total_streamed - stream.claimed;
+
+        // Freeze accrual while paused: recompute against pause_ledger.
+        let claimable = if let Some(paused_at) = stream.pause_ledger {
+            let paused_elapsed = paused_at.saturating_sub(stream.start_ledger);
+            let paused_total = stream.rate_per_ledger * paused_elapsed as i128;
+            paused_total - stream.claimed
+        } else {
+            claimable
+        };
+
+        // Cap by remaining deposit.
+        let remaining = stream.deposited - stream.claimed;
+        let mut payout = claimable.max(0).min(remaining);
+        if payout < 0 {
+            payout = 0;
+        }
+
+        stream.claimed += payout;
+        env.storage().instance().set(&DataKey::Stream(stream_id), &stream);
+
+        env.events().publish(
+            (Symbol::new(&env, "stream_claim"), recipient, stream_id),
+            payout,
+        );
+
+        payout
+    }
+
+    /// Add more funds to an existing stream, extending its duration.
+    pub fn top_up_stream(env: Env, stream_id: u32, payer: Address, amount: i128) {
+        payer.require_auth();
+
+        if amount <= 0 {
+            panic!("Top-up amount must be positive");
+        }
+
+        let mut stream: Stream = env
+            .storage()
+            .instance()
+            .get(&DataKey::Stream(stream_id))
+            .expect("Stream not found");
+
+        if stream.payer != payer {
+            panic!("Not stream payer");
+        }
+
+        stream.deposited += amount;
+        env.storage().instance().set(&DataKey::Stream(stream_id), &stream);
+
+        env.events().publish(
+            (Symbol::new(&env, "stream_topup"), payer, stream_id),
+            amount,
+        );
+    }
+
+    /// Close a stream; payer is refunded the unstreamed remainder.
+    pub fn close_stream(env: Env, stream_id: u32, payer: Address) -> i128 {
+        payer.require_auth();
+
+        let stream: Stream = env
+            .storage()
+            .instance()
+            .get(&DataKey::Stream(stream_id))
+            .expect("Stream not found");
+
+        if stream.payer != payer {
+            panic!("Not stream payer");
+        }
+
+        let current_ledger = env.ledger().sequence();
+        // Effective ledger is frozen at pause point while paused.
+        let effective = stream.pause_ledger.unwrap_or(current_ledger);
+        let elapsed = effective.saturating_sub(stream.start_ledger);
+        let total_streamed = stream.rate_per_ledger * elapsed as i128;
+        let vested = total_streamed.max(stream.claimed).min(stream.deposited);
+        let refundable = stream.deposited - vested;
+
+        env.storage().instance().remove(&DataKey::Stream(stream_id));
+
+        env.events().publish(
+            (Symbol::new(&env, "stream_close"), payer, stream_id),
+            refundable,
+        );
+
+        refundable
+    }
+
+    /// Pause a stream: freezes elapsed time at the current ledger.
+    pub fn pause_stream(env: Env, stream_id: u32, payer: Address) {
+        payer.require_auth();
+
+        let mut stream: Stream = env
+            .storage()
+            .instance()
+            .get(&DataKey::Stream(stream_id))
+            .expect("Stream not found");
+
+        if stream.payer != payer {
+            panic!("Not stream payer");
+        }
+        if stream.pause_ledger.is_some() {
+            panic!("Stream already paused");
+        }
+
+        stream.pause_ledger = Some(env.ledger().sequence());
+        env.storage().instance().set(&DataKey::Stream(stream_id), &stream);
+
+        env.events().publish(
+            (Symbol::new(&env, "stream_pause"), payer, stream_id),
+            env.ledger().sequence(),
+        );
+    }
+
+    /// Resume a paused stream: shifts start_ledger forward by the paused duration.
+    pub fn resume_stream(env: Env, stream_id: u32, payer: Address) {
+        payer.require_auth();
+
+        let mut stream: Stream = env
+            .storage()
+            .instance()
+            .get(&DataKey::Stream(stream_id))
+            .expect("Stream not found");
+
+        if stream.payer != payer {
+            panic!("Not stream payer");
+        }
+
+        let paused_at = stream.pause_ledger.expect("Stream is not paused");
+        let current_ledger = env.ledger().sequence();
+        let paused_duration = current_ledger.saturating_sub(paused_at);
+        stream.start_ledger = stream.start_ledger.saturating_add(paused_duration);
+        stream.pause_ledger = None;
+        env.storage().instance().set(&DataKey::Stream(stream_id), &stream);
+
+        env.events().publish(
+            (Symbol::new(&env, "stream_resume"), payer, stream_id),
+            current_ledger,
+        );
+    }
+
+    /// Get a stream record.
+    pub fn get_stream(env: Env, stream_id: u32) -> Stream {
+        env.storage()
+            .instance()
+            .get(&DataKey::Stream(stream_id))
+            .expect("Stream not found")
+    }
+
+    /// Get the currently claimable amount for a stream.
+    pub fn get_claimable(env: Env, stream_id: u32) -> i128 {
+        let stream: Stream = env
+            .storage()
+            .instance()
+            .get(&DataKey::Stream(stream_id))
+            .expect("Stream not found");
+
+        let current_ledger = env.ledger().sequence();
+        let elapsed_ledgers = current_ledger.saturating_sub(stream.start_ledger);
+        let total_streamed = stream.rate_per_ledger * elapsed_ledgers as i128;
+        let claimable = total_streamed - stream.claimed;
+
+        // While paused, accrual is frozen at pause_ledger.
+        let claimable = if let Some(paused_at) = stream.pause_ledger {
+            let paused_elapsed = paused_at.saturating_sub(stream.start_ledger);
+            let paused_total = stream.rate_per_ledger * paused_elapsed as i128;
+            paused_total - stream.claimed
+        } else {
+            claimable
+        };
+
+        let remaining = stream.deposited - stream.claimed;
+        claimable.max(0).min(remaining)
+    }
+
+    // ─── Escrow (ROADMAP v2.1) ─────────────────────────────────────────────
+
+    /// Lock funds until `release_ledger`. Returns the escrow id.
+    pub fn open_escrow(
+        env: Env,
+        payer: Address,
+        recipient: Address,
+        amount: i128,
+        release_ledger: u32,
+    ) -> u32 {
+        payer.require_auth();
+
+        if amount <= 0 {
+            panic!("Escrow amount must be positive");
+        }
+        if release_ledger <= env.ledger().sequence() {
+            panic!("Release ledger must be in the future");
+        }
+
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EscrowCount)
+            .unwrap_or(0);
+
+        let record = EscrowRecord {
+            payer: payer.clone(),
+            recipient: recipient.clone(),
+            amount,
+            release_ledger,
+            released: false,
+            cancelled: false,
+        };
+
+        env.storage().instance().set(&DataKey::Escrow(count), &record);
+        env.storage().instance().set(&DataKey::EscrowCount, &(count + 1));
+
+        env.events().publish(
+            (Symbol::new(&env, "escrow_open"), payer, recipient),
+            count,
+        );
+
+        count
+    }
+
+    /// Release escrow funds to the recipient after `release_ledger`.
+    /// Anyone can call once the ledger threshold is reached.
+    pub fn release_escrow(env: Env, escrow_id: u32) -> i128 {
+        let mut record: EscrowRecord = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(escrow_id))
+            .expect("Escrow not found");
+
+        if record.released {
+            panic!("Escrow already released");
+        }
+        if record.cancelled {
+            panic!("Escrow was cancelled");
+        }
+        if env.ledger().sequence() < record.release_ledger {
+            panic!("Escrow is still locked");
+        }
+
+        record.released = true;
+        env.storage().instance().set(&DataKey::Escrow(escrow_id), &record);
+
+        env.events().publish(
+            (Symbol::new(&env, "escrow_release"), record.recipient.clone(), escrow_id),
+            record.amount,
+        );
+
+        record.amount
+    }
+
+    /// Cancel an escrow before `release_ledger`; funds return to the payer.
+    pub fn cancel_escrow(env: Env, escrow_id: u32, payer: Address) -> i128 {
+        payer.require_auth();
+
+        let mut record: EscrowRecord = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(escrow_id))
+            .expect("Escrow not found");
+
+        if record.payer != payer {
+            panic!("Not escrow payer");
+        }
+        if record.released {
+            panic!("Escrow already released");
+        }
+        if record.cancelled {
+            panic!("Escrow already cancelled");
+        }
+        if env.ledger().sequence() >= record.release_ledger {
+            panic!("Escrow lock has expired");
+        }
+
+        record.cancelled = true;
+        env.storage().instance().set(&DataKey::Escrow(escrow_id), &record);
+
+        env.events().publish(
+            (Symbol::new(&env, "escrow_cancel"), payer, escrow_id),
+            record.amount,
+        );
+
+        record.amount
+    }
+
+    /// Get an escrow record.
+    pub fn get_escrow(env: Env, escrow_id: u32) -> EscrowRecord {
+        env.storage()
+            .instance()
+            .get(&DataKey::Escrow(escrow_id))
+            .expect("Escrow not found")
+    }
+
+    // ─── Placeholders (future features) ──────────────────────────────────────
 
     /// [PLACEHOLDER] Batch multiple micro-payments in a single transaction.
     /// See ROADMAP.md v2.0 — Multi-Currency Payments.
@@ -405,9 +1079,21 @@ impl MicroPayContract {
 mod tests {
     use super::*;
     use soroban_sdk::{
-        testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
+        testutils::{Address as _, Events as _, Ledger},
         Address, Env,
     };
+
+    fn setup() -> (Env, MicroPayContractClient<'static>, Address, Address, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let payer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        client.initialize(&admin);
+        (env, client, admin, payer, recipient)
+    }
 
     #[test]
     fn test_initialize() {
@@ -572,9 +1258,592 @@ mod tests {
         assert!(res.is_err());
     }
 
+    // ─── Streaming tests ───────────────────────────────────────────────────
 
+    #[test]
+    fn test_open_stream() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &10, &1000);
+        assert_eq!(id, 0);
+        let stream = client.get_stream(&0);
+        assert_eq!(stream.payer, payer);
+        assert_eq!(stream.recipient, recipient);
+        assert_eq!(stream.rate_per_ledger, 10);
+        assert_eq!(stream.deposited, 1000);
+        assert_eq!(stream.claimed, 0);
+        let _ = env;
+    }
 
+    #[test]
+    fn test_claim_stream_basic() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &10, &1000);
+        let stream = client.get_stream(&id);
+        env.ledger().set_sequence_number(stream.start_ledger + 10);
+        let claimed = client.claim_stream(&id, &recipient);
+        assert_eq!(claimed, 100);
+    }
 
+    #[test]
+    fn test_claim_stream_multiple_times() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &5, &1000);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 4);
+        let first = client.claim_stream(&id, &recipient);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 4);
+        let second = client.claim_stream(&id, &recipient);
+        assert_eq!(first, 20);
+        assert_eq!(second, 20);
+    }
 
+    #[test]
+    fn test_claim_stream_exceeds_deposit() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &100, &150);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 10);
+        let claimed = client.claim_stream(&id, &recipient);
+        assert_eq!(claimed, 150);
+        // Second claim yields nothing.
+        let claimed2 = client.claim_stream(&id, &recipient);
+        assert_eq!(claimed2, 0);
+    }
+
+    #[test]
+    fn test_top_up_stream() {
+        let (_env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &10, &100);
+        client.top_up_stream(&id, &payer, &500);
+        let stream = client.get_stream(&id);
+        assert_eq!(stream.deposited, 600);
+    }
+
+    #[test]
+    fn test_close_stream_with_refund() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &10, &1000);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 5);
+        let refund = client.close_stream(&id, &payer);
+        assert_eq!(refund, 950);
+    }
+
+    #[test]
+    fn test_close_stream_after_claims() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &10, &1000);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 5);
+        let claimed = client.claim_stream(&id, &recipient);
+        assert_eq!(claimed, 50);
+        let refund = client.close_stream(&id, &payer);
+        assert_eq!(refund, 950);
+    }
+
+    #[test]
+    fn test_get_claimable() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &10, &1000);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 3);
+        assert_eq!(client.get_claimable(&id), 30);
+    }
+
+    #[test]
+    #[should_panic(expected = "Stream not found")]
+    fn test_claim_nonexistent_stream() {
+        let (_env, client, _admin, _payer, recipient) = setup();
+        client.claim_stream(&999, &recipient);
+    }
+
+    #[test]
+    #[should_panic(expected = "Not stream recipient")]
+    fn test_unauthorized_claim() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &10, &1000);
+        let impostor = Address::generate(&env);
+        // Auth is mocked, but the contract-level recipient check must reject.
+        client.claim_stream(&id, &impostor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Not stream payer")]
+    fn test_unauthorized_close() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let id = client.open_stream(&payer, &recipient, &10, &1000);
+        let impostor = Address::generate(&env);
+        client.close_stream(&id, &impostor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Rate must be positive")]
+    fn test_invalid_rate() {
+        let (_env, client, _admin, payer, recipient) = setup();
+        client.open_stream(&payer, &recipient, &0, &100);
+    }
+
+    #[test]
+    #[should_panic(expected = "Deposit must be positive")]
+    fn test_invalid_deposit() {
+        let (_env, client, _admin, payer, recipient) = setup();
+        client.open_stream(&payer, &recipient, &10, &0);
+    }
+
+    #[test]
+    fn test_pause_resume_claim_flow() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let start = env.ledger().sequence();
+        let id = client.open_stream(&payer, &recipient, &10, &10000);
+
+        // Advance 5 ledgers, then pause.
+        env.ledger().set_sequence_number(start + 5);
+        client.pause_stream(&id, &payer);
+        assert_eq!(client.get_claimable(&id), 50);
+
+        // Advance 10 more ledgers while paused: claimable must NOT increase.
+        env.ledger().set_sequence_number(start + 15);
+        assert_eq!(client.get_claimable(&id), 50);
+        let paused_claim = client.claim_stream(&id, &recipient);
+        assert_eq!(paused_claim, 50);
+
+        // Resume and advance 5 ledgers: claimable SHOULD increase again.
+        client.resume_stream(&id, &payer);
+        env.ledger().set_sequence_number(env.ledger().sequence() + 5);
+        let after = client.get_claimable(&id);
+        assert_eq!(after, 50);
+        let resumed_claim = client.claim_stream(&id, &recipient);
+        assert_eq!(resumed_claim, 50);
+    }
+
+    // ─── Escrow tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_escrow() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let release = env.ledger().sequence() + 100;
+        let id = client.open_escrow(&payer, &recipient, &500, &release);
+        assert_eq!(id, 0);
+        let record = client.get_escrow(&0);
+        assert_eq!(record.payer, payer);
+        assert_eq!(record.recipient, recipient);
+        assert_eq!(record.amount, 500);
+        assert_eq!(record.release_ledger, release);
+        assert!(!record.released);
+        assert!(!record.cancelled);
+    }
+
+    #[test]
+    fn test_release_escrow_after_release_ledger() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let release = env.ledger().sequence() + 10;
+        let id = client.open_escrow(&payer, &recipient, &500, &release);
+        env.ledger().set_sequence_number(release + 1);
+        let amount = client.release_escrow(&id);
+        assert_eq!(amount, 500);
+        assert!(client.get_escrow(&id).released);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow is still locked")]
+    fn test_release_escrow_before_release_ledger_fails() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let release = env.ledger().sequence() + 100;
+        let id = client.open_escrow(&payer, &recipient, &500, &release);
+        env.ledger().set_sequence_number(release - 10);
+        client.release_escrow(&id);
+    }
+
+    #[test]
+    fn test_cancel_escrow_before_release() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let release = env.ledger().sequence() + 100;
+        let id = client.open_escrow(&payer, &recipient, &500, &release);
+        let amount = client.cancel_escrow(&id, &payer);
+        assert_eq!(amount, 500);
+        assert!(client.get_escrow(&id).cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow lock has expired")]
+    fn test_cancel_escrow_after_release_fails() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let release = env.ledger().sequence() + 10;
+        let id = client.open_escrow(&payer, &recipient, &500, &release);
+        env.ledger().set_sequence_number(release + 1);
+        client.cancel_escrow(&id, &payer);
+    }
+
+    #[test]
+    fn test_escrow_ids_increment() {
+        let (env, client, _admin, payer, recipient) = setup();
+        let release = env.ledger().sequence() + 50;
+        let id0 = client.open_escrow(&payer, &recipient, &100, &release);
+        let id1 = client.open_escrow(&payer, &recipient, &200, &release);
+        assert_eq!(id0, 0);
+        assert_eq!(id1, 1);
+        assert_eq!(client.get_escrow(&id1).amount, 200);
+    }
+
+    // ─── Milestone escrow tests ──────────────────────────────────────────────
+
+    /// Ledger gap the payer must wait out after disputing a milestone.
+    const DISPUTE_TIMEOUT: u32 = 500;
+    /// Amount locked by every escrow created in these tests.
+    const ESCROW_AMOUNT: i128 = 4_000;
+    /// Balance the payer starts every escrow test with.
+    const PAYER_FLOAT: i128 = 10_000;
+
+    /// A deployed contract, a test token, and the three escrow roles.
+    ///
+    /// `env.events().all()` only reports the events of the most recent
+    /// invocation, so read published events before balances or records, which
+    /// are themselves contract calls.
+    struct EscrowTest {
+        env: Env,
+        contract_id: Address,
+        token: Address,
+        payer: Address,
+        recipient: Address,
+        approver: Address,
+    }
+
+    impl EscrowTest {
+        fn new() -> Self {
+            let env = Env::default();
+            let contract_id = env.register_contract(None, MicroPayContract);
+            MicroPayContractClient::new(&env, &contract_id).initialize(&Address::generate(&env));
+            env.mock_all_auths();
+
+            let token = env
+                .register_stellar_asset_contract_v2(Address::generate(&env))
+                .address();
+            let payer = Address::generate(&env);
+            let recipient = Address::generate(&env);
+            let approver = Address::generate(&env);
+            token::StellarAssetClient::new(&env, &token).mint(&payer, &PAYER_FLOAT);
+
+            Self {
+                env,
+                contract_id,
+                token,
+                payer,
+                recipient,
+                approver,
+            }
+        }
+
+        fn client(&self) -> MicroPayContractClient<'_> {
+            MicroPayContractClient::new(&self.env, &self.contract_id)
+        }
+
+        fn balance(&self, holder: &Address) -> i128 {
+            token::Client::new(&self.env, &self.token).balance(holder)
+        }
+
+        fn escrow(&self, id: &u32) -> MilestoneEscrowRecord {
+            self.client().get_milestone_escrow(id)
+        }
+
+        fn fund(&self) -> u32 {
+            self.client().create_milestone_escrow(
+                &self.token,
+                &self.payer,
+                &self.recipient,
+                &ESCROW_AMOUNT,
+                &self.approver,
+                &DISPUTE_TIMEOUT,
+            )
+        }
+
+        fn approve(&self, id: &u32) {
+            self.client().approve_milestone(id, &self.approver)
+        }
+
+        fn dispute(&self, id: &u32) {
+            self.client().dispute_milestone(id, &self.payer)
+        }
+
+        fn cancel(&self, id: &u32) {
+            self.client().cancel_milestone_escrow(id, &self.payer)
+        }
+
+        fn sequence(&self) -> u32 {
+            self.env.ledger().sequence()
+        }
+
+        fn advance(&self, ledgers: u32) {
+            let next = self.env.ledger().sequence() + ledgers;
+            self.env.ledger().set_sequence_number(next);
+        }
+
+        fn assert_published<E: soroban_sdk::events::Event>(&self, event: E) {
+            let expected = event.to_xdr(&self.env, &self.contract_id);
+            assert!(
+                self.env.events().all().events().contains(&expected),
+                "expected event was not published"
+            );
+        }
+    }
+
+    #[test]
+    fn test_create_milestone_escrow_locks_funds() {
+        let t = EscrowTest::new();
+
+        let id = t.fund();
+
+        t.assert_published(MilestoneEscrowCreated {
+            escrow_id: id,
+            payer: t.payer.clone(),
+            recipient: t.recipient.clone(),
+            approver: t.approver.clone(),
+            token: t.token.clone(),
+            amount: ESCROW_AMOUNT,
+            dispute_timeout: DISPUTE_TIMEOUT,
+        });
+
+        assert_eq!(id, 0);
+        assert_eq!(t.client().get_milestone_escrow_count(), 1);
+        assert_eq!(t.balance(&t.contract_id), ESCROW_AMOUNT);
+        assert_eq!(t.balance(&t.payer), PAYER_FLOAT - ESCROW_AMOUNT);
+
+        let escrow = t.escrow(&id);
+        assert_eq!(escrow.status, EscrowStatus::Pending);
+        assert_eq!(escrow.token, t.token);
+        assert_eq!(escrow.payer, t.payer);
+        assert_eq!(escrow.recipient, t.recipient);
+        assert_eq!(escrow.approver, t.approver);
+        assert_eq!(escrow.amount, ESCROW_AMOUNT);
+        assert_eq!(escrow.dispute_ledger, 0);
+        assert_eq!(escrow.dispute_timeout, DISPUTE_TIMEOUT);
+    }
+
+    #[test]
+    fn test_create_milestone_escrow_ids_increment() {
+        let t = EscrowTest::new();
+
+        assert_eq!(t.fund(), 0);
+        assert_eq!(t.fund(), 1);
+
+        assert_eq!(t.client().get_milestone_escrow_count(), 2);
+        assert_eq!(t.balance(&t.contract_id), 2 * ESCROW_AMOUNT);
+        assert_eq!(t.balance(&t.payer), PAYER_FLOAT - 2 * ESCROW_AMOUNT);
+    }
+
+    #[test]
+    fn test_approve_milestone_releases_funds() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+
+        t.approve(&id);
+
+        t.assert_published(MilestoneEscrowApproved {
+            escrow_id: id,
+            approver: t.approver.clone(),
+            recipient: t.recipient.clone(),
+            amount: ESCROW_AMOUNT,
+        });
+
+        assert_eq!(t.balance(&t.recipient), ESCROW_AMOUNT);
+        assert_eq!(t.balance(&t.contract_id), 0);
+        assert_eq!(t.escrow(&id).status, EscrowStatus::Approved);
+    }
+
+    #[test]
+    fn test_approve_milestone_twice_releases_once() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        t.approve(&id);
+
+        let second = t.client().try_approve_milestone(&id, &t.approver);
+
+        assert!(second.is_err());
+        assert_eq!(t.balance(&t.recipient), ESCROW_AMOUNT);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the designated approver can approve this escrow")]
+    fn test_only_the_designated_approver_can_approve() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        let stranger = Address::generate(&t.env);
+
+        // `mock_all_auths` lets any address claim any signature, so the
+        // recorded approver is the only thing standing between them and the funds.
+        t.client().approve_milestone(&id, &stranger);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow not found")]
+    fn test_unknown_escrow_id_has_no_record() {
+        let t = EscrowTest::new();
+        t.escrow(&7);
+    }
+
+    #[test]
+    fn test_dispute_milestone_holds_funds() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        let disputed_at = t.sequence();
+
+        t.dispute(&id);
+
+        t.assert_published(MilestoneEscrowDisputed {
+            escrow_id: id,
+            payer: t.payer.clone(),
+            amount: ESCROW_AMOUNT,
+            reclaim_after: disputed_at + DISPUTE_TIMEOUT,
+        });
+
+        let escrow = t.escrow(&id);
+        assert_eq!(escrow.status, EscrowStatus::Disputed);
+        assert_eq!(escrow.dispute_ledger, disputed_at);
+        // Neither party can move the funds while the dispute is open.
+        assert_eq!(t.balance(&t.contract_id), ESCROW_AMOUNT);
+        assert_eq!(t.balance(&t.recipient), 0);
+        assert_eq!(t.balance(&t.payer), PAYER_FLOAT - ESCROW_AMOUNT);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the payer can dispute this escrow")]
+    fn test_only_the_payer_can_dispute() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        let stranger = Address::generate(&t.env);
+
+        t.client().dispute_milestone(&id, &stranger);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow is no longer pending")]
+    fn test_disputed_escrow_cannot_be_approved() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        t.dispute(&id);
+
+        t.approve(&id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow is no longer pending")]
+    fn test_released_escrow_cannot_be_disputed() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        t.approve(&id);
+
+        t.dispute(&id);
+    }
+
+    #[test]
+    fn test_cancel_milestone_escrow_returns_funds_after_timeout() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        t.dispute(&id);
+
+        t.advance(DISPUTE_TIMEOUT);
+        t.cancel(&id);
+
+        t.assert_published(MilestoneEscrowCancelled {
+            escrow_id: id,
+            payer: t.payer.clone(),
+            amount: ESCROW_AMOUNT,
+        });
+
+        assert_eq!(t.balance(&t.payer), PAYER_FLOAT);
+        assert_eq!(t.balance(&t.contract_id), 0);
+        assert_eq!(t.escrow(&id).status, EscrowStatus::Cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow dispute timeout has not elapsed")]
+    fn test_cancel_milestone_escrow_one_ledger_early_fails() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        t.dispute(&id);
+
+        t.advance(DISPUTE_TIMEOUT - 1);
+        t.cancel(&id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow is not disputed")]
+    fn test_cancel_pending_escrow_fails() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+
+        t.cancel(&id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the payer can cancel this escrow")]
+    fn test_only_the_payer_can_cancel() {
+        let t = EscrowTest::new();
+        let id = t.fund();
+        t.dispute(&id);
+        t.advance(DISPUTE_TIMEOUT);
+
+        t.client().cancel_milestone_escrow(&id, &t.approver);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow amount must be positive")]
+    fn test_create_escrow_rejects_non_positive_amount() {
+        let t = EscrowTest::new();
+        t.client().create_milestone_escrow(
+            &t.token,
+            &t.payer,
+            &t.recipient,
+            &0,
+            &t.approver,
+            &DISPUTE_TIMEOUT,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow dispute timeout is out of range")]
+    fn test_create_escrow_rejects_zero_dispute_timeout() {
+        let t = EscrowTest::new();
+        t.client().create_milestone_escrow(
+            &t.token,
+            &t.payer,
+            &t.recipient,
+            &ESCROW_AMOUNT,
+            &t.approver,
+            &0,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow dispute timeout is out of range")]
+    fn test_create_escrow_rejects_timeout_beyond_the_storage_window() {
+        let t = EscrowTest::new();
+        t.client().create_milestone_escrow(
+            &t.token,
+            &t.payer,
+            &t.recipient,
+            &ESCROW_AMOUNT,
+            &t.approver,
+            &(MAX_DISPUTE_TIMEOUT + 1),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized function call for address")]
+    fn test_create_escrow_requires_the_payer_to_sign() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        client.initialize(&Address::generate(&env));
+        // Deliberately no `mock_all_auths`: the payer never authorised the call.
+        let token = env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address();
+        let payer = Address::generate(&env);
+        token::StellarAssetClient::new(&env, &token).mint(&payer, &PAYER_FLOAT);
+
+        client.create_milestone_escrow(
+            &token,
+            &payer,
+            &Address::generate(&env),
+            &ESCROW_AMOUNT,
+            &Address::generate(&env),
+            &DISPUTE_TIMEOUT,
+        );
+    }
 }
 

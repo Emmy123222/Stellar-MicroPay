@@ -18,12 +18,29 @@ import {
 } from "@stellar/freighter-api";
 
 import { getNetworkPassphrase, getNetworkConfig } from "./stellar";
+import {
+  getJwtToken as getSessionJwtToken,
+  setJwtToken as setSessionJwtToken,
+  clearJwtToken,
+} from "./auth";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
-let jwtToken: string | null = null;
-export function setJwtToken(token: string | null) { jwtToken = token; }
-export function getJwtToken() { return jwtToken; }
+/**
+ * Persist JWT in sessionStorage (via auth.ts). Never use localStorage for tokens.
+ * The backend also sets an httpOnly `jwt` cookie on SEP-0010 verify.
+ */
+export function setJwtToken(token: string | null) {
+  if (token) {
+    setSessionJwtToken(token);
+  } else {
+    clearJwtToken();
+  }
+}
+
+export function getJwtToken() {
+  return getSessionJwtToken();
+}
 
 async function fetchAuthChallenge(publicKey: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";

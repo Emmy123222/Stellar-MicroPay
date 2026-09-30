@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { fetchNetworkStats, NetworkStats } from "@/lib/stellar";
+import FeeHistorySparkline from "@/components/FeeHistorySparkline";
 
 export default function Network() {
   const [stats, setStats] = useState<NetworkStats | null>(null);
@@ -150,12 +151,14 @@ export default function Network() {
         {/* P50 Fee */}
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
           <h3 className="text-sm font-medium text-slate-400 mb-2">P50 Fee</h3>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-white mb-3">
             {formatFee(stats!.p50Fee)} XLM
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            50th percentile fee
-          </p>
+          <p className="text-xs text-slate-400 mb-3">50th percentile fee</p>
+          <div className="mt-4">
+            <p className="text-xs text-slate-400 mb-2">Fee History (24h)</p>
+            <FeeHistorySparkline className="w-full" />
+          </div>
         </div>
 
         {/* P95 Fee */}

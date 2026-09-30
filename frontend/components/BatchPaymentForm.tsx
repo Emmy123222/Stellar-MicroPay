@@ -10,7 +10,7 @@ import {
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { AssetBadge } from "@/components/AssetBadge";
 
-const MAX_RECIPIENTS = 10;
+const MAX_RECIPIENTS = 100;
 
 type RecipientStatus = "idle" | "pending" | "success" | "failed";
 

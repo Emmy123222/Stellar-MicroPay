@@ -3,9 +3,27 @@
 
 const https = require("https");
 const http = require("http");
-const { execSync } = require("child_process");
+
+/**
+ * Smoke tests for Stellar MicroPay.
+ *
+ * Modes:
+ *   Full staging suite (default):
+ *     STAGING_URL=https://staging.stellarmicropay.io node scripts/smoke-test.js
+ *
+ *   Local / CI health-only (post docker-compose up):
+ *     SMOKE_HEALTH_ONLY=1 HEALTH_URL=http://localhost:4000 node scripts/smoke-test.js
+ *
+ * Exits with a non-zero code on any failure.
+ */
 
 const STAGING_URL = process.env.STAGING_URL || "https://staging.stellarmicropay.io";
+/** Base URL for the backend health check (no trailing path). */
+const HEALTH_URL = (process.env.HEALTH_URL || process.env.API_URL || "http://localhost:4000").replace(
+  /\/$/,
+  ""
+);
+const HEALTH_ONLY = process.env.SMOKE_HEALTH_ONLY === "1" || process.argv.includes("--health-only");
 const TIMEOUT_MS = Number(process.env.SMOKE_TIMEOUT_MS || 10000);
 const RETRY_ATTEMPTS = Number(process.env.SMOKE_RETRIES || 3);
 const RETRY_DELAY_MS = Number(process.env.SMOKE_RETRY_DELAY_MS || 2000);
@@ -56,16 +74,43 @@ async function withRetry(fn, attempts = RETRY_ATTEMPTS) {
   throw lastError;
 }
 
-async function testHealthEndpoint() {
+/**
+ * Hit GET /health and assert HTTP 200.
+ * When `requireOkBody` is true (local CI), also require JSON `{ status: "ok" }`.
+ * @param {string} baseUrl - Origin only, e.g. http://localhost:4000
+ * @param {{ requireOkBody?: boolean }} [options]
+ */
+async function testHealthEndpoint(baseUrl = STAGING_URL, options = {}) {
+  const requireOkBody = options.requireOkBody === true;
   console.log("\n[Test] Health endpoint");
-  const url = `${STAGING_URL}/health`;
+  const url = `${baseUrl.replace(/\/$/, "")}/health`;
 
   try {
     const res = await withRetry(() => makeRequest(url));
-    if (res.status === 200) {
-      logOk(`GET ${url} returned 200`);
-    } else {
+    if (res.status !== 200) {
       logFail(`GET ${url} returned ${res.status}, expected 200`);
+      return;
+    }
+    logOk(`GET ${url} returned 200`);
+
+    if (!requireOkBody) {
+      return;
+    }
+
+    let body;
+    try {
+      body = JSON.parse(res.body);
+    } catch {
+      logFail(`GET ${url} body is not valid JSON: ${res.body.slice(0, 120)}`);
+      return;
+    }
+
+    if (body && body.status === "ok") {
+      logOk(`GET ${url} body has status: "ok"`);
+    } else {
+      logFail(
+        `GET ${url} expected body.status === "ok", got: ${JSON.stringify(body && body.status)}`
+      );
     }
   } catch (err) {
     logFail(`GET ${url} failed: ${err.message}`);
@@ -217,19 +262,28 @@ async function testNoTestnetLeakInProduction() {
 
 async function runSmokeTests() {
   console.log("=".repeat(60));
-  console.log("Staging Smoke Tests");
-  console.log(`Target: ${STAGING_URL}`);
+  if (HEALTH_ONLY) {
+    console.log("Local / CI Health Smoke Test");
+    console.log(`Target: ${HEALTH_URL}/health`);
+  } else {
+    console.log("Staging Smoke Tests");
+    console.log(`Target: ${STAGING_URL}`);
+  }
   console.log(`Timeout: ${TIMEOUT_MS}ms | Retries: ${RETRY_ATTEMPTS}`);
   console.log("=".repeat(60));
 
-  await testHealthEndpoint();
-  await testApiHealthEndpoint();
-  await testFrontendStatic();
-  await testStellarToml();
-  await testApiDocs();
-  await testFederationEndpoint();
-  await testSecurityHeaders();
-  await testNoTestnetLeakInProduction();
+  if (HEALTH_ONLY) {
+    await testHealthEndpoint(HEALTH_URL, { requireOkBody: true });
+  } else {
+    await testHealthEndpoint(STAGING_URL);
+    await testApiHealthEndpoint();
+    await testFrontendStatic();
+    await testStellarToml();
+    await testApiDocs();
+    await testFederationEndpoint();
+    await testSecurityHeaders();
+    await testNoTestnetLeakInProduction();
+  }
 
   console.log("\n" + "=".repeat(60));
   if (exitCode === 0) {

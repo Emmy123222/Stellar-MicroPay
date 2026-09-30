@@ -182,3 +182,31 @@ describe('SendPaymentForm - Memo Templates', () => {
         expect(salaryChip).toHaveClass('bg-stellar-500/20');
     });
 });
+
+describe('SendPaymentForm SNS Resolution (#1197)', () => {
+  it('shows resolving state and green chip upon successful .xlm lookup', async () => {
+    jest.spyOn(snsResolver, 'resolveSNSDomain').mockResolvedValueOnce('GABCD1234EXAMPLE');
+
+    render(<SendPaymentForm />);
+    const input = screen.getByPlaceholderText('G... or alice.xlm');
+
+    fireEvent.change(input, { target: { value: 'alice.xlm' } });
+
+    expect(await screen.findByText('Resolving alice.xlm…')).toBeInTheDocument();
+
+    const chip = await screen.findByText('Resolved: GABCD1234EXAMPLE');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveClass('bg-green-100');
+  });
+
+  it('shows "SNS name not found" when domain is unregistered', async () => {
+    jest.spyOn(snsResolver, 'resolveSNSDomain').mockResolvedValueOnce(null);
+
+    render(<SendPaymentForm />);
+    const input = screen.getByPlaceholderText('G... or alice.xlm');
+
+    fireEvent.change(input, { target: { value: 'unknown.xlm' } });
+
+    expect(await screen.findByText('SNS name not found')).toBeInTheDocument();
+  });
+});
