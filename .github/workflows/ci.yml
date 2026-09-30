@@ -73,6 +73,14 @@ jobs:
         with:
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+      - name: Install stellar-cli (required by soroban-sdk v28 build script)
+        run: |
+          if ! command -v stellar >/dev/null 2>&1; then
+            curl -sSfL -o /tmp/stellar-cli.tar.gz https://github.com/stellar/stellar-cli/releases/download/v25.2.0/stellar-cli-25.2.0-x86_64-unknown-linux-gnu.tar.gz
+            mkdir -p /tmp/stellar-cli && tar -xzf /tmp/stellar-cli.tar.gz -C /tmp/stellar-cli
+            sudo install -m 755 /tmp/stellar-cli/stellar /usr/local/bin/stellar
+          fi
+          stellar --version
       - run: cargo check --target wasm32v1-none
       - run: cargo test
       - run: cargo build --target wasm32v1-none --release
