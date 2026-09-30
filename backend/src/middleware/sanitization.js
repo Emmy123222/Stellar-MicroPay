@@ -43,4 +43,13 @@ function sanitizeUsername(req, res, next) {
   next();
 }
 
-module.exports = { validatePublicKey, sanitizeUsername };
+/**
+ * Validates the `:publicKey` route param against the Stellar public key
+ * format before it reaches a controller/service. Responds with 400 on any
+ * mismatch.
+ */
+function sanitizePublicKey(req, res, next) {
+  return validatePublicKey("publicKey")(req, res, next);
+}
+
+module.exports = { validatePublicKey, sanitizeUsername, sanitizePublicKey };
