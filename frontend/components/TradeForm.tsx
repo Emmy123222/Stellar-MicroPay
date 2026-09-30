@@ -10,7 +10,7 @@ import {
   buildBuyOfferTransaction,
   buildPathPaymentTransaction,
   submitTransaction,
-  NETWORK_PASSPHRASE,
+  getNetworkPassphrase,
 } from "@/lib/stellar";
 
 interface TradeFormProps {
@@ -91,7 +91,7 @@ export default function TradeForm({ publicKey, onTradeComplete, onError, onSucce
       // Sign with Freighter
       const { signTransaction } = await import("@stellar/freighter-api");
       const signedXDR = await signTransaction(transaction.toXDR(), {
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase: getNetworkPassphrase(),
       });
 
       // Submit transaction

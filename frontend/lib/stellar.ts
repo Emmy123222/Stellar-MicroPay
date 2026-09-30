@@ -191,7 +191,6 @@ const ELEVATED_FEE_MAX_STROOPS = STELLAR_BASE_FEE_STROOPS * 10;
  * control characters that have no business being rendered as text.
  */
 function stripNonPrintableCharacters(memo: string): string {
-  // eslint-disable-next-line no-control-regex -- intentionally matching C0/C1 control characters
   return memo.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 }
 
@@ -1121,7 +1120,7 @@ export async function buildSorobanTipTransaction({
   const contract = new Contract(CONTRACT_ID);
 
   // Derive the XLM Asset Contract ID
-  const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+  const xlmContractId = Asset.native().contractId(getNetworkPassphrase());
 
   const stroops = BigInt(Math.round(parseFloat(amount) * STELLAR_STROOPS_PER_XLM));
 

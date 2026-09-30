@@ -19,6 +19,7 @@ import {
   fetchNetworkFeeStats,
   isValidStellarAddress,
   memoTextByteLength,
+  resolveFederationAddress,
   server,
   STELLAR_BASE_FEE_XLM,
   STELLAR_MEMO_TEXT_MAX_BYTES,
@@ -26,7 +27,6 @@ import {
   submitTransaction,
   truncateMemoText,
 } from "@/lib/stellar";
-import { Federation } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import clsx from "clsx";
@@ -430,19 +430,8 @@ export default function SendPaymentForm({
 
     federationDebounceRef.current = setTimeout(async () => {
       try {
-        const [name, domain] = destination.split("*");
-        if (!name || !domain) {
-          setFederationError("Invalid federation address format");
-          setIsResolvingFederation(false);
-          return;
-        }
-
-        const result = await Federation.resolve(domain, name);
-        if (result.account_id) {
-          setFederationResolvedAddress(result.account_id);
-        } else {
-          setFederationError("Federation address not found");
-        }
+        const resolvedAddress = await resolveFederationAddress(destination);
+        setFederationResolvedAddress(resolvedAddress);
       } catch (err) {
         setFederationError("Federation address not found");
       } finally {
@@ -814,6 +803,7 @@ export default function SendPaymentForm({
                     key={address}
                     type="button"
                     role="option"
+                    aria-selected={false}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => { setDestination(address); setIsRecentDropdownOpen(false); }}
                     className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-sm text-slate-200 hover:bg-white/5"

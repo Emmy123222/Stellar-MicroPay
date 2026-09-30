@@ -11,7 +11,7 @@ import {
   fetchOpenOffers,
   buildCancelOfferTransaction,
   submitTransaction,
-  NETWORK_PASSPHRASE,
+  getNetworkPassphrase,
   USDC,
   Orderbook,
   TradeAggregation,
@@ -88,7 +88,7 @@ export default function Trade() {
       // Sign with Freighter
       const { signTransaction } = await import("@stellar/freighter-api");
       const signedXDR = await signTransaction(transaction.toXDR(), {
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase: getNetworkPassphrase(),
       });
 
       // Submit transaction
