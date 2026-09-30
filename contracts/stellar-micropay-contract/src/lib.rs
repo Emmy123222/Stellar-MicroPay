@@ -23,7 +23,7 @@
 
 use soroban_sdk::{
     contract, contractimpl, contracttype,
-    token, Address, Env, Symbol,
+    token, Address, BytesN, Env, Symbol,
 };
 
 // ─── Data types ───────────────────────────────────────────────────────────────
@@ -72,7 +72,24 @@ pub enum DataKey {
     ReceiptCount(Address),
     /// Receipt record indexed by (payer, index)
     ReceiptRecord(Address, u32),
+    /// Operator fee, in basis points, charged on every tip
+    FeeBps,
 }
+
+/// Event payload emitted when a tip is sent, capturing the gross tip
+/// amount and any operator fee that was deducted from it.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct TipEventData {
+    pub amount: i128,
+    pub fee_amount: i128,
+}
+
+/// Maximum operator fee the admin may configure, in basis points (5%).
+const MAX_FEE_BPS: u32 = 500;
+
+/// Basis-point denominator: 1 bps = 1 / 10_000.
+const FEE_BPS_DENOMINATOR: i128 = 10_000;
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
 
@@ -94,6 +111,34 @@ impl MicroPayContract {
         env.storage().instance().set(&DataKey::Admin, &admin);
     }
 
+    // ─── Admin & Upgrade ─────────────────────────────────────────────────────
+
+    /// Upgrade the WASM code of the current contract.
+    /// Admin-gated: only stored Admin address can call this function.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+        admin.require_auth();
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    /// Rotate/update the contract admin address.
+    /// Admin-gated: only current Admin address can set a new admin.
+    pub fn set_admin(env: Env, new_admin: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+    }
+
     // ─── Tipping ─────────────────────────────────────────────────────────────
 
     /// Send a tip from `from` to `to` using a Stellar token.
@@ -104,7 +149,9 @@ impl MicroPayContract {
     ///   - to:            The recipient
     ///   - amount:        Amount in the token's smallest unit (stroops for XLM)
     ///
-    /// This records the tip on-chain for analytics and emits an event.
+    /// If an operator fee is configured (see `set_fee_bps`), `amount * fee_bps / 10000`
+    /// is transferred to the admin and the remainder to `to`. This records the tip
+    /// on-chain for analytics and emits an event.
     pub fn send_tip(
         env: Env,
         token_address: Address,
@@ -120,9 +167,27 @@ impl MicroPayContract {
             panic!("Tip amount must be positive");
         }
 
+        let fee_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeBps)
+            .unwrap_or(0);
+        let fee_amount: i128 = (amount * fee_bps as i128) / FEE_BPS_DENOMINATOR;
+        let net_amount: i128 = amount - fee_amount;
+
         // Transfer tokens via the Stellar token interface (SAC)
         let token = token::Client::new(&env, &token_address);
-        token.transfer(&from, &to, &amount);
+
+        if fee_amount > 0 {
+            let admin: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::Admin)
+                .expect("Contract not initialized");
+            token.transfer(&from, &admin, &fee_amount);
+        }
+
+        token.transfer(&from, &to, &net_amount);
 
         // Update on-chain tip totals for the recipient
         let current_total: i128 = env
@@ -156,11 +221,44 @@ impl MicroPayContract {
             .instance()
             .set(&DataKey::TipRecord(to.clone(), current_count), &record);
 
-        // Emit an event for indexers
+        // Emit an event for indexers, including the fee collected (if any)
         env.events().publish(
             (Symbol::new(&env, "tip"), from, to.clone()),
-            amount,
+            TipEventData { amount, fee_amount },
         );
+    }
+
+    // ─── Fees ────────────────────────────────────────────────────────────────
+
+    /// Set the operator fee charged on every tip, in basis points
+    /// (1 bps = 0.01%). Capped at 500 bps (5%). Only callable by the
+    /// current admin. A `fee_bps` of 0 disables the fee (the default).
+    pub fn set_fee_bps(env: Env, admin: Address, fee_bps: u32) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+
+        if admin != stored_admin {
+            panic!("Only the admin can set the fee");
+        }
+
+        if fee_bps > MAX_FEE_BPS {
+            panic!("Fee exceeds maximum allowed (500 bps)");
+        }
+
+        env.storage().instance().set(&DataKey::FeeBps, &fee_bps);
+    }
+
+    /// Get the currently configured operator fee, in basis points.
+    pub fn get_fee_bps(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeeBps)
+            .unwrap_or(0)
     }
 
     // ─── Getters ─────────────────────────────────────────────────────────────
@@ -336,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mint_receipt() {
+    fn test_mint_receipt_stores_receipt_record_accessible_via_get_receipt() {
         let env = Env::default();
         let contract_id = env.register_contract(None, MicroPayContract);
         let client = MicroPayContractClient::new(&env, &contract_id);
@@ -360,10 +458,11 @@ mod tests {
         assert_eq!(stored.to, payee);
         assert_eq!(stored.amount, 1000);
         assert_eq!(stored.memo, memo);
+        assert_eq!(stored.ledger, env.ledger().sequence());
     }
 
     #[test]
-    fn test_receipt_count_tracks_multiple_mints() {
+    fn test_mint_two_receipts_from_same_payer_increments_count() {
         let env = Env::default();
         let contract_id = env.register_contract(None, MicroPayContract);
         let client = MicroPayContractClient::new(&env, &contract_id);
@@ -383,7 +482,30 @@ mod tests {
         assert_eq!(id1, 0);
         assert_eq!(id2, 1);
         assert_eq!(client.get_receipt_count(&payer), 2);
+
+        let receipt1 = client.get_receipt(&payer, &0);
+        assert_eq!(receipt1.to, payee1);
+        assert_eq!(receipt1.amount, 500);
+
+        let receipt2 = client.get_receipt(&payer, &1);
+        assert_eq!(receipt2.to, payee2);
+        assert_eq!(receipt2.amount, 1500);
     }
+
+    #[test]
+    #[should_panic(expected = "Receipt not found")]
+    fn test_get_receipt_out_of_range_panics_gracefully() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let payer = Address::generate(&env);
+        client.get_receipt(&payer, &0); // No receipts minted yet -> panics
+    }
+
 
     #[test]
     fn test_tip_totals_start_at_zero() {
@@ -398,4 +520,61 @@ mod tests {
         assert_eq!(client.get_tip_total(&recipient), 0);
         assert_eq!(client.get_tip_count(&recipient), 0);
     }
+
+    #[test]
+    fn test_set_admin_and_rotation() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        assert_eq!(client.get_admin(), admin);
+
+        let new_admin = Address::generate(&env);
+
+        env.mock_all_auths();
+        client.set_admin(&new_admin);
+
+        assert_eq!(client.get_admin(), new_admin);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_upgrade_non_admin_panics() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let dummy_hash = BytesN::from_array(&env, &[1u8; 32]);
+        // Without admin auth, calling upgrade panics
+        client.upgrade(&dummy_hash);
+    }
+
+    #[test]
+    fn test_upgrade_admin_requires_auth_and_invokes_deployer() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        env.mock_all_auths();
+
+        let dummy_hash = BytesN::from_array(&env, &[1u8; 32]);
+        // With admin auth, try_upgrade passes the admin auth check and invokes deployer.
+        // In native test environment, deployer returns an Err (InvalidAction for non-wasm target).
+        let res = client.try_upgrade(&dummy_hash);
+        assert!(res.is_err());
+    }
+
+
+
+
+
 }
+

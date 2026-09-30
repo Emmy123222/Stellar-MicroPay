@@ -8,8 +8,10 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
-const { sanitizePublicKey } = require("../middleware/sanitization");
+const { validatePublicKey } = require("../middleware/sanitization");
 const tipsController = require("../controllers/tipsController");
+
+router.get("/leaderboard", strictLimiter, tipsController.getLeaderboard);
 
 /**
  * POST /api/tips
@@ -21,18 +23,33 @@ router.post("/", strictLimiter, tipsController.recordTip);
  * GET /api/tips/received/:creatorPublicKey
  * Get all tips received by a creator.
  */
-router.get("/received/:creatorPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsReceived);
+router.get(
+  "/received/:creatorPublicKey",
+  strictLimiter,
+  validatePublicKey("creatorPublicKey"),
+  tipsController.getTipsReceived
+);
 
 /**
  * GET /api/tips/stats/:creatorPublicKey
  * Get statistics for tips received by a creator.
  */
-router.get("/stats/:creatorPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsStats);
+router.get(
+  "/stats/:creatorPublicKey",
+  strictLimiter,
+  validatePublicKey("creatorPublicKey"),
+  tipsController.getTipsStats
+);
 
 /**
  * GET /api/tips/sent/:senderPublicKey
  * Get all tips sent by a user.
  */
-router.get("/sent/:senderPublicKey", strictLimiter, sanitizePublicKey, tipsController.getTipsSent);
+router.get(
+  "/sent/:senderPublicKey",
+  strictLimiter,
+  validatePublicKey("senderPublicKey"),
+  tipsController.getTipsSent
+);
 
 module.exports = router;

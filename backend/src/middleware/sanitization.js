@@ -6,30 +6,28 @@
 "use strict";
 
 /**
- * Sanitizes and validates a Stellar public key.
- * Expected format: G... (56 chars)
+ * Stellar public (account) keys are 56-character base32 strings starting
+ * with 'G', encoding a 32-byte ed25519 key plus a version byte and checksum.
+ * Base32 excludes 0, 1, 8, 9 — hence the [A-Z2-7] character class.
  */
-function sanitizePublicKey(req, res, next) {
-  const { publicKey } = req.params;
+const STELLAR_PUBLIC_KEY_PATTERN = /^G[A-Z2-7]{55}$/;
 
-  if (!publicKey) {
-    return next();
-  }
+/**
+ * Returns a middleware that validates the named route param against the
+ * Stellar public key format before it reaches a controller/service.
+ * Responds with 400 on any mismatch — it does not attempt to sanitize
+ * or coerce the value, since a key that doesn't already match is invalid.
+ */
+function validatePublicKey(paramName = "publicKey") {
+  return function (req, res, next) {
+    const value = req.params[paramName];
 
-  // 1. Strip non-alphanumeric characters
-  const sanitized = publicKey.replace(/[^a-zA-Z0-9]/g, "");
+    if (!value || !STELLAR_PUBLIC_KEY_PATTERN.test(value)) {
+      return res.status(400).json({ error: "Invalid Stellar public key" });
+    }
 
-  // 2. Return 400 if obviously invalid
-  // Stellar public keys are exactly 56 chars and start with 'G'
-  if (sanitized.length !== 56 || !sanitized.startsWith("G")) {
-    return res.status(400).json({
-      error: "Invalid Stellar public key format",
-    });
-  }
-
-  // Update params with sanitized version
-  req.params.publicKey = sanitized;
-  next();
+    next();
+  };
 }
 
 /**
@@ -45,4 +43,4 @@ function sanitizeUsername(req, res, next) {
   next();
 }
 
-module.exports = { sanitizePublicKey, sanitizeUsername };
+module.exports = { validatePublicKey, sanitizeUsername };

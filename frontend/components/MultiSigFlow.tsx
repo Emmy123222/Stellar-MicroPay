@@ -5,11 +5,12 @@
 
 import { useState } from "react";
 import { Transaction } from "@stellar/stellar-sdk";
-import { NETWORK_PASSPHRASE } from "../lib/stellar";
+import { getNetworkPassphrase } from "../lib/stellar";
 // Helper to extract signature hints (last 4 bytes of public key) from signed XDRs
 function getSignerHints(unsignedXDR: string, signedXDRs: string[]): string[] {
   try {
     const hints: string[] = [];
+    const NETWORK_PASSPHRASE = getNetworkPassphrase();
     for (const sxdr of signedXDRs) {
       const tx = new Transaction(sxdr, NETWORK_PASSPHRASE);
       for (const sig of tx.signatures) {

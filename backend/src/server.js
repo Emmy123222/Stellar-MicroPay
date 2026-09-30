@@ -21,6 +21,8 @@ const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
 const pushRoutes = require("./routes/push");
+const webhooksRoutes = require("./routes/webhooks");
+const requestId = require("./middleware/requestId");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
@@ -30,8 +32,10 @@ const PORT = process.env.PORT || 4000;
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
+app.use(requestId);
 app.use(helmet());
-app.use(morgan("dev"));
+morgan.token("request-id", (req) => req.requestId);
+app.use(morgan(":method :url :status :response-time ms requestId=:request-id"));
 app.use(express.json({ limit: "10kb" }));
 
 // JSON parsing error handler
@@ -57,18 +61,12 @@ app.use(
         callback(new Error(`CORS: origin ${origin} not allowed`));
       }
     },
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
+    exposedHeaders: ["X-Request-ID"],
     credentials: true,
   })
 );
-
-// ─── Routes ───────────────────────────────────────────────────────────────────
-
-app.use("/api/auth",     authRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/health",       healthRoutes);
 
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
@@ -82,13 +80,16 @@ app.use(limiter);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
+app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/health", healthRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/push", pushRoutes);
+app.use("/api/webhooks", webhooksRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
@@ -111,6 +112,8 @@ app.use((err, req, res, next) => {
   const status = err.status || 500;
   const message = err.message || "Internal Server Error";
 
+  console.error({ requestId: req.requestId, status, message });
+
   res.status(status).json({ error: message });
 });
 
@@ -129,7 +132,7 @@ SERVER = "https://${domain}/federation"
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`
   ✨ Stellar MicroPay API
   🚀 Server running at http://localhost:${PORT}
@@ -138,6 +141,18 @@ if (require.main === module) {
   });
 
   startTurretsServer();
+
+  const shutdown = () => {
+    console.log("Shutting down... clearing timers.");
+    const { stopRunner } = require("./services/turretsService");
+    stopRunner();
+    server.close(() => {
+      process.exit(0);
+    });
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 module.exports = app;

@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Reject whitespace errors and unresolved conflicts
         run: |
           git diff --check HEAD^
@@ -102,3 +104,29 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           if-no-files-found: warn
+
+  health-smoke:
+    name: Docker Compose health smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack with docker compose
+        run: docker compose up -d --build
+      - name: Wait for backend healthcheck
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4000/health >/dev/null; then
+              echo "Backend healthy"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          echo "Backend did not become healthy in time"
+          docker compose logs
+          exit 1
+      - name: Run /health smoke test
+        run: SMOKE_HEALTH_ONLY=1 HEALTH_URL=http://localhost:4000 node scripts/smoke-test.js
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v
