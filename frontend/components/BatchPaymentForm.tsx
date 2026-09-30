@@ -9,7 +9,7 @@ import {
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 
-const MAX_RECIPIENTS = 10;
+const MAX_RECIPIENTS = 100;
 
 type RecipientStatus = "idle" | "pending" | "success" | "failed";
 
