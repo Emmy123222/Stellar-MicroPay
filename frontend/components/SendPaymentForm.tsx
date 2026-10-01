@@ -30,13 +30,16 @@ import {
 } from "@/lib/stellar";
 import { Federation } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 
 interface SendPaymentFormProps {
-  publicKey: string;
-  xlmBalance: string;
+  publicKey?: string;
+  xlmBalance?: string;
+  /** Non-XLM/non-USDC balances, used to warn when sending more than held. */
+  accountBalances?: Array<{ code: string; issuer: string; balance: string }>;
   usdcBalance?: string | null;
   onSuccess?: (txHash?: string) => void;
   title?: string;
@@ -101,8 +104,9 @@ function createInitialStepTimings(): Record<PaymentStepId, PaymentStepTiming> {
 }
 
 export default function SendPaymentForm({
-  publicKey,
-  xlmBalance,
+  publicKey = "",
+  xlmBalance = "0",
+  accountBalances,
   usdcBalance,
   onSuccess,
   prefill,
@@ -126,6 +130,13 @@ export default function SendPaymentForm({
   const [memoError, setMemoError] = useState<string | null>(null);
   const [isResolvingUsername, setIsResolvingUsername] = useState(false);
   const [usernameResolutionError, setUsernameResolutionError] = useState<string | null>(null);
+
+  // SNS (.xlm domain) resolution (#1197)
+  const [isResolvingSNS, setIsResolvingSNS] = useState(false);
+  const [snsResolvingDomain, setSnsResolvingDomain] = useState<string | null>(null);
+  const [snsResolvedAddress, setSnsResolvedAddress] = useState<string | null>(null);
+  const [snsError, setSnsError] = useState<string | null>(null);
+  const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
   const [showCustomAssetForm, setShowCustomAssetForm] = useState(false);
   const [selectedMemoTemplate, setSelectedMemoTemplate] = useState<string | null>(null);
@@ -426,6 +437,7 @@ export default function SendPaymentForm({
   const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
 
   const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
+  const isSNSDestination = destination.toLowerCase().endsWith(".xlm");
 
   const MIN_STROOP = 0.0000001;
   const isValidAmt = !Number.isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
@@ -456,6 +468,61 @@ export default function SendPaymentForm({
       setUsernameResolutionError(err instanceof Error ? err.message : "Failed to resolve username");
     } finally {
       setIsResolvingUsername(false);
+    }
+  };
+
+  // SNS (.xlm domain) resolution with debounce (#1197)
+  useEffect(() => {
+    if (snsDebounceRef.current) {
+      clearTimeout(snsDebounceRef.current);
+    }
+
+    const isSNSDomain = destination.toLowerCase().endsWith(".xlm");
+
+    if (!isSNSDomain || isValidStellarAddress(destination)) {
+      setSnsResolvedAddress(null);
+      setSnsError(null);
+      setIsResolvingSNS(false);
+      setSnsResolvingDomain(null);
+      return;
+    }
+
+    const domain = destination.trim().toLowerCase();
+    setIsResolvingSNS(true);
+    setSnsResolvingDomain(domain);
+    setSnsResolvedAddress(null);
+    setSnsError(null);
+
+    snsDebounceRef.current = setTimeout(async () => {
+      try {
+        const address = await resolveSNSDomain(domain);
+        if (address) {
+          setSnsResolvedAddress(address);
+          setSnsError(null);
+        } else {
+          setSnsResolvedAddress(null);
+          setSnsError("SNS name not found");
+        }
+      } catch {
+        setSnsResolvedAddress(null);
+        setSnsError("SNS name not found");
+      } finally {
+        setIsResolvingSNS(false);
+      }
+    }, 100);
+
+    return () => {
+      if (snsDebounceRef.current) {
+        clearTimeout(snsDebounceRef.current);
+      }
+    };
+  }, [destination]);
+
+  const handleUseSNSAddress = () => {
+    if (snsResolvedAddress) {
+      setDestination(snsResolvedAddress);
+      setSnsResolvedAddress(null);
+      setSnsError(null);
     }
   };
 
@@ -854,8 +921,8 @@ export default function SendPaymentForm({
               aria-autocomplete="list"
               aria-expanded={contactSuggestions.length > 0}
               aria-controls="destination-suggestions"
-              placeholder="G... or @username"
-              className={clsx("input-field font-mono text-sm", destination && !isValidDest && !isUsernameDestination && "border-red-500/50")}
+              placeholder="G... or alice.xlm"
+              className={clsx("input-field font-mono text-sm", destination && !isValidDest && !isUsernameDestination && !isSNSDestination && "border-red-500/50")}
               disabled={status !== "idle" || destinationReadOnly}
             />
 
@@ -867,6 +934,7 @@ export default function SendPaymentForm({
                     key={address}
                     type="button"
                     role="option"
+                    aria-selected={false}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => { setDestination(address); setIsRecentDropdownOpen(false); }}
                     className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-sm text-slate-200 hover:bg-white/5"
@@ -878,6 +946,31 @@ export default function SendPaymentForm({
                   Clear history
                 </button>
               </div>
+            )}
+
+            {isResolvingSNS && snsResolvingDomain && (
+              <p className="text-xs text-slate-400" role="status">
+                Resolving {snsResolvingDomain}…
+              </p>
+            )}
+            {snsResolvedAddress && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="bg-green-100 rounded-lg px-3 py-2 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-200">
+                  Resolved: {snsResolvedAddress}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleUseSNSAddress}
+                  className="text-xs font-semibold text-green-900 underline hover:text-green-700 dark:text-green-100 dark:hover:text-green-300"
+                >
+                  Use address
+                </button>
+              </div>
+            )}
+            {snsError && (
+              <p className="text-xs text-red-400" role="alert">
+                {snsError}
+              </p>
             )}
 
             {contactSuggestions.length > 0 && (

@@ -8,7 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
-const { validatePublicKey } = require("../middleware/sanitization");
+const { validatePublicKey, sanitizePublicKey } = require("../middleware/sanitization");
 const tipsController = require("../controllers/tipsController");
 
 router.get("/leaderboard", strictLimiter, tipsController.getLeaderboard);

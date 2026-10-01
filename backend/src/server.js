@@ -5,6 +5,7 @@
 
 "use strict";
 
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -30,7 +31,22 @@ const { startTurretsServer } = require("./turretsServer");
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// ─── Middleware ───────────────────────────────────────────────────────────────
+/**
+ * Attach a correlation id to every request: echo the caller's X-Request-ID
+ * when supplied, otherwise generate one. The id is echoed back on the
+ * response and available to morgan and the error handler.
+ */
+function requestId(req, res, next) {
+  const supplied = req.headers["x-request-id"];
+  req.requestId =
+    typeof supplied === "string" && supplied.trim()
+      ? supplied.trim()
+      : crypto.randomUUID();
+  res.setHeader("X-Request-ID", req.requestId);
+  next();
+}
+
+// ─── Middleware ─────────────────────────────────────────────────────────────────
 
 app.use(requestId);
 app.use(helmet());
@@ -92,6 +108,7 @@ app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
 app.use("/api/network", networkRoutes);
 app.use("/api/price-alerts", priceAlertsRoutes);
+app.use("/api/webhooks", webhookRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────

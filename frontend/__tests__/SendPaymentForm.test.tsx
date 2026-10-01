@@ -33,6 +33,14 @@ jest.mock('@/utils/format', () => ({
     formatXLM: jest.fn((amount) => `${parseFloat(amount).toFixed(7)} XLM`),
 }));
 
+// Mock the SNS resolver used by the form (#1197)
+jest.mock('@/utils/snsResolver', () => ({
+    resolveSNSDomain: jest.fn(),
+}));
+
+import { resolveSNSDomain } from '@/utils/snsResolver';
+const resolveSNSDomainMock = resolveSNSDomain as jest.MockedFunction<typeof resolveSNSDomain>;
+
 describe('SendPaymentForm - Memo Templates', () => {
     const defaultProps = {
         publicKey: 'GBRPYHIL2CI3WHZDTOOQFC6EB4RRJC3D5NZ2KMSUGSRNVO7ZFGIGSZ',
@@ -218,7 +226,7 @@ describe('SendPaymentForm - Memo Templates', () => {
 
 describe('SendPaymentForm SNS Resolution (#1197)', () => {
   it('shows resolving state and green chip upon successful .xlm lookup', async () => {
-    jest.spyOn(snsResolver, 'resolveSNSDomain').mockResolvedValueOnce('GABCD1234EXAMPLE');
+    resolveSNSDomainMock.mockResolvedValueOnce('GABCD1234EXAMPLE');
 
     render(<SendPaymentForm />);
     const input = screen.getByPlaceholderText('G... or alice.xlm');
@@ -233,7 +241,7 @@ describe('SendPaymentForm SNS Resolution (#1197)', () => {
   });
 
   it('shows "SNS name not found" when domain is unregistered', async () => {
-    jest.spyOn(snsResolver, 'resolveSNSDomain').mockResolvedValueOnce(null);
+    resolveSNSDomainMock.mockResolvedValueOnce(null);
 
     render(<SendPaymentForm />);
     const input = screen.getByPlaceholderText('G... or alice.xlm');

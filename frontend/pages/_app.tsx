@@ -12,6 +12,7 @@ import Navbar from "@/components/Navbar";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import QuickSendModal from "@/components/QuickSendModal";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
+import ToastProvider from "@/lib/ToastContext";
 
 const AIPaymentAssistant = dynamic(() => import("@/components/AIPaymentAssistant"), {
   ssr: false,
@@ -242,6 +243,7 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
       <WalletProvider>
+        <ToastProvider>
         <Head>
           <title>Stellar-MicroPay | Instant Micropayments</title>
           <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -289,6 +291,7 @@ export default function App({ Component, pageProps }: AppProps) {
             setIsQuickSendOpen={setIsQuickSendOpen}
           />
         </ErrorBoundary>
+        </ToastProvider>
       </WalletProvider>
     </ThemeContext.Provider>
   );

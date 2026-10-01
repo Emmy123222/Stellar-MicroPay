@@ -83,7 +83,7 @@ function deletePriceAlert(id) {
     throw error;
   }
 
-  for (const [publicKey, alerts] of alertsByUser.entries()) {
+  for (const alerts of alertsByUser.values()) {
     const index = alerts.findIndex((a) => a.id === alertId);
     if (index !== -1) {
       alerts.splice(index, 1);

@@ -286,13 +286,11 @@ function getGlobalLeaderboard() {
   // Aggregate by sender
   const senderTotals = new Map();
   let totalTipped = 0;
-  let totalTipCount = 0;
 
   for (const tips of tipsByCreator.values()) {
     for (const tip of tips) {
       const amount = parseFloat(tip.amount) || 0;
       totalTipped += amount;
-      totalTipCount++;
 
       // Aggregate by recipient
       recipientTotals.set(

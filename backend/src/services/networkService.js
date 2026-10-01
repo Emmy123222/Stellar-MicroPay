@@ -5,7 +5,6 @@
 
 "use strict";
 
-const { server } = require("../config/stellar");
 const logger = require("../utils/logger");
 
 // Cache for fee history (10 minutes TTL)

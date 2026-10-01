@@ -7,6 +7,8 @@
 
 const analyticsService = require("../src/services/analyticsService");
 const stellarService = require("../src/services/stellarService");
+const loggerModule = require("../src/utils/logger");
+const { setCachedAnalytics, getCachedAnalytics, clearAnalyticsCache, stopCacheSweep } = analyticsService;
 
 // Mock Stellar service
 jest.mock("../src/services/stellarService");
@@ -300,7 +302,7 @@ describe('Analytics Service Cache Archiving (#1210)', () => {
   });
 
   it('evicts entries older than 1 hour during sweep and logs eviction count', () => {
-    const logSpy = jest.spyOn(loggerModule.logger, 'info').mockImplementation(() => {});
+    const logSpy = jest.spyOn(loggerModule, 'info').mockImplementation(() => {});
 
     // Set an entry with current timestamp
     setCachedAnalytics('G_TEST_USER_1', { volume: 100 });
