@@ -442,7 +442,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Fetch username for connected wallet
   const fetchUsername = useCallback(async () => {
     if (!publicKey) return;
-    
+
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
     try {
       const response = await fetch(
@@ -618,7 +618,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     setSpendingLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
-      
+
       // Group by calendar month (last 6 months)
       const now = new Date();
       const months: any[] = [];
@@ -1463,8 +1463,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       ))}
 
       {/* Creator Tips Dashboard */}
-      <CreatorTipsDashboard 
-        publicKey={publicKey} 
+      <CreatorTipsDashboard
+        publicKey={publicKey}
         username={creatorUsername}
         xlmPrice={xlmPrice}
       />
@@ -1903,7 +1903,7 @@ function StatsCard({
   const isPos = deltaType === "positive";
   const isNeg = deltaType === "negative";
   const deltaColor = isPos ? "text-emerald-400 bg-emerald-500/10" : isNeg ? "text-rose-400 bg-rose-500/10" : "text-slate-400 bg-slate-500/10";
-  
+
   return (
     <div className="card border-white/10 bg-white/[0.03] relative overflow-hidden flex flex-col justify-between">
       <div>
