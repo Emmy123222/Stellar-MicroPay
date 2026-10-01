@@ -43,4 +43,18 @@ function sanitizeUsername(req, res, next) {
   next();
 }
 
-module.exports = { validatePublicKey, sanitizeUsername };
+/**
+ * Sanitizes a Stellar public key route param in place: trims whitespace and
+ * normalizes case before stricter validation happens downstream.
+ */
+function sanitizePublicKey(req, res, next) {
+  for (const value of Object.values(req.params)) {
+    if (typeof value === "string" && /^G[a-z0-9]{55}$/i.test(value.trim())) {
+      req.params[Object.keys(req.params).find((k) => req.params[k] === value)] = value.trim().toUpperCase();
+    }
+  }
+
+  next();
+}
+
+module.exports = { validatePublicKey, sanitizeUsername, sanitizePublicKey };

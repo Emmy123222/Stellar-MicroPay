@@ -34,6 +34,12 @@ jest.mock("@/lib/stellar", () => ({
   getXLMBalance: jest.fn().mockResolvedValue("500.0000000"),
   getAccountReserveInfo: jest.fn().mockResolvedValue(null),
   getUSDCBalance: jest.fn().mockResolvedValue(null),
+  getBalances: jest.fn().mockResolvedValue([
+    { assetCode: "XLM", asset: "XLM", balance: "500.0000000" },
+  ]),
+  getFriendBotFunding: jest.fn().mockResolvedValue(undefined),
+  waitForAccountFunding: jest.fn().mockResolvedValue(true),
+  fetchAllPayments: jest.fn().mockResolvedValue([]),
   getRecentPaymentsForStats: jest.fn().mockResolvedValue([]),
   getRecentPaymentsForSparkline: (...args: unknown[]) =>
     mockGetRecentPaymentsForSparkline(...args),

@@ -84,6 +84,33 @@ function resume(req, res, next) {
   }
 }
 
+function cancel(req, res, next) {
+  try {
+    const { id } = req.params;
+    const data = turretsService.cancelDeployment(id);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+function createDca(req, res, next) {
+  try {
+    const { ownerPublicKey, recipient, amount, asset, assetIssuer, frequency } = req.body;
+    const data = turretsService.createScheduledDca({
+      ownerPublicKey,
+      recipient,
+      amount,
+      asset,
+      assetIssuer,
+      frequency,
+    });
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   createChallenge,
   deploy,
@@ -92,4 +119,6 @@ module.exports = {
   getHistory,
   pause,
   resume,
+  cancel,
+  createDca,
 };

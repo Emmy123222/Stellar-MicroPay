@@ -14,9 +14,12 @@ const router = express.Router();
 router.get("/", strictLimiter, controller.list);
 router.post("/challenge", strictLimiter, controller.createChallenge);
 router.post("/deploy", strictLimiter, controller.deploy);
+router.post("/dca", strictLimiter, controller.createDca);
 router.get("/:id", strictLimiter, controller.getOne);
 router.get("/:id/history", strictLimiter, controller.getHistory);
 router.post("/:id/pause", strictLimiter, controller.pause);
+router.patch("/:id/pause", strictLimiter, controller.pause);
 router.post("/:id/resume", strictLimiter, controller.resume);
+router.delete("/:id", strictLimiter, controller.cancel);
 
 module.exports = router;

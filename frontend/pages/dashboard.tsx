@@ -368,11 +368,81 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const realtimePollRef = useRef<number | null>(null);
   const latestPaymentIdRef = useRef<string | null>(null);
 
+  // ─── Realtime payment handling helpers (#617) ──────────────────────────
+  // Defined as stable useCallbacks so the stream effect below can list them
+  // in its dependency array without reconnecting on every render.
+  const handleRealtimePayment = useCallback(
+    (payment: PaymentRecord) => {
+      if (payment.id && payment.id === latestPaymentIdRef.current) return;
+      if (payment.id) latestPaymentIdRef.current = payment.id;
+
+      if (payment.type === "received") {
+        const message = `You received ${parseFloat(payment.amount).toFixed(2)} XLM`;
+        setIncomingPayment(payment);
+        setBubbleMessage(message);
+        setShowBubble(true);
+        setTimeout(() => setShowBubble(false), 3000);
+
+        // OS notification when the tab is hidden; in-app bubble otherwise.
+        if (
+          typeof document !== "undefined" &&
+          document.visibilityState === "hidden" &&
+          typeof Notification !== "undefined" &&
+          Notification.permission === "granted"
+        ) {
+          void navigator.serviceWorker?.ready.then((registration) =>
+            registration.showNotification("Stellar Pay", {
+              body: message,
+              icon: "/favicon.svg",
+              badge: "/favicon.svg",
+            })
+          );
+        }
+
+        // Surface the new payment in stats/charts.
+        setRefreshKey((k) => k + 1);
+      }
+    },
+    []
+  );
+
+  const startPollingFallback = useCallback(() => {
+    if (realtimePollRef.current !== null) return;
+    realtimePollRef.current = window.setInterval(async () => {
+      if (!publicKey) return;
+      try {
+        const payments = await getRecentPaymentsForStats(publicKey, 5);
+        const latest = payments.find((p: PaymentRecord) => p.type === "received");
+        if (latest) handleRealtimePayment(latest);
+      } catch (err) {
+        console.error("Realtime polling fallback failed:", err);
+      }
+    }, 15000);
+  }, [publicKey, handleRealtimePayment]);
+
+  const stopPollingFallback = useCallback(() => {
+    if (realtimePollRef.current !== null) {
+      window.clearInterval(realtimePollRef.current);
+      realtimePollRef.current = null;
+    }
+  }, []);
+
+  const primeRealtimeCursor = useCallback(async () => {
+    if (!publicKey) return;
+    try {
+      const payments = await getRecentPaymentsForStats(publicKey, 1);
+      const latest = payments.find((p: PaymentRecord) => p.type === "received");
+      if (latest?.id) latestPaymentIdRef.current = latest.id;
+    } catch (err) {
+      console.error("Failed to prime realtime cursor:", err);
+    }
+  }, [publicKey]);
+
 
   // Fetch username for connected wallet
   const fetchUsername = useCallback(async () => {
     if (!publicKey) return;
-    
+
     const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
     try {
       const response = await fetch(
@@ -487,9 +557,19 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
+      // The analytics summary only supplies optional comparison data — if it
+      // fails (or its endpoint is unavailable) the core stats must still load.
+      const fetchSummary = async (): Promise<Response | null> => {
+        try {
+          return await fetch(`${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/summary`, { headers });
+        } catch {
+          return null;
+        }
+      };
+
       const [resStats, resSummary] = await Promise.all([
         fetch(`${apiBase}/api/payments/${encodeURIComponent(publicKey)}/stats`, { headers }),
-        fetch(`${apiBase}/api/analytics/${encodeURIComponent(publicKey)}/summary`, { headers })
+        fetchSummary(),
       ]);
 
       if (!resStats.ok) {
@@ -500,7 +580,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       const dataStats = payloadStats?.data;
 
       let comparisonData;
-      if (resSummary.ok) {
+      if (resSummary?.ok) {
         const payloadSummary = await resSummary.json();
         comparisonData = payloadSummary?.data?.comparison;
       }
@@ -538,7 +618,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     setSpendingLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
-      
+
       // Group by calendar month (last 6 months)
       const now = new Date();
       const months: any[] = [];
@@ -1383,8 +1463,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       ))}
 
       {/* Creator Tips Dashboard */}
-      <CreatorTipsDashboard 
-        publicKey={publicKey} 
+      <CreatorTipsDashboard
+        publicKey={publicKey}
         username={creatorUsername}
         xlmPrice={xlmPrice}
       />
@@ -1823,7 +1903,7 @@ function StatsCard({
   const isPos = deltaType === "positive";
   const isNeg = deltaType === "negative";
   const deltaColor = isPos ? "text-emerald-400 bg-emerald-500/10" : isNeg ? "text-rose-400 bg-rose-500/10" : "text-slate-400 bg-slate-500/10";
-  
+
   return (
     <div className="card border-white/10 bg-white/[0.03] relative overflow-hidden flex flex-col justify-between">
       <div>
