@@ -8,7 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
-const { sanitizePublicKey } = require("../middleware/sanitization");
+const { validatePublicKey } = require("../middleware/sanitization");
 const analyticsController = require("../controllers/analyticsController");
 
 /**
@@ -18,7 +18,7 @@ const analyticsController = require("../controllers/analyticsController");
 router.get(
   "/:publicKey/summary",
   strictLimiter,
-  sanitizePublicKey,
+  validatePublicKey(),
   analyticsController.getSummary
 );
 
@@ -29,7 +29,7 @@ router.get(
 router.get(
   "/:publicKey/top-recipients",
   strictLimiter,
-  sanitizePublicKey,
+  validatePublicKey(),
   analyticsController.getTopRecipients
 );
 
@@ -40,7 +40,7 @@ router.get(
 router.get(
   "/:publicKey/activity",
   strictLimiter,
-  sanitizePublicKey,
+  validatePublicKey(),
   analyticsController.getActivityByDay
 );
 

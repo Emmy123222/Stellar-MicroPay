@@ -10,6 +10,7 @@ import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar
 import { disconnectWallet } from "@/lib/wallet";
 import { shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+import { resetOnboardingTour } from "@/hooks/useOnboarding";
 
 export default function SettingsPage() {
   const { publicKey, disconnectWallet: disconnectCurrentWallet } = useWallet();
@@ -27,6 +28,109 @@ export default function SettingsPage() {
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [usernameSuccess, setUsernameSuccess] = useState<string | null>(null);
   const [registeredUsername, setRegisteredUsername] = useState<string | null>(null);
+
+  // Onboarding tour replay (#621)
+  const [tourResetMessage, setTourResetMessage] = useState<string | null>(null);
+
+  const handleReplayTour = () => {
+    resetOnboardingTour();
+    setTourResetMessage("Tour reset — it will show again next time you open the dashboard.");
+  };
+
+  // Price alert state
+  const [priceAlerts, setPriceAlerts] = useState<Array<{
+    id: number;
+    asset: string;
+    direction: 'above' | 'below';
+    targetPrice: number;
+    triggered: boolean;
+  }>>([]);
+  const [priceAlertForm, setPriceAlertForm] = useState({
+    asset: 'XLM',
+    direction: 'above' as 'above' | 'below',
+    targetPrice: '',
+  });
+  const [priceAlertLoading, setPriceAlertLoading] = useState(false);
+  const [priceAlertError, setPriceAlertError] = useState<string | null>(null);
+  const [priceAlertSuccess, setPriceAlertSuccess] = useState<string | null>(null);
+
+  // Fetch price alerts on mount
+  useEffect(() => {
+    const fetchPriceAlerts = async () => {
+      if (!publicKey) return;
+
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+      try {
+        const response = await fetch(`${apiBase}/api/price-alerts?publicKey=${publicKey}`);
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload?.success && Array.isArray(payload?.data)) {
+            setPriceAlerts(payload.data);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch price alerts:", err);
+      }
+    };
+
+    fetchPriceAlerts();
+  }, [publicKey]);
+
+  // Handle price alert creation
+  const handleCreatePriceAlert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!publicKey) return;
+
+    setPriceAlertLoading(true);
+    setPriceAlertError(null);
+    setPriceAlertSuccess(null);
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    try {
+      const response = await fetch(`${apiBase}/api/price-alerts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          publicKey,
+          asset: priceAlertForm.asset,
+          direction: priceAlertForm.direction,
+          targetPrice: parseFloat(priceAlertForm.targetPrice),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create price alert");
+      }
+
+      const payload = await response.json();
+      if (payload?.success) {
+        setPriceAlerts([...priceAlerts, payload.data]);
+        setPriceAlertForm({ asset: "XLM", direction: "above", targetPrice: "" });
+        setPriceAlertSuccess("Price alert created successfully");
+      }
+    } catch (err) {
+      console.error("Failed to create price alert:", err);
+      setPriceAlertError(err instanceof Error ? err.message : "Failed to create price alert");
+    } finally {
+      setPriceAlertLoading(false);
+    }
+  };
+
+  // Handle price alert deletion
+  const handleDeletePriceAlert = async (id: number) => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    try {
+      const response = await fetch(`${apiBase}/api/price-alerts/${id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setPriceAlerts(priceAlerts.filter((a) => a.id !== id));
+      }
+    } catch (err) {
+      console.error("Failed to delete price alert:", err);
+    }
+  };
 
   // Fetch current username on mount
   useEffect(() => {
@@ -336,7 +440,118 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : null}
+
+            {/* Price Alerts Section */}
+            {publicKey ? (
+              <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  Price Alerts
+                </h2>
+
+                <form onSubmit={handleCreatePriceAlert} className="space-y-4 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Asset
+                      </label>
+                      <select
+                        value={priceAlertForm.asset}
+                        onChange={(e) => setPriceAlertForm({ ...priceAlertForm, asset: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-cosmos-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white"
+                      >
+                        <option value="XLM">XLM</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Direction
+                      </label>
+                      <select
+                        value={priceAlertForm.direction}
+                        onChange={(e) => setPriceAlertForm({ ...priceAlertForm, direction: e.target.value as 'above' | 'below' })}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-cosmos-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white"
+                      >
+                        <option value="above">Above</option>
+                        <option value="below">Below</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Target Price (USD)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.0000001"
+                        value={priceAlertForm.targetPrice}
+                        onChange={(e) => setPriceAlertForm({ ...priceAlertForm, targetPrice: e.target.value })}
+                        placeholder="0.1234567"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-cosmos-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={priceAlertLoading}
+                    className="btn-primary w-full"
+                  >
+                    {priceAlertLoading ? "Creating..." : "Create Alert"}
+                  </button>
+                </form>
+
+                {priceAlertError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg mb-4">
+                    <p className="text-sm text-red-400">{priceAlertError}</p>
+                  </div>
+                )}
+
+                {priceAlertSuccess && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg mb-4">
+                    <p className="text-sm text-emerald-400">{priceAlertSuccess}</p>
+                  </div>
+                )}
+
+                {priceAlerts.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">Your Alerts</h3>
+                    {priceAlerts.map((alert) => (
+                      <div
+                        key={alert.id}
+                        className="flex items-center justify-between p-3 bg-slate-50 dark:bg-cosmos-900 rounded-lg"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-slate-900 dark:text-white">
+                            {alert.asset} {alert.direction} ${alert.targetPrice}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {alert.triggered ? "Triggered" : "Active"}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDeletePriceAlert(alert.id)}
+                          className="text-red-400 hover:text-red-300 text-sm"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!('Notification' in window) && (
+                  <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                    <p className="text-xs text-amber-400">
+                      Your browser does not support notifications. Alerts will be shown as a banner on the dashboard.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {publicKey ? null : (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <div className="text-center py-4">
                   <svg className="w-12 h-12 mx-auto text-slate-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">

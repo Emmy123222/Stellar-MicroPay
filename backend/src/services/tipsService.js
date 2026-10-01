@@ -6,6 +6,8 @@
 
 "use strict";
 
+const usernameService = require("./usernameService");
+
 // In-memory storage for tips
 // Structure: Map<creatorPublicKey, TipRecord[]>
 const tipsByCreator = new Map();
@@ -170,6 +172,36 @@ function getTipsSent(senderPublicKey, options = {}) {
   };
 }
 
+function getLeaderboard() {
+  const recipientTotals = new Map();
+  const senderTotals = new Map();
+  let totalTips = 0;
+  let totalXLM = 0;
+
+  for (const tips of tipsByCreator.values()) {
+    for (const tip of tips) {
+      if ((tip.asset || "XLM") !== "XLM") continue;
+      const amount = Number.parseFloat(tip.amount);
+      if (!Number.isFinite(amount)) continue;
+      totalTips += 1;
+      totalXLM += amount;
+      recipientTotals.set(tip.creatorPublicKey, (recipientTotals.get(tip.creatorPublicKey) || 0) + amount);
+      senderTotals.set(tip.senderPublicKey, (senderTotals.get(tip.senderPublicKey) || 0) + amount);
+    }
+  }
+  const federationNames = new Map(
+    usernameService.getAllUsernames().map(({ username, publicKey }) => [
+      publicKey,
+      `${username}*${process.env.DOMAIN || "stellarmicropay.com"}`,
+    ])
+  );
+  const ranked = (totals) => [...totals.entries()]
+    .map(([publicKey, amount]) => ({ publicKey, federationName: federationNames.get(publicKey) || null, totalXLM: amount.toFixed(7) }))
+    .sort((a, b) => Number(b.totalXLM) - Number(a.totalXLM))
+    .slice(0, 10);
+  return { recipients: ranked(recipientTotals), senders: ranked(senderTotals), totalTips, totalXLM: totalXLM.toFixed(7) };
+}
+
 /**
  * Validate tip record input.
  */
@@ -203,10 +235,133 @@ function validateTipInput(data) {
   return true;
 }
 
+/**
+ * Get top tippers for a creator.
+ * @param {string} creatorPublicKey - The creator's public key
+ * @param {number} limit - The number of tippers to return
+ * @returns {Array} Sorted array of top tippers
+ */
+function getTopTippers(creatorPublicKey, limit = 5) {
+  if (!creatorPublicKey) {
+    const error = new Error("creatorPublicKey is required");
+    error.status = 400;
+    throw error;
+  }
+
+  const tips = tipsByCreator.get(creatorPublicKey) || [];
+  
+  // Aggregate total tipped per sender
+  const totals = new Map();
+  for (const tip of tips) {
+    const sender = tip.senderPublicKey;
+    const amount = parseFloat(tip.amount) || 0;
+    totals.set(sender, (totals.get(sender) || 0) + amount);
+  }
+
+  // Convert to array
+  const entries = Array.from(totals.entries()).map(([senderPublicKey, totalAmount]) => ({
+    senderPublicKey,
+    totalAmount: totalAmount.toFixed(7),
+  }));
+
+  // Sort descending by amount
+  // If there are ties, JavaScript's stable sort (or standard array sorting) preserves order
+  entries.sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
+
+  // Limit result count
+  const result = entries.slice(0, limit);
+
+  return result;
+}
+
+/**
+ * Get global leaderboard with top recipients and senders.
+ * @returns {object} Object with topRecipients, topSenders, and totalTipped
+ */
+function getGlobalLeaderboard() {
+  const TOP_LIMIT = 10;
+  
+  // Aggregate by recipient (creators)
+  const recipientTotals = new Map();
+  // Aggregate by sender
+  const senderTotals = new Map();
+  let totalTipped = 0;
+
+  for (const tips of tipsByCreator.values()) {
+    for (const tip of tips) {
+      const amount = parseFloat(tip.amount) || 0;
+      totalTipped += amount;
+
+      // Aggregate by recipient
+      recipientTotals.set(
+        tip.creatorPublicKey,
+        (recipientTotals.get(tip.creatorPublicKey) || 0) + amount
+      );
+
+      // Aggregate by sender
+      senderTotals.set(
+        tip.senderPublicKey,
+        (senderTotals.get(tip.senderPublicKey) || 0) + amount
+      );
+    }
+  }
+
+  // Convert recipients to array with counts
+  const recipientCounts = new Map();
+  for (const tips of tipsByCreator.values()) {
+    for (const tip of tips) {
+      recipientCounts.set(
+        tip.creatorPublicKey,
+        (recipientCounts.get(tip.creatorPublicKey) || 0) + 1
+      );
+    }
+  }
+
+  const topRecipients = Array.from(recipientTotals.entries())
+    .map(([address, totalXLM]) => ({
+      address,
+      federationName: null, // Could be resolved from federation service
+      totalXLM: totalXLM.toFixed(7),
+      count: recipientCounts.get(address) || 0,
+    }))
+    .sort((a, b) => parseFloat(b.totalXLM) - parseFloat(a.totalXLM))
+    .slice(0, TOP_LIMIT);
+
+  // Convert senders to array with counts
+  const senderCounts = new Map();
+  for (const tips of tipsByCreator.values()) {
+    for (const tip of tips) {
+      senderCounts.set(
+        tip.senderPublicKey,
+        (senderCounts.get(tip.senderPublicKey) || 0) + 1
+      );
+    }
+  }
+
+  const topSenders = Array.from(senderTotals.entries())
+    .map(([address, totalXLM]) => ({
+      address,
+      federationName: null, // Could be resolved from federation service
+      totalXLM: totalXLM.toFixed(7),
+      count: senderCounts.get(address) || 0,
+    }))
+    .sort((a, b) => parseFloat(b.totalXLM) - parseFloat(a.totalXLM))
+    .slice(0, TOP_LIMIT);
+
+  return {
+    topRecipients,
+    topSenders,
+    totalTipped: totalTipped.toFixed(7),
+  };
+}
+
 module.exports = {
   recordTip,
   getTipsReceived,
   getTipsStats,
   getTipsSent,
+  getLeaderboard,
   validateTipInput,
+  getTopTippers,
+  getGlobalLeaderboard,
 };

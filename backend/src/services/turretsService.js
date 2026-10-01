@@ -406,6 +406,98 @@ function setDeploymentStatus(id, status) {
   return deployment;
 }
 
+function cancelDeployment(id) {
+  const deployment = getDeployment(id);
+  deployments.delete(id);
+  addExecutionLog(id, "cancelled", "txFunction cancelled");
+  return {
+    id: deployment.id,
+    status: "cancelled",
+    cancelledAt: new Date().toISOString(),
+  };
+}
+
+const FREQUENCY_TO_MINUTES = {
+  daily: 24 * 60,
+  weekly: 7 * 24 * 60,
+  monthly: 30 * 24 * 60,
+};
+
+/**
+ * Create a scheduled/recurring payment (DCA-style) from the Scheduled Payments UI.
+ * Accepts recipient/amount/asset/frequency and stores a turrets DCA deployment.
+ */
+function createScheduledDca({
+  ownerPublicKey,
+  recipient,
+  amount,
+  asset = "XLM",
+  assetIssuer = null,
+  frequency = "daily",
+}) {
+  validatePublicKey(ownerPublicKey);
+  validatePublicKey(recipient);
+
+  const amountNum = Number(amount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    const err = new Error("amount must be greater than 0");
+    err.status = 400;
+    throw err;
+  }
+
+  const freq = String(frequency || "daily").toLowerCase();
+  if (!FREQUENCY_TO_MINUTES[freq]) {
+    const err = new Error("frequency must be daily, weekly, or monthly");
+    err.status = 400;
+    throw err;
+  }
+
+  const assetCode = String(asset || "XLM").toUpperCase();
+  const issuer =
+    assetCode === "XLM"
+      ? null
+      : assetIssuer || process.env.USDC_ISSUER || null;
+
+  if (assetCode !== "XLM") {
+    toDexAsset(assetCode, issuer);
+  }
+
+  const normalizedConfig = {
+    intervalMinutes: FREQUENCY_TO_MINUTES[freq],
+    amountQuote: amountNum,
+    quoteAssetCode: assetCode,
+    quoteAssetIssuer: issuer,
+    recipient,
+    frequency: freq,
+    paymentType: "scheduled_payment",
+  };
+
+  const deploymentHash = getConfigHash("dca", normalizedConfig);
+  const id = crypto.randomUUID();
+
+  const deployment = {
+    id,
+    ownerPublicKey,
+    type: "dca",
+    status: "active",
+    config: normalizedConfig,
+    deploymentHash,
+    signedChallengeXDR: null,
+    createdAt: new Date().toISOString(),
+    nextRunAt: nextRunIso(normalizedConfig.intervalMinutes),
+    lastExecutedAt: null,
+    lastCheckedAt: null,
+    lastObservedPriceUsd: null,
+    lastError: null,
+  };
+
+  deployments.set(id, deployment);
+  addExecutionLog(id, "created", "Scheduled payment created");
+  startRunner();
+
+  return deployment;
+}
+
 module.exports = {
   createSigningChallenge,
   deployTxFunction,
@@ -413,6 +505,8 @@ module.exports = {
   getDeployment,
   getExecutionHistory,
   setDeploymentStatus,
+  cancelDeployment,
+  createScheduledDca,
   startRunner,
   stopRunner,
 };

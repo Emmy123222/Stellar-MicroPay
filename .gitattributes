@@ -1,0 +1,4 @@
+# Normalize line endings: all text files are stored with LF in the
+# repository, regardless of contributor OS. Binary files are auto-detected
+# and left untouched.
+* text=auto
