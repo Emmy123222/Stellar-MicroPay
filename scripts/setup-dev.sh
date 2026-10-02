@@ -57,16 +57,26 @@ if command -v cargo &> /dev/null; then
   RUST_VER=$(rustc --version)
   echo "✅ $RUST_VER"
 
-  if rustup target list --installed | grep -q "wasm32-unknown-unknown"; then
-    echo "✅ wasm32-unknown-unknown target installed"
+  if rustup target list --installed | grep -q "wasm32v1-none"; then
+    echo "✅ wasm32v1-none target installed"
   else
-    echo "⚠️  Adding wasm32-unknown-unknown target..."
-    rustup target add wasm32-unknown-unknown
-    echo "✅ wasm32-unknown-unknown installed"
+    echo "⚠️  Adding wasm32v1-none target..."
+    rustup target add wasm32v1-none
+    echo "✅ wasm32v1-none installed"
   fi
 else
   echo "⚠️  Rust not found — smart contract development unavailable."
   echo "   Install: https://rustup.rs"
+fi
+
+# ─── Stellar CLI check (optional) ───────────────────────────────────────────
+echo ""
+if command -v stellar &> /dev/null; then
+  echo "✅ $(stellar --version | head -1)"
+else
+  echo "⚠️  Stellar CLI not found — required to build the contract"
+  echo "   (soroban-sdk 28 needs 'stellar contract build'; plain cargo build fails)."
+  echo "   Install: https://developers.stellar.org/docs/tools/cli/stellar-cli"
 fi
 
 # ─── Done ─────────────────────────────────────────────────────────────────────

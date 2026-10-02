@@ -23,8 +23,8 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Add WASM target
-rustup target add wasm32-unknown-unknown
+# Add Soroban WASM target
+rustup target add wasm32v1-none
 
 # Install Stellar CLI
 cargo install --locked stellar-cli
@@ -33,10 +33,61 @@ cargo install --locked stellar-cli
 ## Build
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
+stellar contract build --package stellar-micropay-contract --optimize=false
 ```
 
-Output: `target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm`
+The Soroban SDK 28 build uses the `wasm32v1-none` target. The raw release
+artifact is written to
+`target/wasm32v1-none/release/stellar_micropay_contract.wasm`.
+
+## WASM Size Optimization
+
+Keep the deployed contract WASM below **50 KB**. The release profile in the
+workspace root already enables size-oriented optimization, LTO, one codegen
+unit, and symbol stripping. Soroban contracts should use `#![no_std]`; avoid
+enabling `std` features on guest dependencies unless they are required. Prefer
+small dependencies and avoid pulling in unused features. The `testutils` SDK
+feature belongs in dev-dependencies only, as it is for this contract.
+
+Install Binaryen to use `wasm-opt`, then build the unoptimized Soroban artifact
+and run the size optimizer:
+
+```bash
+# Build with Cargo's release profile, without the CLI's wasm-opt pass
+stellar contract build --package stellar-micropay-contract --optimize=false
+
+# Apply Binaryen's most aggressive size optimization
+wasm-opt -Oz \
+  target/wasm32v1-none/release/stellar_micropay_contract.wasm \
+  -o target/wasm32v1-none/release/stellar_micropay_contract.opt.wasm
+
+# Print exact byte counts
+stat -c '%n: %s bytes' \
+  target/wasm32v1-none/release/stellar_micropay_contract.wasm \
+  target/wasm32v1-none/release/stellar_micropay_contract.opt.wasm
+```
+
+The Stellar CLI build summary also reports the WASM size. To inspect the
+contract interface and exported functions, run:
+
+```bash
+stellar contract inspect --wasm \
+  target/wasm32v1-none/release/stellar_micropay_contract.opt.wasm
+```
+
+`contract inspect` prints contract specification details, not the file's byte
+size; use `stat` above for the exact size.
+
+Measured using Soroban SDK 28.0.0, Rust 1.93.1, Stellar CLI 28.1.0, and the
+workspace release profile:
+
+| Artifact | Size |
+| --- | ---: |
+| Cargo release WASM, before `wasm-opt` | 9,160 bytes (8.95 KiB) |
+| WASM after `wasm-opt -Oz` | 8,006 bytes (7.82 KiB) |
+
+Both are under the 50 KB budget. Re-measure after changing contract code,
+dependencies, or compiler/SDK versions; WASM sizes can vary between toolchains.
 
 ## Test
 
@@ -55,7 +106,7 @@ stellar keys fund alice --network testnet
 
 # Deploy
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm \
+  --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
   --source alice \
   --network testnet
 ```
@@ -174,27 +225,10 @@ and creating a new escrow.
 
 ## Troubleshooting (#153)
 
-The CLI commands above only work if the contract compiles — and as of this
-writing `src/lib.rs` carries unresolved merge residue that blocks
-`cargo build`:
-
-- ~~Two `DataKey` enums were defined at module scope.~~ Merged into one in
-  this PR — both sets of variants are needed by the contract methods.
-- `impl MicroPayContract { ... }` should be `impl StellarMicroPay`. The
-  `initialize` function lost its signature in the same merge — its body
-  starts directly after the section comment. A standalone follow-up issue
-  needs to reconstruct the function signatures by walking the original
-  PRs (`git log -p src/lib.rs`).
-- Several other methods (`send_tip`, `close_stream`, etc.) appear to have
-  bodies that reference identifiers from neighboring functions, suggesting
-  more than one merge dropped function boundaries.
-
-If `cargo build --target wasm32-unknown-unknown --release` fails with
-"unexpected closing delimiter" or "cannot find type", check `git blame`
-around the offending line first — most of the breakage looks like
-incomplete merge resolutions, not real logic bugs. Until the contract
-compiles, `stellar contract deploy` has no `.wasm` artifact to upload, so
-every CLI step from "Deploy to Testnet" onward is blocked.
+Soroban SDK 28 requires the Stellar CLI to set build metadata and the
+`wasm32v1-none` target on current Rust toolchains. Build with
+`stellar contract build` as shown above; a direct `cargo build` or the old
+`wasm32-unknown-unknown` target may fail even when the contract source is valid.
 
 ## Error Reference
 

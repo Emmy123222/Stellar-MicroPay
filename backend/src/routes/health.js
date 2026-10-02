@@ -17,4 +17,10 @@ router.get("/", (req, res) => {
   });
 });
 
+router.get("/ready", async (req, res) => {
+  const url = (process.env.HORIZON_URL || "https://horizon-testnet.stellar.org").replace(/\/$/, "");
+  const ok = await fetch(`${url}/`, { signal: AbortSignal.timeout(3000) }).then((r) => r.ok).catch(() => false);
+  res.status(ok ? 200 : 503).json(ok ? { status: "ok", horizon: "reachable" } : { status: "degraded", horizon: "unreachable" });
+});
+
 module.exports = router;

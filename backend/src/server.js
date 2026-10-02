@@ -13,6 +13,12 @@ const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 
+// ─── Env Validation ───────────────────────────────────────────────────────────
+// Must run immediately after dotenv so missing vars are caught before any
+// service or route module tries to use them.
+const { validateEnv } = require("./validateEnv");
+validateEnv();
+
 const accountRoutes = require("./routes/accounts");
 const authRoutes = require("./routes/auth");
 const paymentRoutes = require("./routes/payments");
@@ -21,12 +27,15 @@ const healthRoutes = require("./routes/health");
 const federationRoutes = require("./routes/federation");
 const turretsRoutes = require("./routes/turrets");
 const tipsRoutes = require("./routes/tips");
-const webhookRoutes = require("./routes/webhooks");
+const contactsRoutes = require("./routes/contacts");
+const webhooksRoutes = require("./routes/webhooks");
 const networkRoutes = require("./routes/network");
 const priceAlertsRoutes = require("./routes/priceAlerts");
+const requestId = require("./middleware/requestId");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
+const { sanitizeRequest } = require("./middleware/sanitization");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -59,8 +68,14 @@ app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
     return res.status(400).json({ error: "Invalid JSON body" });
   }
-  next();
+  // Forward other body-parser errors (e.g. 413 payload too large) so they are
+  // not silently swallowed and the request does not reach the route handlers.
+  next(err);
 });
+
+// Global input sanitization — trims strings and rejects null bytes on every
+// route. Must be mounted before the route handlers below.
+app.use(sanitizeRequest);
 
 // CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000")
@@ -78,13 +93,30 @@ app.use(
       }
     },
     methods: ["GET", "POST", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
-    exposedHeaders: ["X-Request-ID"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID", "X-Idempotency-Key"],
+    exposedHeaders: ["X-Request-ID", "X-Idempotency-Replayed"],
     credentials: true,
     optionsSuccessStatus: 204,
     maxAge: 600,
   })
 );
+
+// ─── CSRF Protection ────────────────────────────────────────────────────────
+// Double-submit cookie verification for state-changing requests. The SEP-0010
+// auth endpoints bootstrap the token/session and must stay reachable without
+// one, so they are exempt. See src/middleware/csrf.js and the analysis in
+// src/middleware/auth.js.
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/auth")) return next();
+  return csrfProtection(req, res, next);
+});
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+app.use("/api/auth",     authRoutes);
+app.use("/api/accounts", accountRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/health",       healthRoutes);
 
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
@@ -106,12 +138,18 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
+app.use("/api/webhooks", webhookRoutes);
 app.use("/api/network", networkRoutes);
 app.use("/api/price-alerts", priceAlertsRoutes);
-app.use("/api/webhooks", webhookRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
+
+if (process.env.METRICS_ENABLED === "true") {
+  const client = require("prom-client");
+  client.collectDefaultMetrics();
+  app.get("/metrics", (req, res) => { res.set("Content-Type", client.register.contentType); res.end(client.register.metrics()); });
+}
 
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customSiteTitle: "Stellar MicroPay API Docs",

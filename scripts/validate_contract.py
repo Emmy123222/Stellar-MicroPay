@@ -71,10 +71,13 @@ def validate_contract():
     print("✅ Input validation present")
     
     # Check for proper calculation logic
+    # The claimable computation must be saturating: a recipient that claims
+    # before the accrual catches up sits above total_streamed, and a plain
+    # subtraction would underflow and abort the contract.
     calculation_patterns = [
         r'elapsed_ledgers\s*=\s*current_ledger\.saturating_sub\(stream\.start_ledger\)',
         r'total_streamed\s*=\s*stream\.rate_per_ledger\s*\*\s*elapsed_ledgers\s*as\s*i128',
-        r'claimable\s*=\s*total_streamed\s*-\s*stream\.claimed'
+        r'claimable\s*=\s*total_streamed\.saturating_sub\(stream\.claimed\)'
     ]
     
     for pattern in calculation_patterns:

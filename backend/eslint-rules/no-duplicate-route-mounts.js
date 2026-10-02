@@ -1,6 +1,6 @@
 /**
  * ESLint custom rule to detect duplicate app.use() route mounts
- * 
+ *
  * This rule prevents mounting the same route path with the same handler
  * multiple times, which can cause unexpected behavior and performance issues.
  */
@@ -38,7 +38,7 @@ module.exports = {
           // Check if first arg is a string literal (route path)
           if (firstArg.type === "Literal" && typeof firstArg.value === "string") {
             const routePath = firstArg.value;
-            
+
             // Check if second arg is an identifier (route handler)
             if (secondArg.type === "Identifier") {
               const handlerName = secondArg.name;

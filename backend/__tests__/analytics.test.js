@@ -8,7 +8,13 @@
 const analyticsService = require("../src/services/analyticsService");
 const stellarService = require("../src/services/stellarService");
 const loggerModule = require("../src/utils/logger");
-const { setCachedAnalytics, getCachedAnalytics, clearAnalyticsCache, stopCacheSweep } = analyticsService;
+const {
+  clearAnalyticsCache,
+  startCacheSweep,
+  stopCacheSweep,
+  getCachedAnalytics,
+  setCachedAnalytics,
+} = require("../src/services/analyticsService");
 
 // Mock Stellar service
 jest.mock("../src/services/stellarService");
@@ -292,8 +298,12 @@ describe("Analytics Service", () => {
 
 describe('Analytics Service Cache Archiving (#1210)', () => {
   beforeEach(() => {
+    // The sweep interval is created at module load, i.e. before fake timers are
+    // installed, so re-arm it here to make it observable by the fake clock.
+    stopCacheSweep();
     clearAnalyticsCache();
     jest.useFakeTimers();
+    startCacheSweep();
   });
 
   afterEach(() => {

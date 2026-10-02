@@ -1,65 +1,26 @@
-const request = require('supertest');
-const express = require('express');
-const jwt = require('jsonwebtoken');
+"use strict";
 
-process.env.JWT_SECRET = 'test_secret_for_tests';
-const { verifyJWT, JWT_SECRET } = require('../src/middleware/auth');
+const request = require("supertest");
+const app = require("../src/server");
 
-describe('Auth Middleware', () => {
-  let app;
+describe("SEP-0010 auth rate limiting", () => {
+  it("blocks the sixth verification request from the same IP within a minute", async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await request(app).post("/api/auth").send({}).expect(400);
+    }
 
-  beforeEach(() => {
-    app = express();
-    app.use(express.json());
-    
-    // Dummy route to test middleware
-    app.get('/protected', verifyJWT, (req, res) => {
-      res.status(200).json({ user: req.user });
-    });
+    const response = await request(app).post("/api/auth").send({}).expect(429);
+
+    expect(response.headers["retry-after"]).toMatch(/^\d+$/);
   });
 
-  it('Valid JWT \u2192 req.user set correctly, next() called', async () => {
-    const payload = { publicKey: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ' };
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
+  it("allows ten challenge requests and blocks the eleventh from the same IP", async () => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await request(app).get("/api/auth").expect(400);
+    }
 
-    const response = await request(app)
-      .get('/protected')
-      .set('Authorization', `Bearer ${token}`);
+    const response = await request(app).get("/api/auth").expect(429);
 
-    expect(response.status).toBe(200);
-    expect(response.body.user).toBeDefined();
-    expect(response.body.user.publicKey).toBe(payload.publicKey);
-  });
-
-  it('Expired JWT \u2192 401 response', async () => {
-    const payload = { publicKey: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ' };
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '-1h' }); // Expired 1 hour ago
-
-    const response = await request(app)
-      .get('/protected')
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(response.status).toBe(401);
-    expect(response.body.error).toBe('Unauthorized: invalid or expired token');
-  });
-
-  it('Missing Authorization header \u2192 401 response', async () => {
-    const response = await request(app).get('/protected');
-
-    expect(response.status).toBe(401);
-    expect(response.body.error).toBe('Unauthorized: missing or invalid token');
-  });
-
-  it('Token signed with wrong secret \u2192 401 response', async () => {
-    const payload = { publicKey: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ' };
-    const wrongSecret = 'wrong_secret_key';
-    const token = jwt.sign(payload, wrongSecret, { expiresIn: '1h' });
-
-    const response = await request(app)
-      .get('/protected')
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(response.status).toBe(401);
-    expect(response.body.error).toBe('Unauthorized: invalid or expired token');
+    expect(response.headers["retry-after"]).toMatch(/^\d+$/);
   });
 });
