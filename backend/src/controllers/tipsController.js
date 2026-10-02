@@ -164,5 +164,6 @@ module.exports = {
   getTipsStats,
   getTipsSent,
   getTopTippers,
+  getLeaderboard,
   getGlobalLeaderboard,
 };

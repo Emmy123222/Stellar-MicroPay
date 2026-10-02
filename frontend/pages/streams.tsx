@@ -55,21 +55,39 @@ export default function StreamsPage() {
       // For now, using mock data
       setMyStreams([]);
       setReceivedStreams([]);
-    } catch (err: any) {
-      setError(err.message || "Failed to load streams");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load streams");
     } finally {
       setLoading(false);
     }
   }, [publicKey]);
 
+  // Load streams on mount
   useEffect(() => {
-    loadStreams();
-    if (publicKey) {
-      getXLMBalance(publicKey)
-        .then(setXlmBalance)
-        .catch(() => setXlmBalance("0"));
+    void loadStreams();
+  }, [loadStreams]);
+
+  // Keep the native XLM balance in sync so the deposit guard below stays accurate.
+  useEffect(() => {
+    let isActive = true;
+
+    if (!publicKey) {
+      setXlmBalance("0");
+      return;
     }
-  }, [publicKey, loadStreams]);
+
+    getXLMBalance(publicKey)
+      .then((balance) => {
+        if (isActive) setXlmBalance(balance);
+      })
+      .catch(() => {
+        if (isActive) setXlmBalance("0");
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [publicKey]);
 
   const handleOpenStream = async (e: React.FormEvent) => {
     e.preventDefault();

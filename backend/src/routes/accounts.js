@@ -26,7 +26,7 @@ router.get("/resolve/:username", strictLimiter, sanitizeUsername, accountControl
 router.get(
   "/:publicKey/has-usdc-trustline",
   strictLimiter,
-  sanitizePublicKey,
+  validatePublicKey(),
   accountController.hasUSDCTrustline
 );
 

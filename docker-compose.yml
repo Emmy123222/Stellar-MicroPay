@@ -24,6 +24,14 @@ services:
       - STELLAR_NETWORK=testnet
       - HORIZON_URL=https://horizon-testnet.stellar.org
       - ALLOWED_ORIGINS=http://localhost:3000
+      # Dev-only placeholder so the stack boots without local secrets.
+      # The backend refuses to start without JWT_SECRET (src/middleware/auth.js).
+      - JWT_SECRET=dev-only-insecure-jwt-secret-change-me
+      - REDIS_URL=redis://redis:6379
+      - ANALYTICS_CACHE_TTL_MS=300000
+    depends_on:
+      redis:
+        condition: service_started
     volumes:
       # Mount source for hot-reload via nodemon
       - ./backend:/app
@@ -35,6 +43,19 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis_data:/data
     restart: unless-stopped
 
   frontend:
@@ -66,3 +87,6 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+volumes:
+  redis_data:

@@ -23,6 +23,7 @@ import {
   setJwtToken as setSessionJwtToken,
   clearJwtToken,
 } from "./auth";
+import { StrKey, TransactionBuilder } from "@stellar/stellar-sdk";
 
 // ─── SEP-0010 helpers ────────────────────────────────────────────────────────
 
@@ -293,6 +294,11 @@ export function disconnectWallet(): void {
 let ledgerTransport: any = null;
 let ledgerApp: any = null;
 
+// Ledger Stellar app derivation path. @ledgerhq/hw-app-str (the published
+// successor of the now-unpublished @ledgerhq/hw-app-stellar) requires an
+// explicit BIP-44 path instead of defaulting to the first account.
+const LEDGER_STELLAR_PATH = "44'/148'/0'";
+
 /**
  * Check if Ledger hardware wallet is supported (WebUSB available).
  */
@@ -320,8 +326,10 @@ export async function getLedgerPublicKey(): Promise<{ publicKey: string | null; 
     ledgerTransport = await TransportWebUSB.create();
     ledgerApp = new AppStellar(ledgerTransport);
     
-    const result = await ledgerApp.getPublicKey("", "44'", true);
-    const publicKey = result.publicKey;
+    const result = await ledgerApp.getPublicKey(LEDGER_STELLAR_PATH, true);
+    // hw-app-str returns the raw 32-byte ed25519 key; Stellar addresses are its
+    // StrKey (G...) encoding, which is what the rest of the app expects.
+    const publicKey = StrKey.encodeEd25519PublicKey(result.rawPublicKey);
     
     await ledgerTransport.close();
     ledgerTransport = null;
@@ -366,8 +374,11 @@ export async function signTransactionWithLedger(xdr: string): Promise<{ signedXD
     ledgerTransport = await TransportWebUSB.create();
     ledgerApp = new AppStellar(ledgerTransport);
     
-    const result = await ledgerApp.signTransaction("", xdr);
-    const signedXDR = result.signature;
+    // hw-app-str signs the transaction signature base (a Buffer), not the raw
+    // XDR envelope the rest of this module passes around.
+    const signatureBase = TransactionBuilder.fromXDR(xdr, getNetworkPassphrase()).signatureBase();
+    const result = await ledgerApp.signTransaction(LEDGER_STELLAR_PATH, signatureBase);
+    const signedXDR = result.signature.toString("base64");
     
     await ledgerTransport.close();
     ledgerTransport = null;

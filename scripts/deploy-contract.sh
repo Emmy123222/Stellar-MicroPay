@@ -3,8 +3,8 @@
 # Build and deploy the Soroban smart contract to Stellar testnet or mainnet.
 #
 # Prerequisites:
-#   - Rust + wasm32-unknown-unknown target
-#   - Stellar CLI (cargo install --locked stellar-cli)
+#   - Rust + wasm32v1-none target (Rust 1.84+)
+#   - Stellar CLI >= 25.2 (cargo install --locked stellar-cli) — performs the build
 #   - A funded Stellar identity (stellar keys generate alice --network testnet)
 #
 # Usage:
@@ -19,7 +19,9 @@ set -euo pipefail
 NETWORK=${1:-testnet}
 IDENTITY=${2:-alice}
 CONTRACT_DIR="$(dirname "$0")/../contracts/stellar-micropay-contract"
-WASM="$CONTRACT_DIR/target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm"
+# Artifact lands in the workspace-root target/ (stellar contract build
+# targets wasm32v1-none and applies the spec shaking soroban-sdk 28 requires).
+WASM="$CONTRACT_DIR/../../target/wasm32v1-none/release/stellar_micropay_contract.wasm"
 
 echo "🌟 Stellar MicroPay — Contract Deployment"
 echo "   Network:  $NETWORK"
@@ -30,6 +32,8 @@ echo ""
 
 if ! command -v stellar &> /dev/null; then
   echo "❌ Stellar CLI not found."
+  echo "   soroban-sdk 28 requires 'stellar contract build' (v25.2+); a plain"
+  echo "   'cargo build --target wasm32v1-none' now fails."
   echo "   Install: cargo install --locked stellar-cli"
   exit 1
 fi
@@ -44,7 +48,7 @@ fi
 
 echo "🔨 Building WASM contract..."
 cd "$CONTRACT_DIR"
-cargo build --target wasm32-unknown-unknown --release
+stellar contract build --profile release
 
 if [[ ! -f "$WASM" ]]; then
   echo "❌ WASM file not found after build: $WASM"

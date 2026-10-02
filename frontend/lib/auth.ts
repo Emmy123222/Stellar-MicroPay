@@ -35,11 +35,20 @@ export function getJwtToken(): string | null {
 
 /**
  * Sets the JWT token in sessionStorage (cleared when the tab closes).
+ * Passing null clears it.
  */
-export function setJwtToken(token: string): void {
+export function setJwtToken(token: string | null): void {
   if (typeof window === "undefined") return;
   clearLegacyLocalStorageToken();
-  window.sessionStorage.setItem(JWT_SESSION_KEY, token);
+  try {
+    if (token) {
+      window.sessionStorage.setItem(JWT_SESSION_KEY, token);
+    } else {
+      window.sessionStorage.removeItem(JWT_SESSION_KEY);
+    }
+  } catch {
+    // Ignore quota / privacy-mode errors
+  }
 }
 
 /**

@@ -51,3 +51,6 @@ test_snapshots
 scripts/create_issues.py
 \n# TypeScript build info\nfrontend/tsconfig.tsbuildinfo
 \n# Codex CI artifacts\n.codex-artifacts/
+
+# ─── Persistent username store (Issue #1056) ────────────────────────────────
+backend/data/

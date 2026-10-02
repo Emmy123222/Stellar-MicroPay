@@ -15,12 +15,20 @@ jobs:
     name: Repository integrity
     runs-on: ubuntu-latest
     steps:
+      # Full history so HEAD^ resolves — actions/checkout defaults to a
+      # shallow (depth=1) clone where HEAD^ is an unknown revision.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Reject whitespace errors and unresolved conflicts
         run: |
-          git diff --check HEAD^
+          # Only diff the last commit when it actually has a parent; a
+          # single-commit or shallow checkout has no HEAD^ to compare against.
+          if git rev-parse --verify --quiet HEAD^ >/dev/null; then
+            git diff --check HEAD^
+          else
+            echo "No parent commit to diff; skipping whitespace check."
+          fi
           ! git grep -n -E '^(<<<<<<<|=======|>>>>>>>)'
 
   frontend:
@@ -37,6 +45,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: Audit dependencies (fails on high/critical)
+        run: npm audit --audit-level=high
       - run: npm run type-check
       - run: npm run lint
       - run: npm test
@@ -61,17 +71,23 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
+      - name: Audit dependencies (fails on high/critical)
+        run: npm audit --audit-level=high
       - run: npm run lint
       - run: npm test
 
   contracts:
     name: Soroban contract (check, test, WASM)
     runs-on: ubuntu-latest
-    # Installing stellar-cli is not enough: soroban-sdk 28's build script only
-    # accepts the build when it is driven by `stellar contract build`, which
-    # declares that spec shaking happens out-of-band. The job still calls plain
-    # `cargo check/build`, so set that declaration here. The proc-macro spec
-    # (contractspecv0/contractmetav0) is still emitted into the WASM.
+    permissions:
+      contents: read
+      checks: write
+    # soroban-sdk 28's build script only accepts a wasm build when the build
+    # system declares that spec shaking happens out-of-band
+    # (SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2). `cargo check` and
+    # `cargo test` only type-check/run tests, so they set the marker here; the
+    # deployable artifact is produced by `stellar contract build` below, which
+    # sets it legitimately as part of the build.
     env:
       SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
     steps:
@@ -80,22 +96,52 @@ jobs:
         with:
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
-      - name: Install stellar-cli (required by soroban-sdk v28 build script)
-        run: |
-          if ! command -v stellar >/dev/null 2>&1; then
-            curl -sSfL -o /tmp/stellar-cli.tar.gz https://github.com/stellar/stellar-cli/releases/download/v25.2.0/stellar-cli-25.2.0-x86_64-unknown-linux-gnu.tar.gz
-            mkdir -p /tmp/stellar-cli && tar -xzf /tmp/stellar-cli.tar.gz -C /tmp/stellar-cli
-            sudo install -m 755 /tmp/stellar-cli/stellar /usr/local/bin/stellar
-          fi
-          stellar --version
-      - run: cargo check --target wasm32v1-none
+      # Scans the workspace Cargo.lock, which pins the contract at
+      # contracts/stellar-micropay-contract. cargo audit has no severity
+      # threshold like npm's --audit-level, so it fails on any vulnerability
+      # advisory (unmaintained-crate notices are reported as warnings only).
+      - name: Audit contract dependencies (fails on any vulnerability)
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: cargo check (wasm32v1-none)
+        run: cargo check --target wasm32v1-none
       - run: cargo test
-      - run: cargo build --target wasm32v1-none --release
+      # Install stellar-cli pinned in lockstep with soroban-sdk (both 28.x):
+      # it is required to produce a deployable wasm with a correctly shaken
+      # spec, and plain `cargo build` is rejected by soroban-sdk's build script.
+      - name: Install stellar CLI
+        run: |
+          curl -fL --retry 5 --retry-delay 5 --retry-connrefused \
+            --connect-timeout 30 --max-time 300 \
+            -o "$RUNNER_TEMP/stellar-cli.tar.gz" \
+            "https://github.com/stellar/stellar-cli/releases/download/v28.0.0/stellar-cli-28.0.0-x86_64-unknown-linux-gnu.tar.gz"
+          sudo tar xz -C /usr/local/bin -f "$RUNNER_TEMP/stellar-cli.tar.gz"
+          stellar --version
+      - name: Build release WASM
+        run: stellar contract build --locked
       - uses: actions/upload-artifact@v4
         with:
           name: stellar-micropay-contract-wasm
           path: target/wasm32v1-none/release/stellar_micropay_contract.wasm
           if-no-files-found: error
+
+  integration-test:
+    name: Integration tests (docker-compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run integration tests
+        run: |
+          docker compose -f docker-compose.test.yml up \
+            --build \
+            --abort-on-container-exit \
+            --exit-code-from backend-test
+
+      - name: Tear down containers
+        if: always()
+        run: docker compose -f docker-compose.test.yml down --volumes --remove-orphans
 
   e2e:
     name: Browser smoke (Playwright)

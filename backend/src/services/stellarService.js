@@ -155,6 +155,51 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
   return payments;
 }
 
+/**
+ * Submit a signed transaction envelope to Horizon.
+ *
+ * @param {string} signedXDR - Base64 signed transaction XDR.
+ * @returns {Promise<{ hash: string, ledger: number, successful: boolean }>}
+ */
+async function submitTransaction(signedXDR) {
+  if (!signedXDR || typeof signedXDR !== "string") {
+    const error = new Error("signedXDR is required");
+    error.status = 400;
+    throw error;
+  }
+
+  // Resolved lazily so the SDK surface is only touched when submitting.
+  const { TransactionBuilder, Networks } = require("@stellar/stellar-sdk");
+  const networkPassphrase =
+    process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+
+  let transaction;
+  try {
+    transaction = TransactionBuilder.fromXDR(signedXDR, networkPassphrase);
+  } catch {
+    const error = new Error("Invalid transaction XDR");
+    error.status = 400;
+    throw error;
+  }
+
+  try {
+    const result = await server.submitTransaction(transaction);
+    return {
+      hash: result.hash,
+      ledger: result.ledger,
+      successful: result.successful !== false,
+    };
+  } catch (err) {
+    const resultCodes = err?.response?.data?.extras?.result_codes;
+    if (resultCodes) {
+      const error = new Error(`Transaction failed: ${JSON.stringify(resultCodes)}`);
+      error.status = 400;
+      throw error;
+    }
+    throw err;
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function validatePublicKey(publicKey) {
@@ -165,4 +210,11 @@ function validatePublicKey(publicKey) {
   }
 }
 
-module.exports = { getAccount, getXLMBalance, getPayments, hasUSDCTrustline, validatePublicKey };
+module.exports = {
+  getAccount,
+  getXLMBalance,
+  getPayments,
+  hasUSDCTrustline,
+  submitTransaction,
+  validatePublicKey,
+};

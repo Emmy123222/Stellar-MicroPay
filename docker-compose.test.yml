@@ -1,0 +1,47 @@
+# docker-compose.test.yml — Integration test environment
+#
+# Spins up:
+#   1. mock-horizon  — lightweight Express server that mimics the Stellar Horizon API
+#   2. backend-test  — the backend service running `npm test` against the mock
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up --abort-on-container-exit
+#
+# The suite exits 0 when all Jest tests pass.
+# CI uses the integration-test job defined in .github/workflows/ci.yml.
+
+version: "3.9"
+
+services:
+
+  # ── Mock Horizon server ────────────────────────────────────────────────────
+  mock-horizon:
+    build:
+      context: ./mock-horizon
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: "no"
+
+  # ── Backend test runner ────────────────────────────────────────────────────
+  backend-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    environment:
+      - NODE_ENV=test
+      - PORT=4000
+      - STELLAR_NETWORK=testnet
+      # Point at the mock Horizon container instead of the live testnet
+      - HORIZON_URL=http://mock-horizon:8000
+      - ALLOWED_ORIGINS=http://localhost:3000
+    depends_on:
+      mock-horizon:
+        condition: service_healthy
+    restart: "no"

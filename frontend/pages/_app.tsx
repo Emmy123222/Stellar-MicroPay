@@ -12,6 +12,7 @@ import Navbar from "@/components/Navbar";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import QuickSendModal from "@/components/QuickSendModal";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
+import ToastProvider from "@/lib/ToastContext";
 
 const AIPaymentAssistant = dynamic(() => import("@/components/AIPaymentAssistant"), {
   ssr: false,
@@ -101,8 +102,10 @@ function InstallBanner() {
   );
 }
 
+export type ThemePreference = "dark" | "light" | "system";
+
 interface ThemeContextType {
-  theme: "dark" | "light";
+  theme: ThemePreference;
   toggleTheme: () => void;
 }
 
@@ -186,21 +189,23 @@ function AppShell({
 }
 
 export default function App({ Component, pageProps }: AppProps) {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<ThemePreference>("system");
   const [stellarURI, setStellarURI] = useState<URIParseResult | null>(null);
   const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("stellar-micropay:theme") as
-      | "dark"
-      | "light"
-      | null;
-    const preferred =
-      saved ??
-      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-
-    setTheme(preferred);
-    document.documentElement.classList.toggle("dark", preferred === "dark");
+    const saved = localStorage.getItem("stellar-micropay:theme") as ThemePreference | null;
+    const preference = saved === "dark" || saved === "light" || saved === "system" ? saved : "system";
+    const apply = () => {
+      const dark = preference === "dark" ||
+        (preference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.classList.toggle("dark", dark);
+    };
+    setTheme(preference);
+    apply();
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
   }, []);
 
   useEffect(() => {
@@ -233,15 +238,18 @@ export default function App({ Component, pageProps }: AppProps) {
   }, []);
 
   const toggleTheme = () => {
-    const nextTheme = theme === "dark" ? "light" : "dark";
+    const nextTheme: ThemePreference = theme === "light" ? "system" : theme === "system" ? "dark" : "light";
     setTheme(nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+    const dark = nextTheme === "dark" ||
+      (nextTheme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("stellar-micropay:theme", nextTheme);
   };
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
       <WalletProvider>
+        <ToastProvider>
         <Head>
           <title>Stellar-MicroPay | Instant Micropayments</title>
           <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -289,6 +297,7 @@ export default function App({ Component, pageProps }: AppProps) {
             setIsQuickSendOpen={setIsQuickSendOpen}
           />
         </ErrorBoundary>
+        </ToastProvider>
       </WalletProvider>
     </ThemeContext.Provider>
   );

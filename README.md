@@ -4,6 +4,8 @@
 
 This project implements a Soroban smart contract for streaming payment channels on the Stellar network. The contract allows a payer to deposit XLM and stream it to a recipient at a defined rate (e.g., 1 XLM per hour). The recipient can claim the streamed amount at any time.
 
+For an introduction to Stellar and Soroban terminology (such as stroops, ledgers, XDR, Freighter, and Turrets), consult the [Stellar & Soroban Glossary](GLOSSARY.md).
+
 ## Features
 
 - **Stream Creation**: Open payment streams with custom rates and deposits
@@ -93,18 +95,22 @@ pub struct Stream {
 
 ### Claimable Amount Calculation
 ```
-elapsed_ledgers = current_ledger - start_ledger
-total_streamed = rate_per_ledger * elapsed_ledgers
-claimable = total_streamed - claimed
-actual_claim = min(claimable, deposited - claimed)
+elapsed_ledgers = current_ledger - start_ledger // ledgers elapsed since start
+total_streamed = rate_per_ledger * elapsed_ledgers // amount accrued to date
+claimable = total_streamed - claimed // accrued funds not yet claimed
+actual_claim = min(claimable, deposited - claimed) // cap at funds still deposited
 ```
+With zero elapsed ledgers, nothing new is claimable. Once the deposit is exhausted,
+the remaining-deposit cap keeps further claims at zero.
 
 ### Refund Calculation
 ```
-elapsed_ledgers = current_ledger - start_ledger
-total_streamed = rate_per_ledger * elapsed_ledgers
-refundable = deposited - max(total_streamed, claimed)
+elapsed_ledgers = current_ledger - start_ledger // ledgers elapsed since start
+total_streamed = rate_per_ledger * elapsed_ledgers // amount accrued to date
+refundable = deposited - max(total_streamed, claimed) // funds neither streamed nor claimed
 ```
+With zero elapsed ledgers and no prior claims, the full deposit is refundable.
+When the stream is exhausted, the maximum reaches the deposit and the refund is zero.
 
 ## Usage Examples
 
@@ -193,6 +199,12 @@ docker pull ghcr.io/emmy123222/stellar-micropay-frontend:latest
 - **Security**: Comprehensive input validation and access controls
 - **Compliance**: Follows Soroban best practices and standards
 
+## Documentation
+
+- [📖 Stellar & Soroban Glossary](GLOSSARY.md) — Plain-English guide to Stellar and Soroban terminology (XLM, stroops, ledgers, sequence numbers, Horizon, Soroban, XDR, Freighter, SEP-0007, SEP-0010, trustlines, federation, and turrets).
+- [🤝 Contributing Guide](CONTRIBUTING.md) — Guidelines for contributing and setting up the development environment.
+- [🚀 Deployment Guide](DEPLOYMENT_GUIDE.md) — Instructions for deploying to production.
+- [📚 Technical Architecture & Docs](docs/) — Detailed documentation on architecture, Ledger hardware wallet support, Turrets, analytics, and APIs.
 ## Contributors
 
 Thanks to everyone who has contributed to Stellar-MicroPay! 🎉
