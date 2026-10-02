@@ -43,6 +43,10 @@ const DEFAULT_CONFIGS: Record<"testnet" | "mainnet", NetworkConfig> = {
   },
 };
 
+/**
+ * Read the active Stellar network configuration.
+ * @returns The configured network and Horizon endpoint.
+ */
 export function getNetworkConfig(): NetworkConfig {
   if (typeof window === "undefined") {
     // Server-side: use env vars as fallback
@@ -63,6 +67,10 @@ export function getNetworkConfig(): NetworkConfig {
   return DEFAULT_CONFIGS.testnet;
 }
 
+/**
+ * Persist the active Stellar network configuration in the browser.
+ * @param config - Network and Horizon endpoint to persist.
+ */
 export function setNetworkConfig(config: NetworkConfig): void {
   if (typeof window !== "undefined") {
     localStorage.setItem("stellar-micropay:network", JSON.stringify(config));
@@ -130,6 +138,11 @@ export const STELLAR_MEMO_TEXT_MAX_BYTES = 28;
 /** A base Stellar account must keep two reserve units before subentries. */
 export const STELLAR_BASE_ACCOUNT_RESERVE_COUNT = 2;
 
+/**
+ * Count a memo's UTF-8 bytes according to Stellar's protocol limit.
+ * @param memo - Memo text to measure.
+ * @returns The encoded byte length.
+ */
 export function memoTextByteLength(memo: string): number {
   if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(memo).length;
   return encodeURIComponent(memo).replace(/%[0-9A-F]{2}/gi, "x").length;
@@ -162,6 +175,11 @@ function stripNonPrintableCharacters(memo: string): string {
   return memo.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 }
 
+/**
+ * Truncate memo text without splitting a Unicode code point or exceeding 28 bytes.
+ * @param memo - Memo text to truncate.
+ * @returns A protocol-safe memo string.
+ */
 export function truncateMemoText(memo: string): string {
   const safeMemo = stripNonPrintableCharacters(memo);
 
@@ -803,17 +821,10 @@ export async function buildAccountMergeTransaction({
 */
 export async function submitTransaction(signedXDR: string) {
   const transaction = TransactionBuilder.fromXDR(signedXDR, getNetworkPassphrase()) as Transaction;
-  try {
-    const result = await server.submitTransaction(transaction);
-    return result;
-  } catch (err: unknown) {
-    const horizonErr = err as { response?: { data?: { extras?: { result_codes?: unknown } } } };
-    if (horizonErr?.response?.data?.extras?.result_codes) {
-      const codes = horizonErr.response.data.extras.result_codes;
-      throw new Error(`Transaction failed: ${JSON.stringify(codes)}`);
-    }
-    throw err;
-  }
+  // Re-throws Horizon's own error object unchanged (rather than stringifying
+  // result_codes into a generic Error's message) so callers can parse the
+  // structured codes with lib/horizonErrors.ts's parseHorizonSubmissionError.
+  return server.submitTransaction(transaction);
 }
 
 /**
