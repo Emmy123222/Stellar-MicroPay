@@ -10,7 +10,12 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 - Contract initialization with admin
 - On-chain tip recording with event emission
 - Tip total and count queries per recipient
-- Placeholder stubs for escrow and batch payments
+- Optional operator fee (basis points) collected on every tip
+- Streaming payments (open/claim/top-up/close, with pause/resume)
+- Time-locked escrow (open/release/cancel)
+- Milestone escrow: funds held by the contract, released by a designated
+  approver, or reclaimed by the payer once a dispute times out
+- Placeholder stub for batch payments
 
 ## Prerequisites
 
@@ -83,7 +88,89 @@ stellar contract invoke \
   --network testnet \
   -- get_tip_total \
   --recipient <RECIPIENT_ADDRESS>
+
+# Set the operator fee (in basis points, e.g. 50 = 0.5%, capped at 500 = 5%)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- set_fee_bps \
+  --admin <YOUR_PUBLIC_KEY> \
+  --fee_bps 50
 ```
+
+## Milestone escrow
+
+Funds are held by the contract until a third-party `approver` confirms the
+milestone. The payer can freeze the escrow by disputing it, and gets the funds
+back once `dispute_timeout` ledgers have elapsed.
+
+```bash
+# Lock funds: payer -> contract, released to recipient by approver
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- create_milestone_escrow \
+  --token <XLM_SAC_ADDRESS> \
+  --payer <PAYER_ADDRESS> \
+  --recipient <RECIPIENT_ADDRESS> \
+  --amount 5000000 \
+  --approver <APPROVER_ADDRESS> \
+  --dispute_timeout 500
+
+# Release the funds to the recipient (approver only, escrow must be pending)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source carol \
+  --network testnet \
+  -- approve_milestone \
+  --escrow_id 0 \
+  --approver <APPROVER_ADDRESS>
+
+# Freeze the funds pending resolution (payer only)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- dispute_milestone \
+  --escrow_id 0 \
+  --payer <PAYER_ADDRESS>
+
+# Reclaim a disputed escrow after the timeout has elapsed (payer only)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- cancel_milestone_escrow \
+  --escrow_id 0 \
+  --payer <PAYER_ADDRESS>
+
+# Read the escrow record (status: pending / approved / disputed / cancelled)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_milestone_escrow \
+  --escrow_id 0
+```
+
+Every state change publishes a `milestone_escrow` event whose second topic is
+`created`, `approved`, `disputed` or `cancelled`, followed by the escrow id and
+the address that authorised the change, so indexers can follow an escrow without
+reading storage.
+
+Rules the contract enforces:
+
+| Action | Who | Preconditions |
+| --- | --- | --- |
+| `create_milestone_escrow` | payer | `amount > 0`, `0 < dispute_timeout <= 50000` ledgers |
+| `approve_milestone` | the escrow's `approver` | status `pending` |
+| `dispute_milestone` | the escrow's `payer` | status `pending` |
+| `cancel_milestone_escrow` | the escrow's `payer` | status `disputed` and `dispute_timeout` ledgers elapsed since the dispute |
+
+A disputed escrow can no longer be approved: once the payer disputes, the only
+ways out are the payer reclaiming the funds after the timeout, or waiting it out
+and creating a new escrow.
 
 ## Troubleshooting (#153)
 
@@ -108,6 +195,32 @@ around the offending line first — most of the breakage looks like
 incomplete merge resolutions, not real logic bugs. Until the contract
 compiles, `stellar contract deploy` has no `.wasm` artifact to upload, so
 every CLI step from "Deploy to Testnet" onward is blocked.
+
+## Error Reference
+
+The contract does not define a `#[contracterror]` enum — every failure is a
+plain `panic!` or `.expect()` call, so there is no numeric error code to
+match on client-side. Instead, catch the failed invocation and match on the
+panic message (available in the transaction's diagnostic events when
+simulated or submitted with debug info enabled).
+
+| Error message                                       | Trigger condition                                                                 | Affected function(s)                          |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `Contract already initialized`                       | `initialize` is called a second time (the `Admin` storage key is already set).      | `initialize`                                      |
+| `Contract not initialized`                            | A function that requires the admin address reads it before `initialize` was called. | `get_admin`, `send_tip`, `set_fee_bps`            |
+| `Tip amount must be positive`                         | `send_tip` is called with `amount <= 0`.                                            | `send_tip`                                        |
+| `Tip record not found`                                | `get_tip_record` is called with a `(recipient, index)` pair that was never stored.  | `get_tip_record`                                  |
+| `Receipt amount must be positive`                     | `mint_receipt` is called with `amount <= 0`.                                        | `mint_receipt`                                    |
+| `Receipt not found`                                   | `get_receipt` is called with a `(payer, index)` pair that was never stored.         | `get_receipt`                                     |
+| `Only the admin can set the fee`                      | `set_fee_bps` is called with an `admin` argument that doesn't match the stored admin, even if that address authorized the call. | `set_fee_bps`      |
+| `Fee exceeds maximum allowed (500 bps)`               | `set_fee_bps` is called with `fee_bps > 500` (the 5% cap).                          | `set_fee_bps`                                     |
+| `Escrow payments coming in v2.1 — see ROADMAP.md`     | `create_escrow` is called at all — it's an unimplemented placeholder.               | `create_escrow`                                   |
+| `Batch payments coming in v2.0 — see ROADMAP.md`      | `batch_send` is called at all — it's an unimplemented placeholder.                  | `batch_send`                                      |
+
+`send_tip` and `mint_receipt` also panic implicitly if the caller isn't the
+address that authorized the invocation (`from.require_auth()` /
+`admin.require_auth()` failing), which the Soroban host reports as its own
+authorization error rather than one of the messages above.
 
 ## XLM SAC Address (Testnet)
 

@@ -32,13 +32,17 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
     if (!canvasRef.current) return;
 
     const canvas = canvasRef.current;
-    const url = canvas.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.download = `stellar-qr-${publicKey.slice(0, 8)}.png`;
-    link.href = url;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.download = `stellar-qr-${publicKey.slice(0, 8)}.png`;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, "image/png");
   };
 
   if (!isOpen) return null;
@@ -92,10 +96,11 @@ export default function QRCodeModal({ isOpen, onClose, publicKey, amount }: QRCo
         <div className="flex gap-3">
           <button
             onClick={downloadQRCode}
+            aria-label="Download QR code as PNG"
             className="flex-1 bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             <DownloadIcon className="w-4 h-4" />
-            Download QR
+            Download PNG
           </button>
           <button
             onClick={onClose}

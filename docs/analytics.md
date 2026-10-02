@@ -12,7 +12,7 @@ All endpoints include:
 - **Caching**: 5-minute TTL using a bounded in-memory Map to minimize Horizon API calls
 - **Error Handling**: Graceful handling of Horizon errors and invalid public keys
 - **Rate Limiting**: Protected by `strictLimiter` middleware (same as other API routes)
-- **Input Sanitization**: Public key validation via `sanitizePublicKey` middleware
+- **Input Sanitization**: Public key validation via `validatePublicKey` middleware
 
 ## Files Added/Modified
 
@@ -268,7 +268,7 @@ All endpoints gracefully handle:
 The analytics feature seamlessly integrates:
 
 - Uses existing `stellarService.getPayments()` for data fetching
-- Uses existing middleware (`strictLimiter`, `sanitizePublicKey`)
+- Uses existing middleware (`strictLimiter`, `validatePublicKey`)
 - Follows existing error handling patterns
 - Compatible with existing CORS and security headers
 - No breaking changes to existing APIs

@@ -6,6 +6,7 @@
  * Emmy123222/Stellar-MicroPay
  */
 
+import ContactPickerModal from "@/components/ContactPickerModal";
 import PaymentStatusModal, {
   type PaymentFlowStatus,
   type PaymentStepId,
@@ -21,19 +22,26 @@ import {
   memoTextByteLength,
   server,
   STELLAR_BASE_FEE_XLM,
+  STELLAR_MEMO_HASH_HEX_LENGTH,
   STELLAR_MEMO_TEXT_MAX_BYTES,
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
+  type StellarMemoType,
 } from "@/lib/stellar";
+import { Federation } from "@stellar/stellar-sdk";
+import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 
 interface SendPaymentFormProps {
-  publicKey: string;
-  xlmBalance: string;
+  publicKey?: string;
+  xlmBalance?: string;
+  /** Non-XLM/non-USDC balances, used to warn when sending more than held. */
+  accountBalances?: Array<{ code: string; issuer: string; balance: string }>;
   usdcBalance?: string | null;
   onSuccess?: (txHash?: string) => void;
   title?: string;
@@ -74,6 +82,7 @@ type FavouriteEntry = {
 };
 
 const ESTIMATED_NETWORK_FEE = `${STELLAR_BASE_FEE_XLM} XLM`;
+const XLM_USD_RATE = 0.11;
 const FAVOURITES_STORAGE_KEY = "stellar-micropay:favourites";
 
 interface BarcodeDetectorResult {
@@ -84,8 +93,8 @@ interface BarcodeDetectorLike {
   detect(source: ImageBitmapSource): Promise<BarcodeDetectorResult[]>;
 }
 
-const RECENT_RECIPIENTS_KEY = "stellar-micropay:recent-recipients";
-const MAX_RECENT = 3;
+const RECENT_RECIPIENTS_KEY = "stellar-micropay:recent-destinations";
+const MAX_RECENT = 5;
 
 function createInitialStepTimings(): Record<PaymentStepId, PaymentStepTiming> {
   return {
@@ -97,14 +106,15 @@ function createInitialStepTimings(): Record<PaymentStepId, PaymentStepTiming> {
 }
 
 export default function SendPaymentForm({
-  publicKey,
-  xlmBalance,
+  publicKey = "",
+  xlmBalance = "0",
+  accountBalances,
   usdcBalance,
   onSuccess,
   prefill,
-  title = "Send Payment",
+  title,
   submitLabel,
-  successTitle = "Payment sent!",
+  successTitle,
   successMessage,
   assetOptions = ["XLM", "USDC"],
   hideAssetSelector = false,
@@ -113,13 +123,24 @@ export default function SendPaymentForm({
   hideAmountField = false,
   hideMemoField = false,
 }: SendPaymentFormProps) {
+  const { t } = useTranslation();
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
+  const [feeStatus, setFeeStatus] = useState<"loading" | "ready" | "error">("loading");
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
+  const [memoType, setMemoType] = useState<StellarMemoType>("text");
+  const [memoError, setMemoError] = useState<string | null>(null);
   const [isResolvingUsername, setIsResolvingUsername] = useState(false);
   const [usernameResolutionError, setUsernameResolutionError] = useState<string | null>(null);
+
+  // SNS (.xlm domain) resolution (#1197)
+  const [isResolvingSNS, setIsResolvingSNS] = useState(false);
+  const [snsResolvingDomain, setSnsResolvingDomain] = useState<string | null>(null);
+  const [snsResolvedAddress, setSnsResolvedAddress] = useState<string | null>(null);
+  const [snsError, setSnsError] = useState<string | null>(null);
+  const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
   const [showCustomAssetForm, setShowCustomAssetForm] = useState(false);
   const [selectedMemoTemplate, setSelectedMemoTemplate] = useState<string | null>(null);
@@ -139,6 +160,19 @@ export default function SendPaymentForm({
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  
+  // Split payment mode
+  const [isSplitPaymentMode, setIsSplitPaymentMode] = useState(false);
+  const [splitRecipients, setSplitRecipients] = useState<Array<{ address: string; percentage: number }>>([
+    { address: "", percentage: 100 }
+  ]);
+  
+  // Federation address lookup
+  const [isResolvingFederation, setIsResolvingFederation] = useState(false);
+  const [federationResolvedAddress, setFederationResolvedAddress] = useState<string | null>(null);
+  const [federationError, setFederationError] = useState<string | null>(null);
+  const federationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -168,7 +202,7 @@ export default function SendPaymentForm({
       }
       startDetection();
     } catch (err) {
-      setScannerError("Camera access denied or not available.");
+      setScannerError(t("sendPayment.cameraError"));
       setIsScannerOpen(false);
     }
   };
@@ -218,7 +252,8 @@ export default function SendPaymentForm({
   const [recentRecipients, setRecentRecipients] = useState<string[]>(() => {
     try {
       if (typeof window !== "undefined") {
-        return JSON.parse(sessionStorage.getItem(RECENT_RECIPIENTS_KEY) ?? "[]");
+        const parsed = JSON.parse(localStorage.getItem(RECENT_RECIPIENTS_KEY) ?? "[]");
+        return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string").slice(0, MAX_RECENT) : [];
       }
       return [];
     } catch {
@@ -238,6 +273,25 @@ export default function SendPaymentForm({
   });
 
   const [isFavouritesDropdownOpen, setIsFavouritesDropdownOpen] = useState(false);
+  const [isRecentDropdownOpen, setIsRecentDropdownOpen] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const contactSuggestions = hideDestinationField
+    ? []
+    : favourites
+        .filter(
+          (f) =>
+            destination.length > 0 &&
+            (f.name.toLowerCase().includes(destination.toLowerCase()) ||
+              f.address.startsWith(destination))
+        )
+        .slice(0, 5);
+  const handleDestinationKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!contactSuggestions.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveSuggestion((i) => (i + 1) % contactSuggestions.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveSuggestion((i) => (i - 1 + contactSuggestions.length) % contactSuggestions.length); }
+    else if (e.key === "Enter" && contactSuggestions[activeSuggestion]) { e.preventDefault(); setDestination(contactSuggestions[activeSuggestion].address); setActiveSuggestion(0); }
+    else if (e.key === "Escape") { setActiveSuggestion(0); setDestination(""); }
+  };
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -260,6 +314,7 @@ export default function SendPaymentForm({
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsFavouritesDropdownOpen(false);
+        setIsRecentDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -270,18 +325,45 @@ export default function SendPaymentForm({
     const updated = [address, ...recentRecipients.filter((a) => a !== address)].slice(0, MAX_RECENT);
     setRecentRecipients(updated);
     if (typeof window !== "undefined") {
-      sessionStorage.setItem(RECENT_RECIPIENTS_KEY, JSON.stringify(updated));
+      localStorage.setItem(RECENT_RECIPIENTS_KEY, JSON.stringify(updated));
     }
   };
 
   const clearRecipients = () => {
     setRecentRecipients([]);
-    sessionStorage.removeItem(RECENT_RECIPIENTS_KEY);
+    localStorage.removeItem(RECENT_RECIPIENTS_KEY);
+    setIsRecentDropdownOpen(false);
   };
 
   const memoTemplates = ["Rent", "Salary", "Invoice", "Gift", "Coffee ☕"];
 
+  const handleMemoTypeChange = (nextType: StellarMemoType) => {
+    setMemoType(nextType);
+    setMemo("");
+    setSelectedMemoTemplate(null);
+    setMemoError(null);
+  };
+
+  const validateMemoValue = (type: StellarMemoType, value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (type === "id") {
+      if (!/^\d+$/.test(trimmed)) return "MEMO_ID must be a uint64 integer";
+      return null;
+    }
+    if (type === "hash" || type === "return") {
+      const hex = trimmed.toLowerCase().replace(/^0x/, "");
+      if (!/^[0-9a-f]*$/.test(hex)) return `MEMO_${type.toUpperCase()} must be hexadecimal`;
+      if (hex.length !== STELLAR_MEMO_HASH_HEX_LENGTH) {
+        return `MEMO_${type.toUpperCase()} requires ${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters (32 bytes)`;
+      }
+      return null;
+    }
+    return null;
+  };
+
   const handleMemoTemplateClick = (template: string) => {
+    if (memoType !== "text") return;
     if (selectedMemoTemplate === template) {
       setSelectedMemoTemplate(null);
       setMemo("");
@@ -289,14 +371,33 @@ export default function SendPaymentForm({
     }
     setSelectedMemoTemplate(template);
     setMemo(template);
+    setMemoError(null);
   };
 
   const handleMemoChange = (value: string) => {
-    setMemo(value);
-    if (value !== selectedMemoTemplate) {
+    let next = value;
+    if (memoType === "text") {
+      next = truncateMemoText(value);
+    } else if (memoType === "id") {
+      next = value.replace(/\D/g, "");
+    } else {
+      next = value.replace(/[^0-9a-fA-Fx]/g, "").slice(0, STELLAR_MEMO_HASH_HEX_LENGTH + 2);
+    }
+    setMemo(next);
+    setMemoError(validateMemoValue(memoType, next));
+    if (next !== selectedMemoTemplate) {
       setSelectedMemoTemplate(null);
     }
   };
+
+  const memoPlaceholder =
+    memoType === "text"
+      ? "Payment note..."
+      : memoType === "id"
+        ? "uint64 integer, e.g. 12345"
+        : "64-character hex (32 bytes)";
+
+  const isMemoValid = !memo.trim() || !validateMemoValue(memoType, memo);
 
   useEffect(() => {
     let cancelled = false;
@@ -305,10 +406,12 @@ export default function SendPaymentForm({
         const feeStats = await fetchNetworkFeeStats();
         if (!cancelled) {
           setNetworkFeeXlm(feeStats.baseFeeXlm || STELLAR_BASE_FEE_XLM);
+          setFeeStatus("ready");
         }
       } catch {
         if (!cancelled) {
           setNetworkFeeXlm(STELLAR_BASE_FEE_XLM);
+          setFeeStatus("error");
         }
       }
     };
@@ -332,7 +435,7 @@ export default function SendPaymentForm({
   const balance = selectedAsset === "XLM" ? xlmBal : usdcBal;
   const maxSend =
     selectedAsset === "XLM"
-      ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM)
+      ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM - networkFeeXlm)
       : usdcBal;
 
   const amountNum = parseFloat(amount);
@@ -341,17 +444,18 @@ export default function SendPaymentForm({
   const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
 
   const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
+  const isSNSDestination = destination.toLowerCase().endsWith(".xlm");
 
   const MIN_STROOP = 0.0000001;
   const isValidAmt = !Number.isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
 
   const canSubmit = (isValidDest || (isUsernameDestination && !isResolvingUsername && !usernameResolutionError)) &&
-    isValidAmt && status === "idle" && destination !== publicKey;
+    isValidAmt && isMemoValid && status === "idle" && destination !== publicKey;
 
   const resolveUsername = async (username: string) => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
     if (!/^[a-zA-Z0-9]{3,20}$/.test(cleanUsername)) {
-      setUsernameResolutionError("Invalid username format");
+      setUsernameResolutionError(t("sendPayment.invalidUsername"));
       return;
     }
     setIsResolvingUsername(true);
@@ -359,20 +463,169 @@ export default function SendPaymentForm({
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
       const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
-      if (!response.ok) throw new Error("Username not found");
+      if (!response.ok) throw new Error(t("sendPayment.usernameNotFound"));
       const payload = await response.json();
       if (payload?.success && payload?.data?.publicKey) {
         setDestination(payload.data.publicKey);
         setUsernameResolutionError(null);
       } else {
-        throw new Error("Failed to resolve username");
+        throw new Error(t("sendPayment.usernameResolveFailed"));
       }
     } catch (err) {
-      setUsernameResolutionError(err instanceof Error ? err.message : "Failed to resolve username");
+      setUsernameResolutionError(
+        err instanceof Error ? err.message : t("sendPayment.usernameResolveFailed")
+      );
     } finally {
       setIsResolvingUsername(false);
     }
   };
+
+  // SNS (.xlm domain) resolution with debounce (#1197)
+  useEffect(() => {
+    if (snsDebounceRef.current) {
+      clearTimeout(snsDebounceRef.current);
+    }
+
+    const isSNSDomain = destination.toLowerCase().endsWith(".xlm");
+
+    if (!isSNSDomain || isValidStellarAddress(destination)) {
+      setSnsResolvedAddress(null);
+      setSnsError(null);
+      setIsResolvingSNS(false);
+      setSnsResolvingDomain(null);
+      return;
+    }
+
+    const domain = destination.trim().toLowerCase();
+    setIsResolvingSNS(true);
+    setSnsResolvingDomain(domain);
+    setSnsResolvedAddress(null);
+    setSnsError(null);
+
+    snsDebounceRef.current = setTimeout(async () => {
+      try {
+        const address = await resolveSNSDomain(domain);
+        if (address) {
+          setSnsResolvedAddress(address);
+          setSnsError(null);
+        } else {
+          setSnsResolvedAddress(null);
+          setSnsError("SNS name not found");
+        }
+      } catch {
+        setSnsResolvedAddress(null);
+        setSnsError("SNS name not found");
+      } finally {
+        setIsResolvingSNS(false);
+      }
+    }, 100);
+
+    return () => {
+      if (snsDebounceRef.current) {
+        clearTimeout(snsDebounceRef.current);
+      }
+    };
+  }, [destination]);
+
+  const handleUseSNSAddress = () => {
+    if (snsResolvedAddress) {
+      setDestination(snsResolvedAddress);
+      setSnsResolvedAddress(null);
+      setSnsError(null);
+    }
+  };
+
+  // Federation address lookup with debounce
+  useEffect(() => {
+    if (federationDebounceRef.current) {
+      clearTimeout(federationDebounceRef.current);
+    }
+
+    const isFederationAddress = destination.includes("*") && !isValidStellarAddress(destination);
+    
+    if (!isFederationAddress) {
+      setFederationResolvedAddress(null);
+      setFederationError(null);
+      return;
+    }
+
+    setIsResolvingFederation(true);
+    setFederationError(null);
+    setFederationResolvedAddress(null);
+
+    federationDebounceRef.current = setTimeout(async () => {
+      try {
+        const [name, domain] = destination.split("*");
+        if (!name || !domain) {
+          setFederationError("Invalid federation address format");
+          setIsResolvingFederation(false);
+          return;
+        }
+
+        // Federation.Server.resolve takes the full "name*domain" federation address.
+        const result = await Federation.Server.resolve(`${name}*${domain}`);
+        if (result.account_id) {
+          setFederationResolvedAddress(result.account_id);
+        } else {
+          setFederationError("Federation address not found");
+        }
+      } catch (err) {
+        setFederationError("Federation address not found");
+      } finally {
+        setIsResolvingFederation(false);
+      }
+    }, 500);
+
+    return () => {
+      if (federationDebounceRef.current) {
+        clearTimeout(federationDebounceRef.current);
+      }
+    };
+  }, [destination]);
+
+  const handleUseFederationAddress = () => {
+    if (federationResolvedAddress) {
+      setDestination(federationResolvedAddress);
+      setFederationResolvedAddress(null);
+      setFederationError(null);
+    }
+  };
+
+  // Split payment handlers
+  const handleAddSplitRecipient = () => {
+    if (splitRecipients.length >= 10) return;
+    const currentTotal = splitRecipients.reduce((sum, r) => sum + r.percentage, 0);
+    const remainingPercentage = Math.max(0, 100 - currentTotal);
+    setSplitRecipients([...splitRecipients, { address: "", percentage: remainingPercentage }]);
+  };
+
+  const handleRemoveSplitRecipient = (index: number) => {
+    const newRecipients = splitRecipients.filter((_, i) => i !== index);
+    if (newRecipients.length === 0) {
+      setSplitRecipients([{ address: "", percentage: 100 }]);
+    } else {
+      // Redistribute percentages
+      const total = newRecipients.reduce((sum, r) => sum + r.percentage, 0);
+      if (total < 100) {
+        newRecipients[0].percentage += (100 - total);
+      }
+      setSplitRecipients(newRecipients);
+    }
+  };
+
+  const handleUpdateSplitRecipient = (index: number, field: "address" | "percentage", value: string | number) => {
+    const newRecipients = [...splitRecipients];
+    if (field === "percentage") {
+      const numValue = Number(value);
+      newRecipients[index].percentage = Math.max(0, Math.min(100, numValue));
+    } else {
+      newRecipients[index].address = value as string;
+    }
+    setSplitRecipients(newRecipients);
+  };
+
+  const totalSplitPercentage = splitRecipients.reduce((sum, r) => sum + r.percentage, 0);
+  const splitPaymentsValid = splitRecipients.every(r => r.address && isValidStellarAddress(r.address)) && totalSplitPercentage === 100;
 
   const handleSelectFavourite = (address: string) => {
     setDestination(address);
@@ -418,6 +671,8 @@ export default function SendPaymentForm({
       setDestination("");
       setAmount("");
       setMemo("");
+      setMemoType("text");
+      setMemoError(null);
     }
     setStatus("idle");
   };
@@ -434,11 +689,12 @@ export default function SendPaymentForm({
         memo: memo.trim() || undefined,
       });
       const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) throw new Error(signError || "Receipt signing failed");
+      if (signError || !signedXDR)
+        throw new Error(signError || t("sendPayment.receiptSigningFailed"));
       const result = await submitTransaction(signedXDR);
       setReceiptMinted(true);
     } catch (err: any) {
-      setReceiptError(err?.message || "Failed to mint receipt");
+      setReceiptError(err?.message || t("sendPayment.receiptMintFailed"));
     } finally {
       setMintingReceipt(false);
     }
@@ -462,6 +718,7 @@ export default function SendPaymentForm({
             toPublicKey: destination,
             amount: amountNum.toFixed(7),
             memo: memo.trim() || undefined,
+            memoType,
           });
       markStepCompleted("building");
 
@@ -469,7 +726,8 @@ export default function SendPaymentForm({
       markStepStarted("signing");
       setStatus("signing");
       const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) throw new Error(signError || "Signing failed");
+      if (signError || !signedXDR)
+        throw new Error(signError || t("sendPayment.signingFailed"));
       markStepCompleted("signing");
 
       activeStep = "submitting";
@@ -488,8 +746,8 @@ export default function SendPaymentForm({
       setStatus("success");
       saveRecipient(destination);
       onSuccess?.(result.hash);
-    } catch (err: any) {
-      const message = err?.message || "An unexpected error occurred";
+    } catch (err: unknown) {
+      const { message } = parseHorizonSubmissionError(err);
       setError(message);
       markStepFailed(activeStep, message);
       setStatus("error");
@@ -508,7 +766,7 @@ export default function SendPaymentForm({
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
-    if (!confirmed) throw new Error("Transaction confirmation timed out.");
+    if (!confirmed) throw new Error(t("sendPayment.confirmationTimedOut"));
   };
 
   const setMaxAmount = () => setAmount(maxSend.toFixed(7));
@@ -542,11 +800,17 @@ export default function SendPaymentForm({
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stellar-500/20 text-stellar-400">
           <CheckIcon className="h-8 w-8" />
         </div>
-        <h2 className="mb-2 font-display text-2xl font-bold text-white">{successTitle}</h2>
-        <p className="mb-6 text-slate-400">{successMessage || "Your payment has been confirmed on the Stellar network."}</p>
+        <h2 className="mb-2 font-display text-2xl font-bold text-white">
+          {successTitle ?? t("sendPayment.successTitle")}
+        </h2>
+        <p className="mb-6 text-slate-400">
+          {successMessage ?? t("sendPayment.successMessage")}
+        </p>
 
         <div className="mb-8 rounded-xl border border-white/5 bg-white/5 p-4">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Transaction Hash</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            {t("sendPayment.transactionHash")}
+          </p>
           <div className="flex items-center justify-center gap-2">
             <code className="text-xs text-stellar-300">{truncatedHash}</code>
             <button onClick={handleCopy} className="text-slate-500 hover:text-white transition-colors">
@@ -557,7 +821,7 @@ export default function SendPaymentForm({
 
         <div className="flex flex-col gap-3">
           <a href={explorerUrl(txHash)} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center justify-center gap-2">
-            View on Explorer <ExternalLinkIcon className="h-4 w-4" />
+            {t("sendPayment.viewOnExplorer")} <ExternalLinkIcon className="h-4 w-4" />
           </a>
 
           {!receiptMinted ? (
@@ -569,18 +833,18 @@ export default function SendPaymentForm({
               {mintingReceipt ? (
                 <>
                   <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                  Minting receipt…
+                  {t("sendPayment.mintingReceipt")}
                 </>
               ) : (
                 <>
                   <ReceiptIcon className="h-4 w-4" />
-                  Mint NFT Receipt
+                  {t("sendPayment.mintReceipt")}
                 </>
               )}
             </button>
           ) : (
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200 text-center">
-              NFT receipt minted successfully!
+              {t("sendPayment.mintSuccess")}
             </div>
           )}
 
@@ -589,7 +853,7 @@ export default function SendPaymentForm({
           )}
 
           <button onClick={() => setStatus("idle")} className="text-sm text-slate-400 hover:text-white transition-colors">
-            Send another payment
+            {t("sendPayment.sendAnother")}
           </button>
         </div>
       </div>
@@ -601,7 +865,7 @@ export default function SendPaymentForm({
       <div className="card animate-fade-in">
       <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
         <SendIcon className="w-5 h-5 text-stellar-400" />
-        {title}
+        {title ?? t("sendPayment.title")}
       </h2>
 
       <div className="space-y-5">
@@ -630,14 +894,16 @@ export default function SendPaymentForm({
         {!hideDestinationField && (
           <div className="relative" ref={dropdownRef}>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">Destination</label>
+              <label className="label mb-0">{t("sendPayment.destination")}</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsFavouritesDropdownOpen(!isFavouritesDropdownOpen)}
                   className="text-xs text-stellar-400 hover:text-stellar-300"
                 >
-                  {isFavouritesDropdownOpen ? "Close" : "Favourites"}
+                  {isFavouritesDropdownOpen
+                    ? t("common.close")
+                    : t("sendPayment.favourites")}
                 </button>
                 {isValidDest && (
                   <button
@@ -646,19 +912,43 @@ export default function SendPaymentForm({
                       const existing = favourites.find((f) => f.address === destination);
                       if (existing) deleteFavourite(destination);
                       else {
-                        const name = prompt("Name this favourite:", destination.slice(0, 8));
+                        const name = prompt(
+                          t("sendPayment.nameFavouritePrompt"),
+                          destination.slice(0, 8)
+                        );
                         if (name) saveFavourites([...favourites, { name, address: destination }]);
                       }
                     }}
                     className="text-stellar-400 hover:text-stellar-300"
-                    title={favourites.some((f) => f.address === destination) ? "Remove favourite" : "Add favourite"}
+                    title={
+                      favourites.some((f) => f.address === destination)
+                        ? t("sendPayment.removeFavourite")
+                        : t("sendPayment.addFavourite")
+                    }
                   >
                     <StarIcon className="h-5 w-5" filled={favourites.some((f) => f.address === destination)} />
                   </button>
                 )}
                 {isScannerSupported && status === "idle" && (
-                  <button type="button" onClick={openScanner} className="text-slate-400 hover:text-white" title="Scan QR Code">
+                  <button
+                    type="button"
+                    onClick={openScanner}
+                    className="text-slate-400 hover:text-white"
+                    title={t("sendPayment.scanQr")}
+                  >
                     <QrCodeIcon className="h-5 w-5" />
+                  </button>
+                )}
+                {status === "idle" && (
+                  <button
+                    type="button"
+                    onClick={() => setIsContactPickerOpen(true)}
+                    className="text-slate-400 hover:text-white"
+                    title="Pick from address book"
+                    aria-label="Pick from address book"
+                    data-testid="open-contact-picker"
+                  >
+                    <ContactsIcon className="h-5 w-5" />
                   </button>
                 )}
               </div>
@@ -668,10 +958,80 @@ export default function SendPaymentForm({
               type="text"
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
-              placeholder="G... or @username"
-              className={clsx("input-field font-mono text-sm", destination && !isValidDest && !isUsernameDestination && "border-red-500/50")}
+              onFocus={() => setIsRecentDropdownOpen(recentRecipients.length > 0)}
+              onKeyDown={handleDestinationKeyDown}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={contactSuggestions.length > 0}
+              aria-controls="destination-suggestions"
+              placeholder="G... or alice.xlm"
+              className={clsx("input-field font-mono text-sm", destination && !isValidDest && !isUsernameDestination && !isSNSDestination && "border-red-500/50")}
               disabled={status !== "idle" || destinationReadOnly}
             />
+
+            {isRecentDropdownOpen && recentRecipients.length > 0 && contactSuggestions.length === 0 && (
+              <div role="listbox" aria-label="Recent destinations" className="absolute left-0 right-0 z-40 mt-1 overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-2xl">
+                <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recent destinations</p>
+                {recentRecipients.map((address) => (
+                  <button
+                    key={address}
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => { setDestination(address); setIsRecentDropdownOpen(false); }}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-sm text-slate-200 hover:bg-white/5"
+                  >
+                    <span>{shortenAddress(address, 10)}</span>
+                  </button>
+                ))}
+                <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={clearRecipients} className="w-full border-t border-white/10 px-3 py-2 text-left text-xs font-medium text-red-300 hover:bg-white/5">
+                  Clear history
+                </button>
+              </div>
+            )}
+
+            {isResolvingSNS && snsResolvingDomain && (
+              <p className="text-xs text-slate-400" role="status">
+                Resolving {snsResolvingDomain}…
+              </p>
+            )}
+            {snsResolvedAddress && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="bg-green-100 rounded-lg px-3 py-2 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-200">
+                  Resolved: {snsResolvedAddress}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleUseSNSAddress}
+                  className="text-xs font-semibold text-green-900 underline hover:text-green-700 dark:text-green-100 dark:hover:text-green-300"
+                >
+                  Use address
+                </button>
+              </div>
+            )}
+            {snsError && (
+              <p className="text-xs text-red-400" role="alert">
+                {snsError}
+              </p>
+            )}
+
+            {contactSuggestions.length > 0 && (
+              <ul id="destination-suggestions" role="listbox" aria-label="Contact suggestions" className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
+                {contactSuggestions.map((item, index) => (
+                  <li key={item.address} role="option" aria-selected={index === activeSuggestion}>
+                    <button
+                      type="button"
+                      onClick={() => { setDestination(item.address); setActiveSuggestion(0); }}
+                      className={clsx("flex w-full flex-col items-start rounded-lg px-3 py-2 text-left", index === activeSuggestion ? "bg-white/5" : "hover:bg-white/5")}
+                    >
+                      <span className="text-sm font-medium text-slate-200">{item.name}</span>
+                      <span className="text-xs text-slate-500">{shortenAddress(item.address, 8)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
 
             {isFavouritesDropdownOpen && favourites.length > 0 && (
               <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
@@ -695,8 +1055,8 @@ export default function SendPaymentForm({
           <div>
             <div className="mb-2 flex items-center justify-between">
               <label className="label mb-0">Amount ({selectedAsset})</label>
-              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"}>
-                Max: {formatXLM(maxSend)}
+              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"} title="Send Max: balance - 1 XLM base reserve - subentry reserves - current network fee">
+                Send Max: {formatXLM(maxSend)}
               </button>
             </div>
             <input
@@ -707,46 +1067,169 @@ export default function SendPaymentForm({
               className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
               disabled={status !== "idle"}
             />
+            <p className="mt-2 text-xs text-slate-400" role="status">
+              {feeStatus === "loading" && "Fetching current network fee…"}
+              {feeStatus === "error" && `Network fee unavailable; using ${STELLAR_BASE_FEE_XLM} XLM fallback.`}
+              {feeStatus === "ready" && estimatedTotalDeducted != null &&
+                `Estimated fee: ~${networkFeeXlm.toFixed(7)} XLM (${Math.round(networkFeeXlm * 10_000_000)} stroops); total ~${estimatedTotalDeducted.toFixed(7)} XLM.`}
+            </p>
+          </div>
+        )}
+
+        {/* Split Payment Mode Toggle */}
+        {!hideDestinationField && !hideAmountField && (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
+              className={clsx(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                isSplitPaymentMode ? "bg-stellar-500" : "bg-slate-600"
+              )}
+            >
+              <span
+                className={clsx(
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  isSplitPaymentMode ? "translate-x-6" : "translate-x-1"
+                )}
+              />
+            </button>
+            <span className="text-sm text-slate-300">Split payment among multiple recipients</span>
+          </div>
+        )}
+
+        {/* Split Payment Recipients */}
+        {isSplitPaymentMode && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="label mb-0">Recipients ({splitRecipients.length}/10)</label>
+              <span className={clsx(
+                "text-xs font-medium",
+                totalSplitPercentage === 100 ? "text-emerald-400" : "text-amber-400"
+              )}>
+                {totalSplitPercentage}% allocated
+              </span>
+            </div>
+            {splitRecipients.map((recipient, index) => (
+              <div key={index} className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={recipient.address}
+                    onChange={(e) => handleUpdateSplitRecipient(index, "address", e.target.value)}
+                    placeholder="G..."
+                    className="input-field font-mono text-sm flex-1"
+                    disabled={status !== "idle"}
+                  />
+                  <input
+                    type="number"
+                    value={recipient.percentage}
+                    onChange={(e) => handleUpdateSplitRecipient(index, "percentage", e.target.value)}
+                    min="0"
+                    max="100"
+                    className="input-field w-20 text-sm"
+                    disabled={status !== "idle"}
+                  />
+                  <span className="text-slate-400 text-sm self-center">%</span>
+                  {splitRecipients.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSplitRecipient(index)}
+                      className="text-red-400 hover:text-red-300 px-2"
+                      disabled={status !== "idle"}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {splitRecipients.length < 10 && (
+              <button
+                type="button"
+                onClick={handleAddSplitRecipient}
+                disabled={status !== "idle"}
+                className="btn-secondary w-full text-sm"
+              >
+                + Add recipient
+              </button>
+            )}
+            {totalSplitPercentage !== 100 && (
+              <div className="text-xs text-amber-400">
+                Total percentage must equal 100% (currently {totalSplitPercentage}%)
+              </div>
+            )}
           </div>
         )}
 
         {!hideMemoField && (
           <div>
-            <label className="label">Memo (optional)</label>
-            <input
-              type="text"
-              value={memo}
-              onChange={(e) => handleMemoChange(truncateMemoText(e.target.value))}
-              placeholder="Payment note..."
-              className="input-field"
+            <label className="label" htmlFor="memo-type">Memo (optional)</label>
+            <select
+              id="memo-type"
+              value={memoType}
+              onChange={(e) => handleMemoTypeChange(e.target.value as StellarMemoType)}
+              className="input-field mb-2"
               disabled={status !== "idle"}
-              maxLength={STELLAR_MEMO_TEXT_MAX_BYTES}
+              aria-label="Memo type"
+            >
+              <option value="text">MEMO_TEXT</option>
+              <option value="id">MEMO_ID</option>
+              <option value="hash">MEMO_HASH</option>
+              <option value="return">MEMO_RETURN</option>
+            </select>
+            <input
+              type={memoType === "id" ? "text" : "text"}
+              inputMode={memoType === "id" ? "numeric" : "text"}
+              value={memo}
+              onChange={(e) => handleMemoChange(e.target.value)}
+              placeholder={memoPlaceholder}
+              className={clsx("input-field", memoError && "border-red-500/50")}
+              disabled={status !== "idle"}
+              maxLength={
+                memoType === "text"
+                  ? STELLAR_MEMO_TEXT_MAX_BYTES
+                  : memoType === "id"
+                    ? 20
+                    : STELLAR_MEMO_HASH_HEX_LENGTH + 2
+              }
+              aria-label="Memo value"
             />
-            <div className="mt-3 flex flex-wrap gap-2">
-              {memoTemplates.map((template) => {
-                const isActive = selectedMemoTemplate === template;
-                return (
-                  <button
-                    key={template}
-                    type="button"
-                    onClick={() => handleMemoTemplateClick(template)}
-                    disabled={status !== "idle"}
-                    className={clsx(
-                      "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
-                      isActive
-                        ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
-                        : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
-                      status !== "idle" && "cursor-not-allowed opacity-50",
-                    )}
-                  >
-                    {template}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-3 text-xs text-slate-500">
-              {memoTextByteLength(memo)}/{STELLAR_MEMO_TEXT_MAX_BYTES} characters
-            </p>
+            {memoType === "text" && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {memoTemplates.map((template) => {
+                  const isActive = selectedMemoTemplate === template;
+                  return (
+                    <button
+                      key={template}
+                      type="button"
+                      onClick={() => handleMemoTemplateClick(template)}
+                      disabled={status !== "idle"}
+                      className={clsx(
+                        "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
+                          : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
+                        status !== "idle" && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      {template}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {memoError ? (
+              <p className="mt-3 text-xs text-red-400">{memoError}</p>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">
+                {memoType === "text"
+                  ? `${memoTextByteLength(memo)}/${STELLAR_MEMO_TEXT_MAX_BYTES} characters`
+                  : memoType === "id"
+                    ? "Unsigned 64-bit integer (uint64)"
+                    : `${memo.replace(/^0x/i, "").length}/${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters`}
+              </p>
+            )}
           </div>
         )}
 
@@ -755,7 +1238,12 @@ export default function SendPaymentForm({
           disabled={!canSubmit || status !== "idle"}
           className="btn-primary w-full flex items-center justify-center gap-2"
         >
-          {status === "idle" ? `Send ${amount || ""} ${selectedAsset}` : "Processing..."}
+          {status === "idle"
+            ? t("sendPayment.sendWithAmount", {
+                amount: amount || "",
+                asset: selectedAsset,
+              })
+            : t("sendPayment.processing")}
         </button>
       </div>
     </div>
@@ -765,10 +1253,21 @@ export default function SendPaymentForm({
         destination={destination}
         amount={amountNum}
         memo={memo}
+        memoType={memoType}
         estimatedFee={ESTIMATED_NETWORK_FEE}
+        usdValue={amountNum * XLM_USD_RATE}
         isTipOnChain={isTipOnChain}
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={() => { setIsConfirmOpen(false); executeSend(); }}
+      />
+
+      <ContactPickerModal
+        isOpen={isContactPickerOpen}
+        onSelect={(contact) => {
+          setDestination(contact.address);
+          setIsContactPickerOpen(false);
+        }}
+        onClose={() => setIsContactPickerOpen(false)}
       />
 
       <PaymentStatusModal
@@ -780,6 +1279,13 @@ export default function SendPaymentForm({
         stepTimings={stepTimings}
         timeoutSeconds={60}
         onClose={closeStatusModal}
+        receipt={{
+          sender: publicKey,
+          recipient: destination,
+          amount: hasAmount ? amountNum.toFixed(7) : undefined,
+          asset: selectedAsset,
+          memo: memo.trim() || undefined,
+        }}
       />
     </>
   );
@@ -822,6 +1328,14 @@ function StarIcon({ className, filled }: { className?: string; filled?: boolean 
   return (
     <svg className={className} fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.382-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+    </svg>
+  );
+}
+
+function ContactsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
     </svg>
   );
 }
@@ -871,43 +1385,54 @@ interface SendConfirmationModalProps {
   destination: string;
   amount: number;
   memo: string;
+  memoType: StellarMemoType;
   estimatedFee: string;
+  usdValue: number;
   isTipOnChain: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
 
-function SendConfirmationModal({ isOpen, destination, amount, memo, estimatedFee, onCancel, onConfirm }: SendConfirmationModalProps) {
+function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, estimatedFee, usdValue, onCancel, onConfirm }: SendConfirmationModalProps) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10 shadow-2xl">
-        <h3 className="text-xl font-bold text-white mb-4">Confirm Payment</h3>
+        <h3 className="text-xl font-bold text-white mb-4">
+          {t("sendPayment.confirmTitle")}
+        </h3>
         <div className="space-y-4">
           <div>
-            <p className="text-xs text-slate-500 uppercase font-bold">To</p>
+            <p className="text-xs text-slate-500 uppercase font-bold">
+              {t("sendPayment.to")}
+            </p>
             <p className="text-sm font-mono text-slate-200 break-all">{destination}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">Amount</p>
+              <p className="text-xs text-slate-500 uppercase font-bold">
+                {t("sendPayment.amount", { asset: "XLM" })}
+              </p>
               <p className="text-lg font-bold text-white">{amount} XLM</p>
+              <p className="text-xs text-slate-400">≈ ${usdValue.toFixed(2)} USD</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">Fee</p>
+              <p className="text-xs text-slate-500 uppercase font-bold">
+                {t("sendPayment.fee")}
+              </p>
               <p className="text-sm text-slate-300">{estimatedFee}</p>
             </div>
           </div>
           {memo && (
             <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">Memo</p>
-              <p className="text-sm text-slate-200">{memo}</p>
+              <p className="text-xs text-slate-500 uppercase font-bold">Memo ({memoType.toUpperCase()})</p>
+              <p className="text-sm text-slate-200 break-all">{memo}</p>
             </div>
           )}
         </div>
         <div className="mt-8 flex gap-3">
-          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Cancel</button>
-          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm & Send</button>
+          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Back</button>
+          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm &amp; Sign</button>
         </div>
       </div>
     </div>

@@ -6,7 +6,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
-import { NETWORK_PASSPHRASE } from "@/lib/stellar";
+import { getNetworkPassphrase } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatAsset } from "@/utils/format";
 
@@ -22,7 +22,7 @@ export default function MultiSigSignPage() {
     if (!xdr || typeof xdr !== "string") return;
 
     try {
-      const tx = TransactionBuilder.fromXDR(xdr, NETWORK_PASSPHRASE);
+      const tx = TransactionBuilder.fromXDR(xdr, getNetworkPassphrase());
       if (tx instanceof Transaction) {
         setTransaction(tx);
       } else {

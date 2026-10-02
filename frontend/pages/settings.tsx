@@ -10,9 +10,11 @@ import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar
 import { disconnectWallet } from "@/lib/wallet";
 import { shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
+import { resetOnboardingTour } from "@/hooks/useOnboarding";
 
 export default function SettingsPage() {
   const { publicKey, disconnectWallet: disconnectCurrentWallet } = useWallet();
+  const { t, locale, setLocale } = useTranslation();
   const [config, setConfig] = useState<NetworkConfig>({
     network: "testnet",
     horizonUrl: "https://horizon-testnet.stellar.org",
@@ -27,6 +29,109 @@ export default function SettingsPage() {
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [usernameSuccess, setUsernameSuccess] = useState<string | null>(null);
   const [registeredUsername, setRegisteredUsername] = useState<string | null>(null);
+
+  // Onboarding tour replay (#621)
+  const [tourResetMessage, setTourResetMessage] = useState<string | null>(null);
+
+  const handleReplayTour = () => {
+    resetOnboardingTour();
+    setTourResetMessage("Tour reset — it will show again next time you open the dashboard.");
+  };
+
+  // Price alert state
+  const [priceAlerts, setPriceAlerts] = useState<Array<{
+    id: number;
+    asset: string;
+    direction: 'above' | 'below';
+    targetPrice: number;
+    triggered: boolean;
+  }>>([]);
+  const [priceAlertForm, setPriceAlertForm] = useState({
+    asset: 'XLM',
+    direction: 'above' as 'above' | 'below',
+    targetPrice: '',
+  });
+  const [priceAlertLoading, setPriceAlertLoading] = useState(false);
+  const [priceAlertError, setPriceAlertError] = useState<string | null>(null);
+  const [priceAlertSuccess, setPriceAlertSuccess] = useState<string | null>(null);
+
+  // Fetch price alerts on mount
+  useEffect(() => {
+    const fetchPriceAlerts = async () => {
+      if (!publicKey) return;
+
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+      try {
+        const response = await fetch(`${apiBase}/api/price-alerts?publicKey=${publicKey}`);
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload?.success && Array.isArray(payload?.data)) {
+            setPriceAlerts(payload.data);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch price alerts:", err);
+      }
+    };
+
+    fetchPriceAlerts();
+  }, [publicKey]);
+
+  // Handle price alert creation
+  const handleCreatePriceAlert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!publicKey) return;
+
+    setPriceAlertLoading(true);
+    setPriceAlertError(null);
+    setPriceAlertSuccess(null);
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    try {
+      const response = await fetch(`${apiBase}/api/price-alerts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          publicKey,
+          asset: priceAlertForm.asset,
+          direction: priceAlertForm.direction,
+          targetPrice: parseFloat(priceAlertForm.targetPrice),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create price alert");
+      }
+
+      const payload = await response.json();
+      if (payload?.success) {
+        setPriceAlerts([...priceAlerts, payload.data]);
+        setPriceAlertForm({ asset: "XLM", direction: "above", targetPrice: "" });
+        setPriceAlertSuccess("Price alert created successfully");
+      }
+    } catch (err) {
+      console.error("Failed to create price alert:", err);
+      setPriceAlertError(err instanceof Error ? err.message : "Failed to create price alert");
+    } finally {
+      setPriceAlertLoading(false);
+    }
+  };
+
+  // Handle price alert deletion
+  const handleDeletePriceAlert = async (id: number) => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+    try {
+      const response = await fetch(`${apiBase}/api/price-alerts/${id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setPriceAlerts(priceAlerts.filter((a) => a.id !== id));
+      }
+    } catch (err) {
+      console.error("Failed to delete price alert:", err);
+    }
+  };
 
   // Fetch current username on mount
   useEffect(() => {
@@ -115,14 +220,14 @@ export default function SettingsPage() {
     e.preventDefault();
 
     if (!username.trim() || !publicKey) {
-      setUsernameError("Username and wallet connection required");
+      setUsernameError(t("settings.username.errorRequired"));
       return;
     }
 
     // Validate username format
     const usernameRegex = /^[a-zA-Z0-9]{3,20}$/;
     if (!usernameRegex.test(username.trim())) {
-      setUsernameError("Username must be 3-20 characters, alphanumeric only");
+      setUsernameError(t("settings.username.errorFormat"));
       return;
     }
 
@@ -144,14 +249,18 @@ export default function SettingsPage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to register username");
+        throw new Error(payload?.error || t("settings.username.errorGeneric"));
       }
 
       setRegisteredUsername(username.trim().toLowerCase());
-      setUsernameSuccess(`Username @${username.trim()} registered successfully!`);
+      setUsernameSuccess(
+        t("settings.username.success", { username: username.trim() })
+      );
       setUsername("");
     } catch (err) {
-      setUsernameError(err instanceof Error ? err.message : "Failed to register username");
+      setUsernameError(
+        err instanceof Error ? err.message : t("settings.username.errorGeneric")
+      );
     } finally {
       setUsernameLoading(false);
     }
@@ -173,22 +282,51 @@ export default function SettingsPage() {
           <div className="space-y-8">
             <div>
               <h1 className="text-2xl font-display font-bold text-slate-900 dark:text-white mb-2">
-                Settings
+                {t("settings.title")}
               </h1>
               <p className="text-slate-600 dark:text-slate-400">
-                Configure your Stellar network preferences
+                {t("settings.subtitle")}
+              </p>
+            </div>
+
+            {/* Language picker — persists the locale to localStorage (#1145). */}
+            <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+                {t("settings.language.title")}
+              </h2>
+
+              <label
+                htmlFor="language-select"
+                className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
+              >
+                {t("settings.language.label")}
+              </label>
+              <select
+                id="language-select"
+                value={locale}
+                onChange={(event) => setLocale(event.target.value as Locale)}
+                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
+              >
+                {SUPPORTED_LOCALES.map((supportedLocale) => (
+                  <option key={supportedLocale} value={supportedLocale}>
+                    {LOCALE_LABELS[supportedLocale]}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {t("settings.language.hint")}
               </p>
             </div>
 
             <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-                Network Configuration
+                {t("settings.network.title")}
               </h2>
 
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Select Network
+                    {t("settings.network.selectNetwork")}
                   </label>
                   <div className="grid grid-cols-3 gap-3">
                     <button
@@ -199,7 +337,7 @@ export default function SettingsPage() {
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Testnet
+                      {t("settings.network.testnet")}
                     </button>
                     <button
                       onClick={() => handleNetworkChange("mainnet")}
@@ -209,7 +347,7 @@ export default function SettingsPage() {
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Mainnet
+                      {t("settings.network.mainnet")}
                     </button>
                     <button
                       onClick={() => handleNetworkChange("custom")}
@@ -219,7 +357,7 @@ export default function SettingsPage() {
                           : "border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
                       }`}
                     >
-                      Custom
+                      {t("settings.network.custom")}
                     </button>
                   </div>
                 </div>
@@ -227,7 +365,7 @@ export default function SettingsPage() {
                 {config.network === "custom" && (
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      Custom Horizon URL
+                      {t("settings.network.customHorizonUrl")}
                     </label>
                     <input
                       type="url"
@@ -238,14 +376,16 @@ export default function SettingsPage() {
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
                     />
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      Enter a custom Horizon server URL. Changes take effect immediately.
+                      {t("settings.network.customHorizonHint")}
                     </p>
                   </div>
                 )}
 
                 <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-slate-600 dark:text-slate-400">Current:</span>
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {t("settings.network.current")}
+                    </span>
                     <span className="font-mono text-slate-900 dark:text-white">
                       {config.horizonUrl}
                     </span>
@@ -261,7 +401,7 @@ export default function SettingsPage() {
                   <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  Creator Username
+                  {t("settings.username.title")}
                 </h2>
 
                 {registeredUsername ? (
@@ -272,21 +412,25 @@ export default function SettingsPage() {
                       </svg>
                       <div>
                         <p className="text-emerald-400 font-medium">@{registeredUsername}</p>
-                        <p className="text-xs text-slate-400">Your tip page: {typeof window !== "undefined" ? window.location.origin : ""}/tip/{registeredUsername}</p>
+                        <p className="text-xs text-slate-400">
+                          {t("settings.username.tipPagePrefix")}{" "}
+                          {typeof window !== "undefined" ? window.location.origin : ""}
+                          /tip/{registeredUsername}
+                        </p>
                       </div>
                     </div>
                     <Link
                       href={`/tip/${registeredUsername}`}
                       className="inline-flex items-center gap-2 text-sm text-stellar-400 hover:text-stellar-300"
                     >
-                      View your tip page →
+                      {t("settings.username.viewTipPage")}
                     </Link>
                   </div>
                 ) : (
                   <form onSubmit={handleRegisterUsername} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                        Register a username
+                        {t("settings.username.registerLabel")}
                       </label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
@@ -295,7 +439,7 @@ export default function SettingsPage() {
                             type="text"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            placeholder="yourname"
+                            placeholder={t("settings.username.placeholder")}
                             className="w-full pl-7 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-cosmos-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-stellar-500 focus:border-transparent"
                             disabled={usernameLoading}
                           />
@@ -305,11 +449,13 @@ export default function SettingsPage() {
                           disabled={usernameLoading || !username.trim()}
                           className="px-4 py-2 bg-stellar-500 hover:bg-stellar-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
                         >
-                          {usernameLoading ? "Registering..." : "Register"}
+                          {usernameLoading
+                            ? t("settings.username.registering")
+                            : t("settings.username.register")}
                         </button>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        3-20 characters, letters and numbers only
+                        {t("settings.username.hint")}
                       </p>
                     </div>
 
@@ -329,21 +475,134 @@ export default function SettingsPage() {
 
                 <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-slate-600 dark:text-slate-400">Linked wallet:</span>
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {t("settings.username.linkedWallet")}
+                    </span>
                     <span className="font-mono text-slate-900 dark:text-white">
                       {shortenAddress(publicKey)}
                     </span>
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : null}
+
+            {/* Price Alerts Section */}
+            {publicKey ? (
+              <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-stellar-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  Price Alerts
+                </h2>
+
+                <form onSubmit={handleCreatePriceAlert} className="space-y-4 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Asset
+                      </label>
+                      <select
+                        value={priceAlertForm.asset}
+                        onChange={(e) => setPriceAlertForm({ ...priceAlertForm, asset: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-cosmos-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white"
+                      >
+                        <option value="XLM">XLM</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Direction
+                      </label>
+                      <select
+                        value={priceAlertForm.direction}
+                        onChange={(e) => setPriceAlertForm({ ...priceAlertForm, direction: e.target.value as 'above' | 'below' })}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-cosmos-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white"
+                      >
+                        <option value="above">Above</option>
+                        <option value="below">Below</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Target Price (USD)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.0000001"
+                        value={priceAlertForm.targetPrice}
+                        onChange={(e) => setPriceAlertForm({ ...priceAlertForm, targetPrice: e.target.value })}
+                        placeholder="0.1234567"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-cosmos-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={priceAlertLoading}
+                    className="btn-primary w-full"
+                  >
+                    {priceAlertLoading ? "Creating..." : "Create Alert"}
+                  </button>
+                </form>
+
+                {priceAlertError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg mb-4">
+                    <p className="text-sm text-red-400">{priceAlertError}</p>
+                  </div>
+                )}
+
+                {priceAlertSuccess && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg mb-4">
+                    <p className="text-sm text-emerald-400">{priceAlertSuccess}</p>
+                  </div>
+                )}
+
+                {priceAlerts.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">Your Alerts</h3>
+                    {priceAlerts.map((alert) => (
+                      <div
+                        key={alert.id}
+                        className="flex items-center justify-between p-3 bg-slate-50 dark:bg-cosmos-900 rounded-lg"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-slate-900 dark:text-white">
+                            {alert.asset} {alert.direction} ${alert.targetPrice}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {alert.triggered ? "Triggered" : "Active"}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDeletePriceAlert(alert.id)}
+                          className="text-red-400 hover:text-red-300 text-sm"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!('Notification' in window) && (
+                  <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                    <p className="text-xs text-amber-400">
+                      Your browser does not support notifications. Alerts will be shown as a banner on the dashboard.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {publicKey ? null : (
               <div className="bg-white dark:bg-cosmos-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <div className="text-center py-4">
                   <svg className="w-12 h-12 mx-auto text-slate-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                   <p className="text-slate-600 dark:text-slate-400">
-                    Connect your wallet to register a username
+                    {t("settings.username.connectPrompt")}
                   </p>
                 </div>
               </div>
@@ -363,18 +622,18 @@ export default function SettingsPage() {
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                Switch to Mainnet?
+                {t("settings.network.mainnetWarningTitle")}
               </h3>
             </div>
             <p className="text-slate-600 dark:text-slate-400 mb-6">
-              Mainnet uses real XLM and real funds. Make sure you understand the risks and have backed up your keys. This action will disconnect your wallet.
+              {t("settings.network.mainnetWarningBody")}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={confirmMainnetSwitch}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
               >
-                Switch to Mainnet
+                {t("settings.network.switchToMainnet")}
               </button>
               <button
                 onClick={() => {
@@ -383,7 +642,7 @@ export default function SettingsPage() {
                 }}
                 className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white px-4 py-2 rounded-lg font-medium transition-colors"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </div>

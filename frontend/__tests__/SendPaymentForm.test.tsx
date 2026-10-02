@@ -12,6 +12,11 @@ jest.mock('@/lib/stellar', () => ({
     isValidStellarAddress: jest.fn((addr) => addr.startsWith('G') && addr.length === 56),
     submitTransaction: jest.fn(),
     STELLAR_MEMO_TEXT_MAX_BYTES: 28,
+    STELLAR_MEMO_HASH_HEX_LENGTH: 64,
+    STELLAR_BASE_FEE_XLM: 0.00001,
+    STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM: 1,
+    server: { transactions: () => ({ transaction: () => ({ call: jest.fn() }) }) },
+    fetchNetworkFeeStats: jest.fn().mockResolvedValue({ baseFeeXlm: 0.00001 }),
     memoTextByteLength: jest.fn((memo: string) => encodeURIComponent(memo).replace(/%[0-9A-F]{2}/gi, 'x').length),
     truncateMemoText: jest.fn((memo: string) => Array.from(memo).reduce((result, char) => {
         return encodeURIComponent(result + char).replace(/%[0-9A-F]{2}/gi, 'x').length <= 28 ? result + char : result;
@@ -27,6 +32,14 @@ jest.mock('@/lib/wallet', () => ({
 jest.mock('@/utils/format', () => ({
     formatXLM: jest.fn((amount) => `${parseFloat(amount).toFixed(7)} XLM`),
 }));
+
+// Mock the SNS resolver used by the form (#1197)
+jest.mock('@/utils/snsResolver', () => ({
+    resolveSNSDomain: jest.fn(),
+}));
+
+import { resolveSNSDomain } from '@/utils/snsResolver';
+const resolveSNSDomainMock = resolveSNSDomain as jest.MockedFunction<typeof resolveSNSDomain>;
 
 describe('SendPaymentForm - Memo Templates', () => {
     const defaultProps = {
@@ -181,4 +194,60 @@ describe('SendPaymentForm - Memo Templates', () => {
         expect(rentChip).not.toHaveClass('bg-stellar-500/20');
         expect(salaryChip).toHaveClass('bg-stellar-500/20');
     });
+
+    it('renders memo type selector with all four Stellar memo types', () => {
+        render(<SendPaymentForm {...defaultProps} />);
+        const select = screen.getByLabelText('Memo type') as HTMLSelectElement;
+        expect(select).toBeInTheDocument();
+        expect(Array.from(select.options).map((o) => o.value)).toEqual([
+            'text',
+            'id',
+            'hash',
+            'return',
+        ]);
+    });
+
+    it('switches memo input mode for MEMO_ID', async () => {
+        render(<SendPaymentForm {...defaultProps} />);
+        const user = userEvent.setup();
+        const select = screen.getByLabelText('Memo type');
+        await user.selectOptions(select, 'id');
+        expect(screen.getByPlaceholderText(/uint64/i)).toBeInTheDocument();
+        expect(screen.queryByText('Rent')).not.toBeInTheDocument();
+    });
+
+    it('switches memo input mode for MEMO_HASH', async () => {
+        render(<SendPaymentForm {...defaultProps} />);
+        const user = userEvent.setup();
+        await user.selectOptions(screen.getByLabelText('Memo type'), 'hash');
+        expect(screen.getByPlaceholderText(/64-character hex/i)).toBeInTheDocument();
+    });
+});
+
+describe('SendPaymentForm SNS Resolution (#1197)', () => {
+  it('shows resolving state and green chip upon successful .xlm lookup', async () => {
+    resolveSNSDomainMock.mockResolvedValueOnce('GABCD1234EXAMPLE');
+
+    render(<SendPaymentForm />);
+    const input = screen.getByPlaceholderText('G... or alice.xlm');
+
+    fireEvent.change(input, { target: { value: 'alice.xlm' } });
+
+    expect(await screen.findByText('Resolving alice.xlm…')).toBeInTheDocument();
+
+    const chip = await screen.findByText('Resolved: GABCD1234EXAMPLE');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveClass('bg-green-100');
+  });
+
+  it('shows "SNS name not found" when domain is unregistered', async () => {
+    resolveSNSDomainMock.mockResolvedValueOnce(null);
+
+    render(<SendPaymentForm />);
+    const input = screen.getByPlaceholderText('G... or alice.xlm');
+
+    fireEvent.change(input, { target: { value: 'unknown.xlm' } });
+
+    expect(await screen.findByText('SNS name not found')).toBeInTheDocument();
+  });
 });

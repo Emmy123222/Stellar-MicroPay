@@ -7,6 +7,14 @@
 
 const analyticsService = require("../src/services/analyticsService");
 const stellarService = require("../src/services/stellarService");
+const loggerModule = require("../src/utils/logger");
+const {
+  clearAnalyticsCache,
+  startCacheSweep,
+  stopCacheSweep,
+  getCachedAnalytics,
+  setCachedAnalytics,
+} = require("../src/services/analyticsService");
 
 // Mock Stellar service
 jest.mock("../src/services/stellarService");
@@ -379,5 +387,50 @@ describe("Analytics Service", () => {
       analyticsService.clearAllCaches();
       expect(analyticsService.cacheSize()).toBe(0);
     });
+  });
+});
+
+describe('Analytics Service Cache Archiving (#1210)', () => {
+  beforeEach(() => {
+    // The sweep interval is created at module load, i.e. before fake timers are
+    // installed, so re-arm it here to make it observable by the fake clock.
+    stopCacheSweep();
+    clearAnalyticsCache();
+    jest.useFakeTimers();
+    startCacheSweep();
+  });
+
+  afterEach(() => {
+    stopCacheSweep();
+    jest.useRealTimers();
+  });
+
+  it('evicts entries older than 1 hour during sweep and logs eviction count', () => {
+    const logSpy = jest.spyOn(loggerModule, 'info').mockImplementation(() => {});
+
+    // Set an entry with current timestamp
+    setCachedAnalytics('G_TEST_USER_1', { volume: 100 });
+    
+    expect(getCachedAnalytics('G_TEST_USER_1')).toEqual({ volume: 100 });
+
+    // Advance time past 1 hour (e.g., 61 minutes)
+    jest.advanceTimersByTime(61 * 60 * 1000);
+
+    // Trigger the 10-minute interval sweep by advancing timer or calling sweep logic
+    // We advance by SWEEP_INTERVAL_MS (10 mins) or trigger interval tick
+    jest.advanceTimersByTime(10 * 60 * 1000);
+
+    // Verify entry has been evicted
+    expect(getCachedAnalytics('G_TEST_USER_1')).toBeNull();
+    expect(logSpy).toHaveBeenCalledWith('Cache sweep: evicted 1 entries');
+
+    logSpy.mockRestore();
+  });
+
+  it('stops cache sweep correctly when stopCacheSweep is called', () => {
+    const clearIntervalSpy = jest.spyOn(global, 'clearInterval');
+    stopCacheSweep();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    clearIntervalSpy.mockRestore();
   });
 });

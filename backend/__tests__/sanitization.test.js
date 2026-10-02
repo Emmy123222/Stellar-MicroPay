@@ -1,147 +1,202 @@
 /**
  * __tests__/sanitization.test.js
- * Unit tests for the Stellar public key sanitization middleware.
+ * Unit tests for the parameter sanitization and validation middleware.
  */
 
 "use strict";
 
-const { sanitizePublicKey, sanitizePublicKeyParam } = require("../src/middleware/sanitization");
+const request = require("supertest");
+const app = require("../src/server");
+const { validatePublicKey, sanitizeRequest } = require("../src/middleware/sanitization");
 
-const VALID_KEY = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
-
-/**
- * Minimal Express-like req/res/next triple.
- */
-function mockExchange(params) {
-  const req = { params, headers: {} };
-  const res = {
-    statusCode: null,
-    body: null,
-    status(code) {
-      this.statusCode = code;
-      return this;
-    },
-    json(payload) {
-      this.body = payload;
-      return this;
-    },
-  };
-  const next = jest.fn();
-  return { req, res, next };
+function mockRes() {
+  const res = {};
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
+  return res;
 }
 
-describe("sanitization", () => {
-  describe("sanitizePublicKey (:publicKey)", () => {
-    it("accepts a valid Stellar public key", () => {
-      const { req, res, next } = mockExchange({ publicKey: VALID_KEY });
+function createRes() {
+  const res = {};
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
+  return res;
+}
 
-      sanitizePublicKey(req, res, next);
+const VALID_PUBLIC_KEY = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
-      expect(next).toHaveBeenCalled();
-      expect(res.statusCode).toBeNull();
-    });
+describe("validatePublicKey middleware", () => {
+  const VALID_KEY = "GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW";
 
-    it("rejects a key that is too short", () => {
-      const { req, res, next } = mockExchange({ publicKey: "GABC" });
+  it("calls next() for a valid public key", () => {
+    const req = { params: { publicKey: VALID_KEY } };
+    const res = mockRes();
+    const next = jest.fn();
 
-      sanitizePublicKey(req, res, next);
+    validatePublicKey()(req, res, next);
 
-      expect(res.statusCode).toBe(400);
-      expect(res.body).toEqual({ error: "Invalid Stellar public key format" });
-      expect(next).not.toHaveBeenCalled();
-    });
-
-    it("rejects a secret key starting with S", () => {
-      const secret = `S${VALID_KEY.slice(1)}`;
-      const { req, res, next } = mockExchange({ publicKey: secret });
-
-      sanitizePublicKey(req, res, next);
-
-      expect(res.statusCode).toBe(400);
-      expect(next).not.toHaveBeenCalled();
-    });
-
-    it("rejects a 56 character value that does not start with G", () => {
-      const { req, res, next } = mockExchange({ publicKey: "A".repeat(56) });
-
-      sanitizePublicKey(req, res, next);
-
-      expect(res.statusCode).toBe(400);
-      expect(next).not.toHaveBeenCalled();
-    });
-
-    it("strips non-alphanumeric characters before validating", () => {
-      const { req, res, next } = mockExchange({ publicKey: VALID_KEY });
-
-      req.params.publicKey = ` ${VALID_KEY} `;
-      sanitizePublicKey(req, res, next);
-
-      expect(next).toHaveBeenCalled();
-      expect(req.params.publicKey).toBe(VALID_KEY);
-    });
-
-    it("calls next without validating when the param is absent", () => {
-      const { req, res, next } = mockExchange({});
-
-      sanitizePublicKey(req, res, next);
-
-      expect(next).toHaveBeenCalled();
-      expect(res.statusCode).toBeNull();
-    });
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
   });
 
-  describe("sanitizePublicKeyParam (named params)", () => {
-    it("validates and writes back a :creatorPublicKey param", () => {
-      const { req, res, next } = mockExchange({ creatorPublicKey: VALID_KEY });
-      const middleware = sanitizePublicKeyParam("creatorPublicKey");
+  it("returns 400 for a key with the wrong prefix", () => {
+    const req = { params: { publicKey: `A${VALID_KEY.slice(1)}` } };
+    const res = mockRes();
+    const next = jest.fn();
 
-      middleware(req, res, next);
+    validatePublicKey()(req, res, next);
 
-      expect(next).toHaveBeenCalled();
-      expect(req.params.creatorPublicKey).toBe(VALID_KEY);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Invalid Stellar public key" });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a key with the wrong length", () => {
+    const req = { params: { publicKey: VALID_KEY.slice(0, -1) } };
+    const res = mockRes();
+    const next = jest.fn();
+
+    validatePublicKey()(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Invalid Stellar public key" });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a key with invalid characters", () => {
+    const req = { params: { publicKey: `${VALID_KEY.slice(0, -1)}!` } };
+    const res = mockRes();
+    const next = jest.fn();
+
+    validatePublicKey()(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Invalid Stellar public key" });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a missing key", () => {
+    const req = { params: {} };
+    const res = mockRes();
+    const next = jest.fn();
+
+    validatePublicKey()(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("validates against a custom param name", () => {
+    const req = { params: { creatorPublicKey: VALID_KEY } };
+    const res = mockRes();
+    const next = jest.fn();
+
+    validatePublicKey("creatorPublicKey")(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for an invalid value under a custom param name", () => {
+    const req = { params: { senderPublicKey: "not-a-valid-key" } };
+    const res = mockRes();
+    const next = jest.fn();
+
+    validatePublicKey("senderPublicKey")(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Invalid Stellar public key" });
+    expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe("sanitizeRequest middleware", () => {
+  it("trims string values in the body, including nested objects and arrays", () => {
+    const req = {
+      body: {
+        username: "  alice  ",
+        nested: { memo: "  hi  " },
+        tags: [" one ", "two "],
+        amount: 5,
+      },
+      query: {},
+    };
+    const res = createRes();
+    const next = jest.fn();
+
+    sanitizeRequest(req, res, next);
+
+    expect(req.body).toEqual({
+      username: "alice",
+      nested: { memo: "hi" },
+      tags: ["one", "two"],
+      amount: 5,
     });
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
 
-    it("rejects an invalid :creatorPublicKey instead of silently passing", () => {
-      const { req, res, next } = mockExchange({ creatorPublicKey: "not-a-key" });
-      const middleware = sanitizePublicKeyParam("creatorPublicKey");
+  it("trims string values in the query string", () => {
+    const req = { body: {}, query: { search: "  stellar  " } };
+    const res = createRes();
+    const next = jest.fn();
 
-      middleware(req, res, next);
+    sanitizeRequest(req, res, next);
 
-      expect(res.statusCode).toBe(400);
-      expect(res.body).toEqual({ error: "Invalid Stellar public key format" });
-      expect(next).not.toHaveBeenCalled();
-    });
+    expect(req.query.search).toBe("stellar");
+    expect(next).toHaveBeenCalledTimes(1);
+  });
 
-    it("rejects an invalid :senderPublicKey", () => {
-      const { req, res, next } = mockExchange({ senderPublicKey: "SHORT" });
-      const middleware = sanitizePublicKeyParam("senderPublicKey");
+  it("returns 400 when a null byte is present in a body string field", () => {
+    const req = { body: { username: "alice\u0000" }, query: {} };
+    const res = createRes();
+    const next = jest.fn();
 
-      middleware(req, res, next);
+    sanitizeRequest(req, res, next);
 
-      expect(res.statusCode).toBe(400);
-      expect(next).not.toHaveBeenCalled();
-    });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Request contains null bytes" });
+    expect(next).not.toHaveBeenCalled();
+  });
 
-    it("ignores a different param name rather than reading it", () => {
-      // The regression that motivated this factory: a middleware bound to
-      // "publicKey" used on a route whose param is "creatorPublicKey" found
-      // nothing and passed the unvalidated value straight through.
-      const { req, res, next } = mockExchange({ creatorPublicKey: "bad-key" });
-      const middleware = sanitizePublicKeyParam("publicKey");
+  it("detects null bytes nested inside body values", () => {
+    const req = { body: { profile: { displayName: "bob\u0000" } }, query: {} };
+    const res = createRes();
+    const next = jest.fn();
 
-      middleware(req, res, next);
+    sanitizeRequest(req, res, next);
 
-      expect(next).toHaveBeenCalled();
-      expect(res.statusCode).toBeNull();
-    });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(next).not.toHaveBeenCalled();
+  });
 
-    it("rejects an array-valued param without throwing", () => {
-      const { req, res, next } = mockExchange({ publicKey: [VALID_KEY, VALID_KEY] });
+  it("leaves non-string values untouched", () => {
+    const req = { body: { amount: 12.5, verified: true, meta: null }, query: {} };
+    const res = createRes();
+    const next = jest.fn();
 
-      sanitizePublicKey(req, res, next);
+    sanitizeRequest(req, res, next);
 
-      expect(res.statusCode).toBe(400);
-      expect(next).not.toHaveBeenCalled();
-    });
+    expect(req.body).toEqual({ amount: 12.5, verified: true, meta: null });
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("global sanitization on POST routes", () => {
+  it("rejects a POST body containing a null byte with 400", async () => {
+    const res = await request(app)
+      .post("/api/accounts/register")
+      .send({ username: "alice", publicKey: `${VALID_PUBLIC_KEY}\u0000` });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "Request contains null bytes" });
+  });
+
+  it("rejects payloads larger than 10 KB", async () => {
+    const res = await request(app)
+      .post("/api/accounts/register")
+      .send({ username: "alice", publicKey: "a".repeat(11 * 1024) });
+
+    expect(res.status).toBe(413);
   });
 });

@@ -6,6 +6,7 @@
 "use strict";
 
 const tipsService = require("../services/tipsService");
+const webhookService = require("../services/webhookService");
 
 /**
  * Strictly parses a pagination query parameter.
@@ -61,6 +62,12 @@ async function recordTip(req, res, next) {
       txHash: txHash || "",
     });
 
+    void webhookService.publishPayment(tip).then((results) => {
+      for (const result of results) {
+        if (result.status === "rejected") console.error({ requestId: req.requestId, message: result.reason?.message || "Webhook delivery failed" });
+      }
+    });
+
     res.status(201).json({
       success: true,
       data: tip,
@@ -69,6 +76,12 @@ async function recordTip(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+function getLeaderboard(req, res, next) {
+  try {
+    res.json({ success: true, data: tipsService.getLeaderboard() });
+  } catch (err) { next(err); }
 }
 
 /**
@@ -161,12 +174,51 @@ async function getLeaderboard(req, res, next) {
   }
 }
 
+/**
+ * GET /api/tips/leaderboard/:creatorPublicKey
+ * Get top tippers for a creator.
+ */
+async function getTopTippers(req, res, next) {
+  try {
+    const { creatorPublicKey } = req.params;
+    const { limit } = req.query;
+    
+    const parsedLimit = limit ? parseInt(limit, 10) : 5;
+    
+    const result = tipsService.getTopTippers(creatorPublicKey, parsedLimit);
+    
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/tips/leaderboard
+ * Get global leaderboard with top recipients and senders.
+ */
+async function getGlobalLeaderboard(req, res, next) {
+  try {
+    const result = tipsService.getGlobalLeaderboard();
+    
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   recordTip,
   getTipsReceived,
   getTipsStats,
   getTipsSent,
+  getTopTippers,
   getLeaderboard,
-  // Exported for direct unit testing; the HTTP routes are covered separately.
-  parsePaginationParam,
+  getGlobalLeaderboard,
 };

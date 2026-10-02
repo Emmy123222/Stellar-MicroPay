@@ -43,6 +43,10 @@ const DEFAULT_CONFIGS: Record<"testnet" | "mainnet", NetworkConfig> = {
   },
 };
 
+/**
+ * Read the active Stellar network configuration.
+ * @returns The configured network and Horizon endpoint.
+ */
 export function getNetworkConfig(): NetworkConfig {
   if (typeof window === "undefined") {
     // Server-side: use env vars as fallback
@@ -63,18 +67,15 @@ export function getNetworkConfig(): NetworkConfig {
   return DEFAULT_CONFIGS.testnet;
 }
 
+/**
+ * Persist the active Stellar network configuration in the browser.
+ * @param config - Network and Horizon endpoint to persist.
+ */
 export function setNetworkConfig(config: NetworkConfig): void {
   if (typeof window !== "undefined") {
     localStorage.setItem("stellar-micropay:network", JSON.stringify(config));
   }
 }
-
-// Get current network config
-const config = getNetworkConfig();
-
-// For backwards compatibility, keep these as computed values
-export const NETWORK = config.network === "custom" ? "testnet" : config.network; // Default to testnet for custom
-export const HORIZON_URL = config.horizonUrl;
 
 /** The network passphrase is used to sign and verify transactions. */
 export function getNetworkPassphrase(): string {
@@ -82,8 +83,21 @@ export function getNetworkPassphrase(): string {
   return config.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 }
 
-// For backwards compatibility
-export const NETWORK_PASSPHRASE = getNetworkPassphrase();
+// Helper functions for backward compatibility
+export function getNetwork(): "testnet" | "mainnet" {
+  const config = getNetworkConfig();
+  return config.network === "custom" ? "testnet" : config.network;
+}
+
+export function getHorizonUrl(): string {
+  const config = getNetworkConfig();
+  return config.horizonUrl;
+}
+
+// Note: callers must use getNetwork(), getHorizonUrl() and getNetworkPassphrase()
+// rather than the former NETWORK / HORIZON_URL / NETWORK_PASSPHRASE constants.
+// Those were installed with Object.defineProperty(exports, ...), which TypeScript
+// cannot see and webpack cannot resolve, so they broke both `tsc` and the build.
 
 /** Pre-configured Horizon server instance for the active network. */
 let _server: Horizon.Server | null = null;
@@ -124,6 +138,11 @@ export const STELLAR_MEMO_TEXT_MAX_BYTES = 28;
 /** A base Stellar account must keep two reserve units before subentries. */
 export const STELLAR_BASE_ACCOUNT_RESERVE_COUNT = 2;
 
+/**
+ * Count a memo's UTF-8 bytes according to Stellar's protocol limit.
+ * @param memo - Memo text to measure.
+ * @returns The encoded byte length.
+ */
 export function memoTextByteLength(memo: string): number {
   if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(memo).length;
   return encodeURIComponent(memo).replace(/%[0-9A-F]{2}/gi, "x").length;
@@ -146,13 +165,30 @@ export const STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM =
 const STELLAR_BASE_FEE_STROOPS_STRING = String(STELLAR_BASE_FEE_STROOPS);
 const ELEVATED_FEE_MAX_STROOPS = STELLAR_BASE_FEE_STROOPS * 10;
 
+/**
+ * Strips ASCII/Unicode control characters (non-printable bytes) from memo
+ * text. Stellar MEMO_TEXT values are arbitrary bytes, so a memo — whether
+ * typed locally or read back from an on-chain transaction — can carry
+ * control characters that have no business being rendered as text.
+ */
+function stripNonPrintableCharacters(memo: string): string {
+  return memo.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+}
+
+/**
+ * Truncate memo text without splitting a Unicode code point or exceeding 28 bytes.
+ * @param memo - Memo text to truncate.
+ * @returns A protocol-safe memo string.
+ */
 export function truncateMemoText(memo: string): string {
-  if (memoTextByteLength(memo) <= STELLAR_MEMO_TEXT_MAX_BYTES) {
-    return memo;
+  const safeMemo = stripNonPrintableCharacters(memo);
+
+  if (memoTextByteLength(safeMemo) <= STELLAR_MEMO_TEXT_MAX_BYTES) {
+    return safeMemo;
   }
 
   let truncated = "";
-  for (const char of memo) {
+  for (const char of safeMemo) {
     const next = truncated + char;
     if (memoTextByteLength(next) > STELLAR_MEMO_TEXT_MAX_BYTES) {
       break;
@@ -192,7 +228,7 @@ export const KNOWN_ASSETS = {
 
 /** Get known assets for the current network. */
 export function getKnownAssets() {
-  return KNOWN_ASSETS[NETWORK];
+  return KNOWN_ASSETS[getNetwork()];
 }
 
 /** Soroban RPC server URL. Defaults to testnet. */
@@ -415,7 +451,7 @@ export async function fundWithFriendbot(publicKey: string): Promise<void> {
  * Guarded to testnet only.
  */
 export async function getFriendBotFunding(publicKey: string): Promise<void> {
-  if (NETWORK !== "testnet") {
+  if (getNetwork() !== "testnet") {
     throw new Error("Friendbot is only available on Stellar testnet.");
   }
 
@@ -609,7 +645,7 @@ export async function buildChangeTrustTransaction({
 
   const builder = new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.changeTrust({
@@ -625,17 +661,69 @@ export async function buildChangeTrustTransaction({
 /**
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
  */
+/** Supported Stellar memo types for payment construction. */
+export type StellarMemoType = "text" | "id" | "hash" | "return";
+
+/** Maximum uint64 value accepted by MEMO_ID. */
+export const STELLAR_MEMO_ID_MAX = "18446744073709551615";
+
+/** MEMO_HASH / MEMO_RETURN must be exactly 32 bytes (64 hex characters). */
+export const STELLAR_MEMO_HASH_HEX_LENGTH = 64;
+
+/**
+ * Validate and build a Stellar Memo for the given type and value.
+ * @throws {Error} When the memo value is invalid for the selected type.
+ */
+export function createStellarMemo(type: StellarMemoType, value: string): Memo {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Memo value is required for the selected memo type");
+  }
+
+  switch (type) {
+    case "text":
+      return Memo.text(truncateMemoText(trimmed));
+    case "id": {
+      if (!/^\d+$/.test(trimmed)) {
+        throw new Error("MEMO_ID must be a non-negative uint64 integer");
+      }
+      // Reject values that exceed uint64 max by comparing digit-length / lexicographically.
+      if (
+        trimmed.length > STELLAR_MEMO_ID_MAX.length ||
+        (trimmed.length === STELLAR_MEMO_ID_MAX.length && trimmed > STELLAR_MEMO_ID_MAX)
+      ) {
+        throw new Error("MEMO_ID exceeds the maximum uint64 value");
+      }
+      return Memo.id(trimmed);
+    }
+    case "hash":
+    case "return": {
+      const hex = trimmed.toLowerCase().replace(/^0x/, "");
+      if (!/^[0-9a-f]{64}$/.test(hex)) {
+        throw new Error(
+          `MEMO_${type.toUpperCase()} must be a 32-byte hex string (${STELLAR_MEMO_HASH_HEX_LENGTH} characters)`
+        );
+      }
+      return type === "hash" ? Memo.hash(hex) : Memo.return(hex);
+    }
+    default:
+      throw new Error(`Unsupported memo type: ${String(type)}`);
+  }
+}
+
 export async function buildPaymentTransaction({
   fromPublicKey,
   toPublicKey,
   amount,
   memo,
+  memoType = "text",
   asset = "XLM",
 }: {
   fromPublicKey: string;
   toPublicKey: string;
   amount: string;
   memo?: string;
+  memoType?: StellarMemoType;
   asset?: "XLM" | "USDC";
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
@@ -661,7 +749,7 @@ export async function buildPaymentTransaction({
 
   const builder = new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.payment({
@@ -673,7 +761,7 @@ export async function buildPaymentTransaction({
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
 
   if (memo) {
-    builder.addMemo(Memo.text(truncateMemoText(memo)));
+    builder.addMemo(createStellarMemo(memoType, memo));
   }
 
   return builder.build();
@@ -698,7 +786,7 @@ export async function buildAccountMergeTransaction({
 
   const builder = new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.accountMerge({
@@ -708,6 +796,197 @@ export async function buildAccountMergeTransaction({
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
 
   return builder.build();
+}
+
+// ── Custom asset issuance (#1147) ─────────────────────────────────────────
+
+/** Shortest allowed custom asset code. */
+export const ASSET_CODE_MIN_LENGTH = 1;
+
+/** Longest asset code the Stellar protocol accepts. */
+export const ASSET_CODE_MAX_LENGTH = 12;
+
+/** Codes the protocol reserves, e.g. the native asset. */
+export const RESERVED_ASSET_CODES = ["XLM"];
+
+/**
+ * Validate a custom asset code.
+ *
+ * Stellar asset codes are 1–12 characters of uppercase `A–Z` and `0–9`. Spaces,
+ * lowercase letters and symbols are rejected, and `XLM` is reserved for the
+ * native asset.
+ *
+ * @param code - The candidate asset code.
+ * @returns `null` when the code is valid, otherwise a human-readable reason.
+ */
+export function validateAssetCode(code: string): string | null {
+  if (!code) return "Enter an asset code.";
+
+  if (code.length < ASSET_CODE_MIN_LENGTH || code.length > ASSET_CODE_MAX_LENGTH) {
+    return `Asset code must be between ${ASSET_CODE_MIN_LENGTH} and ${ASSET_CODE_MAX_LENGTH} characters.`;
+  }
+
+  if (/\s/.test(code)) return "Asset code cannot contain spaces.";
+
+  if (!/^[A-Z0-9]+$/.test(code)) {
+    return "Asset code must use uppercase letters and numbers only.";
+  }
+
+  if (RESERVED_ASSET_CODES.includes(code)) {
+    return `${code} is reserved for the native Stellar asset.`;
+  }
+
+  return null;
+}
+
+/**
+ * Validate a home domain (the domain publishing a SEP-0001 `stellar.toml`).
+ *
+ * @returns `null` when valid or empty (the field is optional).
+ */
+export function validateHomeDomain(domain: string): string | null {
+  if (!domain.trim()) return null;
+
+  const hostname = domain
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "");
+
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(hostname)) {
+    return "Enter a valid domain, e.g. example.com";
+  }
+
+  return null;
+}
+
+/**
+ * Build an unsigned payment of a custom asset from the issuer to a
+ * distributor — the "issue" half of asset issuance.
+ *
+ * The distributor must already hold a trustline for the asset, otherwise
+ * Stellar rejects the payment.
+ *
+ * @throws {Error} If the asset code is invalid or the issuer account cannot be loaded.
+ */
+export async function buildAssetIssueTransaction({
+  issuerPublicKey,
+  distributorPublicKey,
+  assetCode,
+  amount,
+}: {
+  issuerPublicKey: string;
+  distributorPublicKey: string;
+  assetCode: string;
+  amount: string;
+}): Promise<Transaction> {
+  const codeError = validateAssetCode(assetCode);
+  if (codeError) throw new Error(codeError);
+
+  const sourceAccount = await server.loadAccount(issuerPublicKey);
+
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.payment({
+        destination: distributorPublicKey,
+        asset: new Asset(assetCode, issuerPublicKey),
+        amount,
+      })
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+/**
+ * Build an unsigned `setOptions` transaction that sets an account's home domain.
+ *
+ * The domain must serve a `stellar.toml` under `/.well-known/` for wallets and
+ * explorers to discover the issuer's asset metadata (SEP-0001).
+ */
+export async function buildHomeDomainTransaction({
+  publicKey,
+  homeDomain,
+}: {
+  publicKey: string;
+  homeDomain: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(publicKey);
+
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(Operation.setOptions({ homeDomain }))
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+/** Stellar Expert URL for an issued asset, e.g. `.../asset/COOL-GABC...`. */
+export function assetExplorerUrl(assetCode: string, issuer: string): string {
+  const net = NETWORK === "mainnet" ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${net}/asset/${assetCode}-${issuer}`;
+}
+
+/** SEP-0001 `stellar.toml` location for a home domain. */
+export function stellarTomlUrl(homeDomain: string): string {
+  const hostname = homeDomain
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "");
+  return `https://${hostname}/.well-known/stellar.toml`;
+}
+
+/**
+ * Render the `stellar.toml` an issuer should publish for a custom asset.
+ *
+ * Returning it as a string lets the wizard offer a preview, a copy button and a
+ * download without the user hand-writing TOML.
+ */
+export function buildStellarToml({
+  homeDomain,
+  assetCode,
+  issuerPublicKey,
+  network,
+}: {
+  homeDomain: string;
+  assetCode: string;
+  issuerPublicKey: string;
+  network?: "testnet" | "mainnet";
+}): string {
+  const activeNetwork = network ?? NETWORK;
+  const accounts = [issuerPublicKey];
+
+  if (activeNetwork === "mainnet") {
+    accounts.push("GCO2IP3MCPLXT4GMQ5H7UQRCLHH3QDEM7SY6DNNJDAW6DGRITQKHXVV");
+  }
+
+  const domain =
+    homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "") ||
+    "yourdomain.com";
+
+  return [
+    "# Stellar MicroPay — generated asset metadata (SEP-0001)",
+    `VERSION = "1.0.0"`,
+    `NETWORK_PASSPHRASE = "${
+      activeNetwork === "mainnet" ? Networks.PUBLIC : Networks.TESTNET
+    }"`,
+    "",
+    "[[CURRENCIES]]",
+    `code = "${assetCode}"`,
+    `issuer = "${issuerPublicKey}"`,
+    "is_asset_anchored = false",
+    `desc = "${assetCode} issued via Stellar MicroPay"`,
+    "",
+    "# Liquidity/explorer accounts that must be trusted for mainnet listings.",
+    "ACCOUNTS = [",
+    ...accounts.map((account) => `  "${account}",`),
+    "]",
+    "",
+    `# Publish this file at: ${stellarTomlUrl(domain)}`,
+    "",
+  ].join("\n");
 }
 
 /**
@@ -726,24 +1005,17 @@ export async function buildAccountMergeTransaction({
  *
  * @example
  * ```ts
- * const signedXDR = await signTransaction(tx.toXDR(), { networkPassphrase: NETWORK_PASSPHRASE });
+ * const signedXDR = await signTransaction(tx.toXDR(), { networkPassphrase: getNetworkPassphrase() });
  * const result = await submitTransaction(signedXDR);
  * console.log("Transaction hash:", result.hash);
  * ```
 */
 export async function submitTransaction(signedXDR: string) {
-  const transaction = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE) as Transaction;
-  try {
-    const result = await server.submitTransaction(transaction);
-    return result;
-  } catch (err: unknown) {
-    const horizonErr = err as { response?: { data?: { extras?: { result_codes?: unknown } } } };
-    if (horizonErr?.response?.data?.extras?.result_codes) {
-      const codes = horizonErr.response.data.extras.result_codes;
-      throw new Error(`Transaction failed: ${JSON.stringify(codes)}`);
-    }
-    throw err;
-  }
+  const transaction = TransactionBuilder.fromXDR(signedXDR, getNetworkPassphrase()) as Transaction;
+  // Re-throws Horizon's own error object unchanged (rather than stringifying
+  // result_codes into a generic Error's message) so callers can parse the
+  // structured codes with lib/horizonErrors.ts's parseHorizonSubmissionError.
+  return server.submitTransaction(transaction);
 }
 
 /**
@@ -763,11 +1035,11 @@ export async function submitTransaction(signedXDR: string) {
 export async function collectSignatures(unsignedXDR: string, signedXDRs: string[]): Promise<string> {
   try {
     // Parse the unsigned transaction
-    const transaction = new Transaction(unsignedXDR, NETWORK_PASSPHRASE);
+    const transaction = new Transaction(unsignedXDR, getNetworkPassphrase());
 
     // Collect signatures from each signed XDR
     for (const signedXDR of signedXDRs) {
-      const signedTx = new Transaction(signedXDR, NETWORK_PASSPHRASE);
+      const signedTx = new Transaction(signedXDR, getNetworkPassphrase());
       // Add each signature from the signed transaction
       for (const sig of signedTx.signatures) {
         // Check if signature already exists to avoid duplicates
@@ -1017,7 +1289,8 @@ export function shortenAddress(address: string, chars = 6): string {
  * ```
 */
 export function isValidStellarAddress(address: string): boolean {
-  return /^G[A-Z0-9]{55}$/.test(address);
+  // Stellar public keys: 'G' + 55 characters from the base32 alphabet (A-Z, 2-7).
+  return /^G[A-Z2-7]{55}$/.test(address);
 }
 
 /**
@@ -1035,7 +1308,7 @@ export function isValidStellarAddress(address: string): boolean {
  * ```
 */
 export function explorerUrl(hash: string): string {
-  const net = NETWORK === "mainnet" ? "public" : "testnet";
+  const net = getNetwork() === "mainnet" ? "public" : "testnet";
   return `https://stellar.expert/explorer/${net}/tx/${hash}`;
 }
 
@@ -1069,14 +1342,14 @@ export async function buildSorobanTipTransaction({
   const contract = new Contract(CONTRACT_ID);
 
   // Derive the XLM Asset Contract ID
-  const xlmContractId = Asset.native().contractId(NETWORK_PASSPHRASE);
+  const xlmContractId = Asset.native().contractId(getNetworkPassphrase());
 
   const stroops = BigInt(Math.round(parseFloat(amount) * STELLAR_STROOPS_PER_XLM));
 
   // Prepare the `send_tip` invocation
   const tx = new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       contract.call(
@@ -1118,7 +1391,7 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
     // but simulation is more robust for contract getters.
     const tx = new TransactionBuilder(
       new Account(recipient, "0"),
-      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: NETWORK_PASSPHRASE }
+      { fee: STELLAR_BASE_FEE_STROOPS_STRING, networkPassphrase: getNetworkPassphrase() }
     )
       .addOperation(
         contract.call("get_tip_total", nativeToScVal(recipient, { type: "address" }))
@@ -1170,7 +1443,7 @@ export async function buildReceiptMintTransaction({
 
   const tx = new TransactionBuilder(sourceAccount, {
     fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       contract.call(
@@ -1202,7 +1475,7 @@ export async function getReceiptCount(payer: string): Promise<number> {
     const contract = new Contract(CONTRACT_ID);
     const tx = new TransactionBuilder(
       new Account(payer, "0"),
-      { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+      { fee: "100", networkPassphrase: getNetworkPassphrase() }
     )
       .addOperation(
         contract.call("get_receipt_count", nativeToScVal(payer, { type: "address" }))
@@ -1369,20 +1642,6 @@ export interface NetworkFeeStats {
   baseFeeXlm: number;
 }
 
-export interface NetworkStats {
-  latestLedgerSequence: number;
-  lastLedgerCloseTime: string;
-  avgTransactionCount: number;
-  currentBaseFee: number;
-  p50Fee: number;
-  p95Fee: number;
-  p99Fee: number;
-}
-
-/**
- * Fetches the current network fee statistics from Horizon and classifies
-
-
 /**
  * Fetches the current network fee statistics from Horizon and classifies
  * the fee level for the network status indicator.
@@ -1411,16 +1670,243 @@ export async function fetchNetworkFeeStats(): Promise<NetworkFeeStats> {
   );
   const baseFeeXlm = modeStroops / STELLAR_STROOPS_PER_XLM;
 
-  let feeLevel: FeeLevel;
-  if (modeStroops < STELLAR_BASE_FEE_STROOPS) {
-    feeLevel = "normal";
-  } else if (modeStroops <= ELEVATED_FEE_MAX_STROOPS) {
-    feeLevel = "elevated";
-  } else {
-    feeLevel = "high";
+  return { feeLevel: feeLevelFromStroops(modeStroops), baseFeeXlm };
+}
+
+// ── Horizon root / network health (#1144) ──────────────────────────────────
+
+/**
+ * Horizon's root endpoint (`GET /`) response, trimmed to the fields this app
+ * reads. The endpoint is the canonical source for the network's current ledger
+ * and the Horizon/core versions serving it.
+ *
+ * @see {@link https://developers.stellar.org/docs/data/apis/horizon/api-reference/get-root | Horizon get root}
+ */
+export interface HorizonRootResponse {
+  horizon_version: string;
+  core_version: string;
+  ingest_latest_ledger: number;
+  history_latest_ledger: number;
+  history_latest_ledger_closed_at: string;
+  core_latest_ledger: number;
+  network_passphrase: string;
+  current_protocol_version: number;
+  core_supported_protocol_version: number;
+}
+
+/**
+ * Network health metrics rendered by the network status page.
+ *
+ * A `null` value means the metric could not be derived from Horizon on this
+ * refresh — the UI shows "Unavailable" rather than a misleading zero.
+ */
+export interface NetworkMetrics {
+  /** Sequence of the newest ledger Horizon has ingested. */
+  latestLedgerSequence: number;
+  /** ISO-8601 close time of the newest ledger. */
+  lastLedgerCloseTime: string;
+  /** Seconds between the newest ledger close time and this measurement. */
+  ledgerCloseLagSeconds: number;
+  /** Protocol minimum fee in XLM (Horizon `last_ledger_base_fee`). */
+  baseFeeXlm: number;
+  /** Median fee actually charged by recent transactions, in XLM. */
+  recommendedFeeXlm: number;
+  /** 95th percentile fee charged, in XLM. */
+  feeP95Xlm: number;
+  /** 99th percentile fee charged, in XLM. */
+  feeP99Xlm: number;
+  /** Fee level classification for the network status indicator. */
+  feeLevel: FeeLevel;
+  /** Distinct accounts seen in the newest ledger's operations. */
+  activeAccounts: number | null;
+  /** Ledger the {@link NetworkMetrics.activeAccounts} sample came from. */
+  activeAccountsLedger: number;
+  /** Successful operations per second across the sampled ledger window. */
+  operationsPerSecond: number | null;
+  /** Number of ledgers averaged for {@link NetworkMetrics.operationsPerSecond}. */
+  sampledLedgerCount: number;
+  /** Client-measured round-trip time of the Horizon root request, in ms. */
+  horizonLatencyMs: number;
+  /** Client-measured round-trip time of the fee-stats request, in ms. */
+  feeStatsLatencyMs: number;
+  /** Stellar protocol version reported by Horizon. */
+  protocolVersion: number | null;
+  /** Horizon build serving the active network. */
+  horizonVersion: string | null;
+  /** Stellar Core build behind Horizon. */
+  coreVersion: string | null;
+  /** Network passphrase, e.g. `Test SDF Network ; September 2015`. */
+  networkPassphrase: string | null;
+}
+
+/** How many recent ledgers are averaged for the operations/second metric. */
+export const NETWORK_SAMPLE_LEDGER_COUNT = 10;
+
+/** Cap for the operations page used to count active accounts. */
+export const NETWORK_OPERATIONS_PAGE_LIMIT = 200;
+
+function nowMs(): number {
+  return typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
+function stroopsToXlm(stroops: string | number | undefined, fallback = 0): number {
+  const parsed = typeof stroops === "number" ? stroops : parseInt(stroops ?? "", 10);
+  return Number.isFinite(parsed) ? parsed / STELLAR_STROOPS_PER_XLM : fallback;
+}
+
+/**
+ * Fetch Horizon's root (`GET /`) endpoint.
+ *
+ * `stellar-sdk`'s JS `Horizon.Server` has no `fetchRoot()` helper (that method
+ * only exists in the Go/Java SDKs), so this hits the same endpoint directly and
+ * returns the typed payload the status page needs.
+ *
+ * @throws {Error} If Horizon responds with a non-2xx status.
+ */
+export async function fetchHorizonRoot(): Promise<HorizonRootResponse> {
+  const { horizonUrl } = getNetworkConfig();
+  const res = await fetch(`${horizonUrl.replace(/\/$/, "")}/`);
+
+  if (!res.ok) {
+    throw new Error(`Horizon root endpoint returned ${res.status} ${res.statusText}`);
   }
 
-  return { feeLevel, baseFeeXlm };
+  return (await res.json()) as HorizonRootResponse;
+}
+
+/**
+ * Count the distinct accounts referenced by the operations of a single ledger.
+ *
+ * Horizon has no account-count metric, so "active accounts" is defined here as
+ * the accounts that participated in the newest ledger. Returns `null` when the
+ * operations page cannot be read, so the UI can say "Unavailable".
+ */
+export async function countActiveAccountsInLedger(
+  ledgerSequence: number
+): Promise<number | null> {
+  try {
+    const operations = await getServer()
+      .operations()
+      .forLedger(ledgerSequence)
+      .limit(NETWORK_OPERATIONS_PAGE_LIMIT)
+      .call();
+
+    const accounts = new Set<string>();
+
+    for (const op of operations.records) {
+      const candidate = op as {
+        source_account?: string;
+        from?: string;
+        to?: string;
+        into?: string;
+        destination?: string;
+      };
+
+      for (const address of [
+        candidate.source_account,
+        candidate.from,
+        candidate.to,
+        candidate.into,
+        candidate.destination,
+      ]) {
+        if (address) accounts.add(address);
+      }
+    }
+
+    return accounts.size;
+  } catch (err) {
+    console.error("Failed to count active accounts:", err);
+    return null;
+  }
+}
+
+/**
+ * Collect every network health metric the status page renders.
+ *
+ * Sources:
+ *   - Horizon root (`/`) — ledger sequence, close time, protocol/versions.
+ *   - Horizon `/fee_stats` — base, recommended, p95 and p99 fees.
+ *   - Horizon `/ledgers` — operations-per-second over a recent window.
+ *   - Horizon `/ledgers/{seq}/operations` — active accounts.
+ *
+ * Latencies are measured client-side around each request.
+ */
+export async function fetchNetworkMetrics(): Promise<NetworkMetrics> {
+  const horizon = getServer();
+
+  const rootStartedAt = nowMs();
+  const root = await fetchHorizonRoot();
+  const horizonLatencyMs = nowMs() - rootStartedAt;
+
+  const feeStartedAt = nowMs();
+  const feeStats = await horizon.feeStats();
+  const feeStatsLatencyMs = nowMs() - feeStartedAt;
+
+  const ledgers = await horizon
+    .ledgers()
+    .order("desc")
+    .limit(NETWORK_SAMPLE_LEDGER_COUNT)
+    .call();
+
+  const records = ledgers.records;
+  if (records.length === 0) {
+    throw new Error("Horizon returned no ledgers for the requested window.");
+  }
+
+  const newestLedger = records[0];
+  const oldestLedger = records[records.length - 1];
+
+  const totalOperations = records.reduce(
+    (sum, ledger) => sum + (ledger.operation_count ?? 0),
+    0
+  );
+  const windowSeconds =
+    (Date.parse(newestLedger.closed_at) - Date.parse(oldestLedger.closed_at)) / 1000;
+  const operationsPerSecond =
+    windowSeconds > 0
+      ? Math.round((totalOperations / windowSeconds) * 100) / 100
+      : null;
+
+  const activeAccounts = await countActiveAccountsInLedger(newestLedger.sequence);
+
+  const modeStroops = parseInt(
+    feeStats.fee_charged?.mode ?? STELLAR_BASE_FEE_STROOPS_STRING,
+    10
+  );
+  const lastLedgerCloseMs = Date.parse(root.history_latest_ledger_closed_at);
+
+  return {
+    latestLedgerSequence: root.history_latest_ledger,
+    lastLedgerCloseTime: root.history_latest_ledger_closed_at,
+    ledgerCloseLagSeconds: Number.isFinite(lastLedgerCloseMs)
+      ? Math.max(0, Math.round((Date.now() - lastLedgerCloseMs) / 1000))
+      : 0,
+    baseFeeXlm: stroopsToXlm(feeStats.last_ledger_base_fee, STELLAR_BASE_FEE_XLM),
+    recommendedFeeXlm: stroopsToXlm(feeStats.fee_charged?.p50),
+    feeP95Xlm: stroopsToXlm(feeStats.fee_charged?.p95),
+    feeP99Xlm: stroopsToXlm(feeStats.fee_charged?.p99),
+    feeLevel: feeLevelFromStroops(modeStroops),
+    activeAccounts,
+    activeAccountsLedger: newestLedger.sequence,
+    operationsPerSecond,
+    sampledLedgerCount: records.length,
+    horizonLatencyMs,
+    feeStatsLatencyMs,
+    protocolVersion: root.current_protocol_version ?? null,
+    horizonVersion: root.horizon_version ?? null,
+    coreVersion: root.core_version ?? null,
+    networkPassphrase: root.network_passphrase ?? null,
+  };
+}
+
+/** Classify a fee (in stroops) using the same thresholds as the navbar indicator. */
+export function feeLevelFromStroops(modeStroops: number): FeeLevel {
+  if (modeStroops < STELLAR_BASE_FEE_STROOPS) return "normal";
+  if (modeStroops <= ELEVATED_FEE_MAX_STROOPS) return "elevated";
+  return "high";
 }
 
 // ── DEX Trading Helpers ───────────────────────────────────────────────────
@@ -1549,7 +2035,7 @@ export async function buildCancelOfferTransaction({
   const sourceAccount = await server.loadAccount(fromPublicKey);
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.manageSellOffer({
@@ -1583,7 +2069,7 @@ export async function buildSellOfferTransaction({
   const sourceAccount = await server.loadAccount(fromPublicKey);
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.manageSellOffer({
@@ -1616,7 +2102,7 @@ export async function buildBuyOfferTransaction({
   const sourceAccount = await server.loadAccount(fromPublicKey);
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.manageBuyOffer({
@@ -1631,7 +2117,7 @@ export async function buildBuyOfferTransaction({
 }
 
 /**
- * Build a transaction for a path payment.
+ * Build a transaction for a path payment (strict receive).
  */
 export async function buildPathPaymentTransaction({
   fromPublicKey,
@@ -1653,7 +2139,7 @@ export async function buildPathPaymentTransaction({
   const sourceAccount = await server.loadAccount(fromPublicKey);
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.pathPaymentStrictReceive({
@@ -1667,6 +2153,115 @@ export async function buildPathPaymentTransaction({
     )
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
     .build();
+}
+
+/** A quoted DEX path from Horizon `strictSendPaths`. */
+export interface StrictSendPathQuote {
+  sourceAmount: string;
+  destinationAmount: string;
+  /** Intermediate assets between send and destination (excludes endpoints). */
+  path: Asset[];
+  exchangeRate: number;
+}
+
+function horizonAssetToAsset(record: {
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+}): Asset {
+  if (record.asset_type === "native") return Asset.native();
+  if (!record.asset_code || !record.asset_issuer) {
+    throw new Error("Invalid path asset returned by Horizon");
+  }
+  return new Asset(record.asset_code, record.asset_issuer);
+}
+
+/**
+ * Query Horizon for the best strict-send path payment quote.
+ */
+export async function fetchStrictSendPaths({
+  sendAsset,
+  sendAmount,
+  destAsset,
+}: {
+  sendAsset: Asset;
+  sendAmount: string;
+  destAsset: Asset;
+}): Promise<StrictSendPathQuote | null> {
+  const result = await server
+    .strictSendPaths(sendAsset, sendAmount, [destAsset])
+    .limit(10)
+    .call();
+
+  const best = result.records[0];
+  if (!best) return null;
+
+  const sourceAmount = best.source_amount;
+  const destinationAmount = best.destination_amount;
+  const sendNum = parseFloat(sourceAmount);
+  const destNum = parseFloat(destinationAmount);
+  const exchangeRate = sendNum > 0 ? destNum / sendNum : 0;
+
+  const path = (best.path || []).map((asset) => horizonAssetToAsset(asset));
+
+  return {
+    sourceAmount,
+    destinationAmount,
+    path,
+    exchangeRate,
+  };
+}
+
+/**
+ * Build a pathPaymentStrictSend transaction for DEX swaps.
+ */
+export async function buildPathPaymentStrictSendTransaction({
+  fromPublicKey,
+  toPublicKey,
+  sendAsset,
+  sendAmount,
+  destAsset,
+  destMin,
+  path,
+}: {
+  fromPublicKey: string;
+  toPublicKey: string;
+  sendAsset: Asset;
+  sendAmount: string;
+  destAsset: Asset;
+  destMin: string;
+  path: Asset[];
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(
+      Operation.pathPaymentStrictSend({
+        sendAsset,
+        sendAmount,
+        destination: toPublicKey,
+        destAsset,
+        destMin,
+        path,
+      })
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+/**
+ * Read the actual destination amount received from a path_payment_strict_send result.
+ */
+export async function getPathPaymentReceivedAmount(txHash: string): Promise<string | null> {
+  const ops = await server.operations().forTransaction(txHash).call();
+  const pathOp = ops.records.find(
+    (op) =>
+      op.type === "path_payment_strict_send" ||
+      op.type === "path_payment_strict_receive"
+  ) as { amount?: string } | undefined;
+  return pathOp?.amount ?? null;
 }
 
 

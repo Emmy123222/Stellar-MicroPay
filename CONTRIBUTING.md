@@ -4,10 +4,13 @@ First off — thank you for taking the time to contribute! 🎉
 
 Stellar MicroPay is an open-source project and every contribution matters, whether it's fixing a typo, reporting a bug, or building a new feature.
 
+> 💡 **New to Stellar or Soroban?** Check out our [Stellar & Soroban Glossary](GLOSSARY.md) for plain-English definitions of terms like stroops, ledgers, XDR, Freighter, and Turrets, with links to official docs.
+
 ---
 
 ## 📋 Table of Contents
 
+- [Stellar & Soroban Glossary](GLOSSARY.md)
 - [Code of Conduct](#code-of-conduct)
 - [How to Fork & Set Up](#how-to-fork--set-up)
 - [Running the Project Locally](#running-the-project-locally)
@@ -93,6 +96,10 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## ✏️ Making Changes
 
+### Pre-commit Hooks
+
+We use [Lefthook](https://github.com/evilmartians/lefthook) to automatically run linting and type-checking on staged files before you commit. This ensures that only clean, well-formatted code makes it into the repository. When you install dependencies via `npm install`, lefthook is automatically configured via the `prepare` script.
+
 ### Branch naming convention
 
 ```
@@ -137,6 +144,7 @@ chore: upgrade stellar-sdk to latest
 
 ### PR checklist
 
+- Keep each pull request focused on its linked issue.
 - [ ] My code follows the project's style
 - [ ] I've tested my changes locally
 - [ ] I've updated documentation if needed
@@ -170,7 +178,9 @@ stellar-micropay/
 │       ├── controllers/← Request handlers
 │       └── services/   ← Business logic
 ├── contracts/          ← Soroban smart contracts (Rust)
-└── docs/               ← Architecture & API docs
+├── docs/               ← Architecture & API docs
+├── CONTRIBUTING.md     ← Contribution guidelines
+└── GLOSSARY.md         ← Stellar & Soroban terminology guide
 ```
 
 ### Good first issues

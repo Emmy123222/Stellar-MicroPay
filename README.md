@@ -4,6 +4,8 @@
 
 This project implements a Soroban smart contract for streaming payment channels on the Stellar network. The contract allows a payer to deposit XLM and stream it to a recipient at a defined rate (e.g., 1 XLM per hour). The recipient can claim the streamed amount at any time.
 
+For an introduction to Stellar and Soroban terminology (such as stroops, ledgers, XDR, Freighter, and Turrets), consult the [Stellar & Soroban Glossary](GLOSSARY.md).
+
 ## Features
 
 - **Stream Creation**: Open payment streams with custom rates and deposits
@@ -11,6 +13,32 @@ This project implements a Soroban smart contract for streaming payment channels 
 - **Top-up Streams**: Add more funds to existing streams
 - **Close Streams**: Payers can close streams and receive refunds for unstreamed portions
 - **Rate-based Streaming**: Payments are calculated based on ledger progression
+
+## Architecture
+
+Stellar-MicroPay is a three-tier Web3 application. The diagram below shows how the
+pieces fit together, from the browser down to the Soroban contract on the Stellar
+network. A more detailed breakdown lives in [`docs/architecture.md`](docs/architecture.md).
+
+```mermaid
+flowchart TD
+    subgraph Browser["User's Browser"]
+        FE["Next.js Frontend<br/>(React + Tailwind)"]
+        FW["Freighter Wallet<br/>(signs transactions)"]
+        FE <--> FW
+    end
+
+    BE["Node.js / Express Backend API"]
+    HZ["Stellar Horizon API"]
+    SN["Stellar Network<br/>(validators)"]
+    SC["Soroban Smart Contract<br/>(Rust/WASM)"]
+
+    FE -->|"REST / HTTP"| BE
+    BE -->|"Horizon REST"| HZ
+    FE -.->|"submit signed XDR"| HZ
+    HZ <--> SN
+    SN <-->|"Soroban"| SC
+```
 
 ## Contract Structure
 
@@ -67,18 +95,22 @@ pub struct Stream {
 
 ### Claimable Amount Calculation
 ```
-elapsed_ledgers = current_ledger - start_ledger
-total_streamed = rate_per_ledger * elapsed_ledgers
-claimable = total_streamed - claimed
-actual_claim = min(claimable, deposited - claimed)
+elapsed_ledgers = current_ledger - start_ledger // ledgers elapsed since start
+total_streamed = rate_per_ledger * elapsed_ledgers // amount accrued to date
+claimable = total_streamed - claimed // accrued funds not yet claimed
+actual_claim = min(claimable, deposited - claimed) // cap at funds still deposited
 ```
+With zero elapsed ledgers, nothing new is claimable. Once the deposit is exhausted,
+the remaining-deposit cap keeps further claims at zero.
 
 ### Refund Calculation
 ```
-elapsed_ledgers = current_ledger - start_ledger
-total_streamed = rate_per_ledger * elapsed_ledgers
-refundable = deposited - max(total_streamed, claimed)
+elapsed_ledgers = current_ledger - start_ledger // ledgers elapsed since start
+total_streamed = rate_per_ledger * elapsed_ledgers // amount accrued to date
+refundable = deposited - max(total_streamed, claimed) // funds neither streamed nor claimed
 ```
+With zero elapsed ledgers and no prior claims, the full deposit is refundable.
+When the stream is exhausted, the maximum reaches the deposit and the refund is zero.
 
 ## Usage Examples
 
@@ -135,6 +167,17 @@ The contract includes comprehensive tests covering:
 
 ## Installation and Deployment
 
+### Docker
+
+You can run the pre-built images from GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/emmy123222/stellar-micropay-backend:latest
+docker pull ghcr.io/emmy123222/stellar-micropay-frontend:latest
+```
+
+### Manual Setup
+
 1. Install Rust and Soroban SDK
 2. Clone this repository
 3. Build the contract: `cargo build --release --target wasm32-unknown-unknown`
@@ -155,6 +198,50 @@ The contract includes comprehensive tests covering:
 - **Gas Efficiency**: Efficient storage and computation patterns
 - **Security**: Comprehensive input validation and access controls
 - **Compliance**: Follows Soroban best practices and standards
+
+## Documentation
+
+- [📖 Stellar & Soroban Glossary](GLOSSARY.md) — Plain-English guide to Stellar and Soroban terminology (XLM, stroops, ledgers, sequence numbers, Horizon, Soroban, XDR, Freighter, SEP-0007, SEP-0010, trustlines, federation, and turrets).
+- [🤝 Contributing Guide](CONTRIBUTING.md) — Guidelines for contributing and setting up the development environment.
+- [🚀 Deployment Guide](DEPLOYMENT_GUIDE.md) — Instructions for deploying to production.
+- [📚 Technical Architecture & Docs](docs/) — Detailed documentation on architecture, Ledger hardware wallet support, Turrets, analytics, and APIs.
+## Contributors
+
+Thanks to everyone who has contributed to Stellar-MicroPay! 🎉
+
+<a href="https://github.com/Emmy123222/Stellar-MicroPay/graphs/contributors">
+  <img src="https://contributors-img.web.app/image?repo=Emmy123222/Stellar-MicroPay" alt="Contributors" />
+</a>
+
+The contributor graph above is rendered by the [`contributors-img`](https://contributors-img.web.app)
+service (the maintained successor to the `contributors-img` GitHub Action). Each name below links
+to its GitHub profile.
+
+### Thanks to
+
+- [@Emmy123222](https://github.com/Emmy123222)
+- [@emmanuel](https://github.com/emmanuel)
+- [@iamTissan](https://github.com/iamTissan)
+- [@zeemscript](https://github.com/zeemscript)
+- [@Ennyhorla1](https://github.com/Ennyhorla1)
+- [@Seunfunmi-319509](https://github.com/Seunfunmi-319509)
+- [@AGWAM001](https://github.com/AGWAM001)
+- [@johnsmccain](https://github.com/johnsmccain)
+- [@alabiopeyemi](https://github.com/alabiopeyemi)
+- [@Hollujay](https://github.com/Hollujay)
+- [@Gojv-byte](https://github.com/Gojv-byte)
+- [@Manuelshub](https://github.com/Manuelshub)
+- [@Cjay-Cyber-2](https://github.com/Cjay-Cyber-2)
+- [@Nanle-code](https://github.com/Nanle-code)
+- [@Robinsonchiziterem](https://github.com/Robinsonchiziterem)
+- [@gboigwe](https://github.com/gboigwe)
+- [@devfoma](https://github.com/devfoma)
+- [@nonso7](https://github.com/nonso7)
+- [@Emelie-Dev](https://github.com/Emelie-Dev)
+- [@harystyleseze](https://github.com/harystyleseze)
+
+...and [all the other contributors](https://github.com/Emmy123222/Stellar-MicroPay/graphs/contributors)
+who have helped shape this project.
 
 ## License
 

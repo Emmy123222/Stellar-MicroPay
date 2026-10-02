@@ -1,0 +1,19 @@
+# Dockerfile.test — runs the Jest test suite inside a container.
+#
+# Installs ALL dependencies (including devDependencies: jest, supertest)
+# then executes npm test as the container's default command.
+#
+# Used by docker-compose.test.yml.
+
+FROM node:20.19.5-alpine
+
+WORKDIR /app
+
+# Install dependencies first for layer caching
+COPY package*.json ./
+RUN npm ci
+
+# Copy source and tests into the image
+COPY . .
+
+CMD ["npm", "test"]
