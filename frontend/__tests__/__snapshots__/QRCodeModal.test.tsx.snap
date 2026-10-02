@@ -1,0 +1,467 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`QRCodeModal snapshot tests renders closed state (isOpen=false) 1`] = `null`;
+
+exports[`QRCodeModal snapshot tests renders with a different sample address 1`] = `
+<div
+  class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+>
+  <div
+    class="card max-w-md w-full animate-slide-up"
+  >
+    <div
+      class="flex items-center justify-between mb-6"
+    >
+      <h3
+        class="font-display text-xl font-semibold text-white"
+      >
+        Receive Payment QR Code
+      </h3>
+      <button
+        class="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M6 18L18 6M6 6l12 12"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
+    <div
+      class="flex flex-col items-center mb-6"
+    >
+      <div
+        class="bg-white p-4 rounded-xl shadow-lg mb-4"
+      >
+        <canvas
+          height="256"
+          role="img"
+          style="height: 256px; width: 256px;"
+          width="256"
+        />
+      </div>
+      <div
+        class="text-center mb-4"
+      >
+        <p
+          class="text-xs text-slate-400 mb-1"
+        >
+          Your Stellar Address
+        </p>
+        <p
+          class="font-mono text-sm text-slate-300 break-all"
+        >
+          GDIFFERENTADDRESS123456789012345678901234567890123456
+        </p>
+      </div>
+      <div
+        class="text-center mb-6"
+      >
+        <p
+          class="text-xs text-slate-400 mb-1"
+        >
+          Payment URI
+        </p>
+        <p
+          class="font-mono text-xs text-slate-400 break-all max-w-full"
+        >
+          web+stellar:pay?destination=GDIFFERENTADDRESS123456789012345678901234567890123456
+        </p>
+      </div>
+    </div>
+    <div
+      class="flex gap-3"
+    >
+      <button
+        aria-label="Download QR code as PNG"
+        class="flex-1 bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+      >
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Download PNG
+      </button>
+      <button
+        class="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
+      >
+        Close
+      </button>
+    </div>
+    <div
+      class="mt-4 pt-4 border-t border-white/5"
+    >
+      <p
+        class="text-xs text-slate-400 text-center"
+      >
+        Scan this QR code with Freighter mobile or any Stellar wallet to receive payments.
+      </p>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`QRCodeModal snapshot tests renders with sample address (no amount) 1`] = `
+<div
+  class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+>
+  <div
+    class="card max-w-md w-full animate-slide-up"
+  >
+    <div
+      class="flex items-center justify-between mb-6"
+    >
+      <h3
+        class="font-display text-xl font-semibold text-white"
+      >
+        Receive Payment QR Code
+      </h3>
+      <button
+        class="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M6 18L18 6M6 6l12 12"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
+    <div
+      class="flex flex-col items-center mb-6"
+    >
+      <div
+        class="bg-white p-4 rounded-xl shadow-lg mb-4"
+      >
+        <canvas
+          height="256"
+          role="img"
+          style="height: 256px; width: 256px;"
+          width="256"
+        />
+      </div>
+      <div
+        class="text-center mb-4"
+      >
+        <p
+          class="text-xs text-slate-400 mb-1"
+        >
+          Your Stellar Address
+        </p>
+        <p
+          class="font-mono text-sm text-slate-300 break-all"
+        >
+          GABCDE1234567890GABCDE1234567890GABCDE1234567890GABCDE12
+        </p>
+      </div>
+      <div
+        class="text-center mb-6"
+      >
+        <p
+          class="text-xs text-slate-400 mb-1"
+        >
+          Payment URI
+        </p>
+        <p
+          class="font-mono text-xs text-slate-400 break-all max-w-full"
+        >
+          web+stellar:pay?destination=GABCDE1234567890GABCDE1234567890GABCDE1234567890GABCDE12
+        </p>
+      </div>
+    </div>
+    <div
+      class="flex gap-3"
+    >
+      <button
+        aria-label="Download QR code as PNG"
+        class="flex-1 bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+      >
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Download PNG
+      </button>
+      <button
+        class="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
+      >
+        Close
+      </button>
+    </div>
+    <div
+      class="mt-4 pt-4 border-t border-white/5"
+    >
+      <p
+        class="text-xs text-slate-400 text-center"
+      >
+        Scan this QR code with Freighter mobile or any Stellar wallet to receive payments.
+      </p>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`QRCodeModal snapshot tests renders with sample address and amount 1`] = `
+<div
+  class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+>
+  <div
+    class="card max-w-md w-full animate-slide-up"
+  >
+    <div
+      class="flex items-center justify-between mb-6"
+    >
+      <h3
+        class="font-display text-xl font-semibold text-white"
+      >
+        Receive Payment QR Code
+      </h3>
+      <button
+        class="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M6 18L18 6M6 6l12 12"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
+    <div
+      class="flex flex-col items-center mb-6"
+    >
+      <div
+        class="bg-white p-4 rounded-xl shadow-lg mb-4"
+      >
+        <canvas
+          height="256"
+          role="img"
+          style="height: 256px; width: 256px;"
+          width="256"
+        />
+      </div>
+      <div
+        class="text-center mb-4"
+      >
+        <p
+          class="text-xs text-slate-400 mb-1"
+        >
+          Your Stellar Address
+        </p>
+        <p
+          class="font-mono text-sm text-slate-300 break-all"
+        >
+          GABCDE1234567890GABCDE1234567890GABCDE1234567890GABCDE12
+        </p>
+      </div>
+      <div
+        class="text-center mb-6"
+      >
+        <p
+          class="text-xs text-slate-400 mb-1"
+        >
+          Payment URI
+        </p>
+        <p
+          class="font-mono text-xs text-slate-400 break-all max-w-full"
+        >
+          web+stellar:pay?destination=GABCDE1234567890GABCDE1234567890GABCDE1234567890GABCDE12&amount=10.5
+        </p>
+      </div>
+    </div>
+    <div
+      class="flex gap-3"
+    >
+      <button
+        aria-label="Download QR code as PNG"
+        class="flex-1 bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+      >
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Download PNG
+      </button>
+      <button
+        class="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
+      >
+        Close
+      </button>
+    </div>
+    <div
+      class="mt-4 pt-4 border-t border-white/5"
+    >
+      <p
+        class="text-xs text-slate-400 text-center"
+      >
+        Scan this QR code with Freighter mobile or any Stellar wallet to receive payments.
+      </p>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`QRCodeModal snapshot tests renders with sample address and zero amount 1`] = `
+<div
+  class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+>
+  <div
+    class="card max-w-md w-full animate-slide-up"
+  >
+    <div
+      class="flex items-center justify-between mb-6"
+    >
+      <h3
+        class="font-display text-xl font-semibold text-white"
+      >
+        Receive Payment QR Code
+      </h3>
+      <button
+        class="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M6 18L18 6M6 6l12 12"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
+    <div
+      class="flex flex-col items-center mb-6"
+    >
+      <div
+        class="bg-white p-4 rounded-xl shadow-lg mb-4"
+      >
+        <canvas
+          height="256"
+          role="img"
+          style="height: 256px; width: 256px;"
+          width="256"
+        />
+      </div>
+      <div
+        class="text-center mb-4"
+      >
+        <p
+          class="text-xs text-slate-400 mb-1"
+        >
+          Your Stellar Address
+        </p>
+        <p
+          class="font-mono text-sm text-slate-300 break-all"
+        >
+          GABCDE1234567890GABCDE1234567890GABCDE1234567890GABCDE12
+        </p>
+      </div>
+      <div
+        class="text-center mb-6"
+      >
+        <p
+          class="text-xs text-slate-400 mb-1"
+        >
+          Payment URI
+        </p>
+        <p
+          class="font-mono text-xs text-slate-400 break-all max-w-full"
+        >
+          web+stellar:pay?destination=GABCDE1234567890GABCDE1234567890GABCDE1234567890GABCDE12
+        </p>
+      </div>
+    </div>
+    <div
+      class="flex gap-3"
+    >
+      <button
+        aria-label="Download QR code as PNG"
+        class="flex-1 bg-stellar-500 hover:bg-stellar-600 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+      >
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Download PNG
+      </button>
+      <button
+        class="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg transition-colors"
+      >
+        Close
+      </button>
+    </div>
+    <div
+      class="mt-4 pt-4 border-t border-white/5"
+    >
+      <p
+        class="text-xs text-slate-400 text-center"
+      >
+        Scan this QR code with Freighter mobile or any Stellar wallet to receive payments.
+      </p>
+    </div>
+  </div>
+</div>
+`;
