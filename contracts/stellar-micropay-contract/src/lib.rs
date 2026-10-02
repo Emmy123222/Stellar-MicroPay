@@ -291,6 +291,8 @@ impl MicroPayContract {
         to: Address,
         amount: i128,
     ) {
+        require_not_frozen(&env);
+
         // Require sender authorization
         from.require_auth();
 
@@ -363,6 +365,79 @@ impl MicroPayContract {
             ),
             TipEventData { amount, fee_amount },
         );
+    }
+
+    /// Send several tips atomically. The sender is debited once for the total;
+    /// the contract then fans the funds out to each unique recipient.
+    pub fn batch_tip(
+        env: Env,
+        token_address: Address,
+        from: Address,
+        tips: soroban_sdk::Vec<(Address, i128)>,
+    ) {
+        from.require_auth();
+        if tips.len() == 0 {
+            panic!("At least one tip is required");
+        }
+
+        let mut total = 0i128;
+        let mut i = 0u32;
+        while i < tips.len() {
+            let (recipient, amount) = tips.get(i).unwrap();
+            if amount <= 0 {
+                panic!("Tip amount must be positive");
+            }
+            let mut j = 0u32;
+            while j < i {
+                let (previous, _) = tips.get(j).unwrap();
+                if previous == recipient {
+                    panic!("Duplicate tip recipient");
+                }
+                j += 1;
+            }
+            total = total.checked_add(amount).expect("Tip total overflow");
+            i += 1;
+        }
+
+        let token = token::Client::new(&env, &token_address);
+        let contract = env.current_contract_address();
+        token.transfer(&from, &contract, &total);
+
+        let mut index = 0u32;
+        while index < tips.len() {
+            let (recipient, amount) = tips.get(index).unwrap();
+            token.transfer(&contract, &recipient, &amount);
+
+            let current_total: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::TipTotal(recipient.clone()))
+                .unwrap_or(0);
+            let current_count: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::TipCount(recipient.clone()))
+                .unwrap_or(0);
+            env.storage().instance().set(
+                &DataKey::TipTotal(recipient.clone()),
+                &(current_total + amount),
+            );
+            env.storage()
+                .instance()
+                .set(&DataKey::TipCount(recipient.clone()), &(current_count + 1));
+            env.storage().instance().set(
+                &DataKey::TipRecord(recipient.clone(), current_count),
+                &TipRecord {
+                    from: from.clone(),
+                    to: recipient.clone(),
+                    amount,
+                    ledger: env.ledger().sequence(),
+                },
+            );
+            env.events()
+                .publish((Symbol::new(&env, "tip"), from.clone(), recipient), amount);
+            index += 1;
+        }
     }
 
     // ─── Fees ────────────────────────────────────────────────────────────────
@@ -442,6 +517,8 @@ impl MicroPayContract {
         amount: i128,
         memo: Symbol,
     ) -> u32 {
+        require_not_frozen(&env);
+
         from.require_auth();
 
         if amount <= 0 {
@@ -1119,20 +1196,22 @@ impl MicroPayContract {
     /// [PLACEHOLDER] Batch multiple micro-payments in a single transaction.
     /// See ROADMAP.md v2.0 — Multi-Currency Payments.
     pub fn batch_send(
-        _env: Env,
+        env: Env,
         _from: Address,
         _recipients: soroban_sdk::Vec<Address>,
         _amounts: soroban_sdk::Vec<i128>,
     ) {
+        require_not_frozen(&env);
         panic!("Batch payments coming in v2.0 — see ROADMAP.md");
     }
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+// ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use soroban_sdk::{
         testutils::{Address as _, Events as _, Ledger},
         Address, Env,
@@ -1900,5 +1979,60 @@ mod tests {
             &DISPUTE_TIMEOUT,
         );
     }
-}
 
+    fn tip_setup() -> (Env, MicroPayContractClient<'static>, Address, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        let issuer = Address::generate(&env);
+        let asset = env.register_stellar_asset_contract_v2(issuer);
+        let token = asset.address();
+        let sender = Address::generate(&env);
+        soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&sender, &10_000);
+        (env, client, token, sender)
+    }
+
+    #[test]
+    fn test_batch_tip_single_and_five_recipients() {
+        let (env, client, token_address, sender) = tip_setup();
+        let one = Address::generate(&env);
+        let one_tip = soroban_sdk::Vec::from_array(&env, [(one.clone(), 100i128)]);
+        client.batch_tip(&token_address, &sender, &one_tip);
+        assert_eq!(client.get_tip_total(&one), 100);
+        assert_eq!(client.get_tip_count(&one), 1);
+
+        let mut five = soroban_sdk::Vec::new(&env);
+        for amount in 1..=5i128 {
+            five.push_back((Address::generate(&env), amount));
+        }
+        client.batch_tip(&token_address, &sender, &five);
+        for i in 0..five.len() {
+            let (recipient, amount) = five.get(i).unwrap();
+            assert_eq!(client.get_tip_total(&recipient), amount);
+            assert_eq!(client.get_tip_count(&recipient), 1);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Tip amount must be positive")]
+    fn test_batch_tip_rejects_zero_amount() {
+        let (env, client, token_address, sender) = tip_setup();
+        let tips = soroban_sdk::Vec::from_array(&env, [(Address::generate(&env), 0i128)]);
+        client.batch_tip(&token_address, &sender, &tips);
+    }
+
+    #[test]
+    #[should_panic(expected = "Duplicate tip recipient")]
+    fn test_batch_tip_rejects_duplicate_recipient() {
+        let (env, client, token_address, sender) = tip_setup();
+        let recipient = Address::generate(&env);
+        let tips = soroban_sdk::Vec::from_array(
+            &env,
+            [(recipient.clone(), 100i128), (recipient, 200i128)],
+        );
+        client.batch_tip(&token_address, &sender, &tips);
+    }
+}

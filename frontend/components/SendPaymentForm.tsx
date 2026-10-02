@@ -6,6 +6,7 @@
  * Emmy123222/Stellar-MicroPay
  */
 
+import ContactPickerModal from "@/components/ContactPickerModal";
 import PaymentStatusModal, {
   type PaymentFlowStatus,
   type PaymentStepId,
@@ -19,10 +20,13 @@ import {
   fetchNetworkFeeStats,
   isValidStellarAddress,
   memoTextByteLength,
+  memoValueError,
   server,
   STELLAR_BASE_FEE_XLM,
   STELLAR_MEMO_HASH_HEX_LENGTH,
+  STELLAR_MEMO_PLACEHOLDERS,
   STELLAR_MEMO_TEXT_MAX_BYTES,
+  type StellarMemoType,
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
@@ -111,9 +115,9 @@ export default function SendPaymentForm({
   usdcBalance,
   onSuccess,
   prefill,
-  title = "Send Payment",
+  title,
   submitLabel,
-  successTitle = "Payment sent!",
+  successTitle,
   successMessage,
   assetOptions = ["XLM", "USDC"],
   hideAssetSelector = false,
@@ -122,8 +126,10 @@ export default function SendPaymentForm({
   hideAmountField = false,
   hideMemoField = false,
 }: SendPaymentFormProps) {
+  const { t } = useTranslation();
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
+  const [feeStatus, setFeeStatus] = useState<"loading" | "ready" | "error">("loading");
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
@@ -157,6 +163,19 @@ export default function SendPaymentForm({
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  
+  // Split payment mode
+  const [isSplitPaymentMode, setIsSplitPaymentMode] = useState(false);
+  const [splitRecipients, setSplitRecipients] = useState<Array<{ address: string; percentage: number }>>([
+    { address: "", percentage: 100 }
+  ]);
+  
+  // Federation address lookup
+  const [isResolvingFederation, setIsResolvingFederation] = useState(false);
+  const [federationResolvedAddress, setFederationResolvedAddress] = useState<string | null>(null);
+  const [federationError, setFederationError] = useState<string | null>(null);
+  const federationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -186,7 +205,7 @@ export default function SendPaymentForm({
       }
       startDetection();
     } catch (err) {
-      setScannerError("Camera access denied or not available.");
+      setScannerError(t("sendPayment.cameraError"));
       setIsScannerOpen(false);
     }
   };
@@ -390,10 +409,12 @@ export default function SendPaymentForm({
         const feeStats = await fetchNetworkFeeStats();
         if (!cancelled) {
           setNetworkFeeXlm(feeStats.baseFeeXlm || STELLAR_BASE_FEE_XLM);
+          setFeeStatus("ready");
         }
       } catch {
         if (!cancelled) {
           setNetworkFeeXlm(STELLAR_BASE_FEE_XLM);
+          setFeeStatus("error");
         }
       }
     };
@@ -437,7 +458,7 @@ export default function SendPaymentForm({
   const resolveUsername = async (username: string) => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
     if (!/^[a-zA-Z0-9]{3,20}$/.test(cleanUsername)) {
-      setUsernameResolutionError("Invalid username format");
+      setUsernameResolutionError(t("sendPayment.invalidUsername"));
       return;
     }
     setIsResolvingUsername(true);
@@ -445,16 +466,18 @@ export default function SendPaymentForm({
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
       const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
-      if (!response.ok) throw new Error("Username not found");
+      if (!response.ok) throw new Error(t("sendPayment.usernameNotFound"));
       const payload = await response.json();
       if (payload?.success && payload?.data?.publicKey) {
         setDestination(payload.data.publicKey);
         setUsernameResolutionError(null);
       } else {
-        throw new Error("Failed to resolve username");
+        throw new Error(t("sendPayment.usernameResolveFailed"));
       }
     } catch (err) {
-      setUsernameResolutionError(err instanceof Error ? err.message : "Failed to resolve username");
+      setUsernameResolutionError(
+        err instanceof Error ? err.message : t("sendPayment.usernameResolveFailed")
+      );
     } finally {
       setIsResolvingUsername(false);
     }
@@ -669,11 +692,12 @@ export default function SendPaymentForm({
         memo: memo.trim() || undefined,
       });
       const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) throw new Error(signError || "Receipt signing failed");
+      if (signError || !signedXDR)
+        throw new Error(signError || t("sendPayment.receiptSigningFailed"));
       const result = await submitTransaction(signedXDR);
       setReceiptMinted(true);
     } catch (err: any) {
-      setReceiptError(err?.message || "Failed to mint receipt");
+      setReceiptError(err?.message || t("sendPayment.receiptMintFailed"));
     } finally {
       setMintingReceipt(false);
     }
@@ -705,7 +729,8 @@ export default function SendPaymentForm({
       markStepStarted("signing");
       setStatus("signing");
       const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) throw new Error(signError || "Signing failed");
+      if (signError || !signedXDR)
+        throw new Error(signError || t("sendPayment.signingFailed"));
       markStepCompleted("signing");
 
       activeStep = "submitting";
@@ -744,7 +769,7 @@ export default function SendPaymentForm({
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
-    if (!confirmed) throw new Error("Transaction confirmation timed out.");
+    if (!confirmed) throw new Error(t("sendPayment.confirmationTimedOut"));
   };
 
   const setMaxAmount = () => setAmount(maxSend.toFixed(7));
@@ -778,11 +803,17 @@ export default function SendPaymentForm({
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stellar-500/20 text-stellar-400">
           <CheckIcon className="h-8 w-8" />
         </div>
-        <h2 className="mb-2 font-display text-2xl font-bold text-white">{successTitle}</h2>
-        <p className="mb-6 text-slate-400">{successMessage || "Your payment has been confirmed on the Stellar network."}</p>
+        <h2 className="mb-2 font-display text-2xl font-bold text-white">
+          {successTitle ?? t("sendPayment.successTitle")}
+        </h2>
+        <p className="mb-6 text-slate-400">
+          {successMessage ?? t("sendPayment.successMessage")}
+        </p>
 
         <div className="mb-8 rounded-xl border border-white/5 bg-white/5 p-4">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Transaction Hash</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            {t("sendPayment.transactionHash")}
+          </p>
           <div className="flex items-center justify-center gap-2">
             <code className="text-xs text-stellar-300">{truncatedHash}</code>
             <button onClick={handleCopy} className="text-slate-500 hover:text-white transition-colors">
@@ -793,7 +824,7 @@ export default function SendPaymentForm({
 
         <div className="flex flex-col gap-3">
           <a href={explorerUrl(txHash)} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center justify-center gap-2">
-            View on Explorer <ExternalLinkIcon className="h-4 w-4" />
+            {t("sendPayment.viewOnExplorer")} <ExternalLinkIcon className="h-4 w-4" />
           </a>
 
           {!receiptMinted ? (
@@ -805,18 +836,18 @@ export default function SendPaymentForm({
               {mintingReceipt ? (
                 <>
                   <div className="w-4 h-4 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                  Minting receipt…
+                  {t("sendPayment.mintingReceipt")}
                 </>
               ) : (
                 <>
                   <ReceiptIcon className="h-4 w-4" />
-                  Mint NFT Receipt
+                  {t("sendPayment.mintReceipt")}
                 </>
               )}
             </button>
           ) : (
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200 text-center">
-              NFT receipt minted successfully!
+              {t("sendPayment.mintSuccess")}
             </div>
           )}
 
@@ -825,7 +856,7 @@ export default function SendPaymentForm({
           )}
 
           <button onClick={() => setStatus("idle")} className="text-sm text-slate-400 hover:text-white transition-colors">
-            Send another payment
+            {t("sendPayment.sendAnother")}
           </button>
         </div>
       </div>
@@ -837,7 +868,7 @@ export default function SendPaymentForm({
       <div className="card animate-fade-in">
       <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
         <SendIcon className="w-5 h-5 text-stellar-400" />
-        {title}
+        {title ?? t("sendPayment.title")}
       </h2>
 
       <div className="space-y-5">
@@ -866,14 +897,16 @@ export default function SendPaymentForm({
         {!hideDestinationField && (
           <div className="relative" ref={dropdownRef}>
             <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">Destination</label>
+              <label className="label mb-0">{t("sendPayment.destination")}</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsFavouritesDropdownOpen(!isFavouritesDropdownOpen)}
                   className="text-xs text-stellar-400 hover:text-stellar-300"
                 >
-                  {isFavouritesDropdownOpen ? "Close" : "Favourites"}
+                  {isFavouritesDropdownOpen
+                    ? t("common.close")
+                    : t("sendPayment.favourites")}
                 </button>
                 {isValidDest && (
                   <button
@@ -882,19 +915,43 @@ export default function SendPaymentForm({
                       const existing = favourites.find((f) => f.address === destination);
                       if (existing) deleteFavourite(destination);
                       else {
-                        const name = prompt("Name this favourite:", destination.slice(0, 8));
+                        const name = prompt(
+                          t("sendPayment.nameFavouritePrompt"),
+                          destination.slice(0, 8)
+                        );
                         if (name) saveFavourites([...favourites, { name, address: destination }]);
                       }
                     }}
                     className="text-stellar-400 hover:text-stellar-300"
-                    title={favourites.some((f) => f.address === destination) ? "Remove favourite" : "Add favourite"}
+                    title={
+                      favourites.some((f) => f.address === destination)
+                        ? t("sendPayment.removeFavourite")
+                        : t("sendPayment.addFavourite")
+                    }
                   >
                     <StarIcon className="h-5 w-5" filled={favourites.some((f) => f.address === destination)} />
                   </button>
                 )}
                 {isScannerSupported && status === "idle" && (
-                  <button type="button" onClick={openScanner} className="text-slate-400 hover:text-white" title="Scan QR Code">
+                  <button
+                    type="button"
+                    onClick={openScanner}
+                    className="text-slate-400 hover:text-white"
+                    title={t("sendPayment.scanQr")}
+                  >
                     <QrCodeIcon className="h-5 w-5" />
+                  </button>
+                )}
+                {status === "idle" && (
+                  <button
+                    type="button"
+                    onClick={() => setIsContactPickerOpen(true)}
+                    className="text-slate-400 hover:text-white"
+                    title="Pick from address book"
+                    aria-label="Pick from address book"
+                    data-testid="open-contact-picker"
+                  >
+                    <ContactsIcon className="h-5 w-5" />
                   </button>
                 )}
               </div>
@@ -1013,6 +1070,12 @@ export default function SendPaymentForm({
               className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
               disabled={status !== "idle"}
             />
+            <p className="mt-2 text-xs text-slate-400" role="status">
+              {feeStatus === "loading" && "Fetching current network fee…"}
+              {feeStatus === "error" && `Network fee unavailable; using ${STELLAR_BASE_FEE_XLM} XLM fallback.`}
+              {feeStatus === "ready" && estimatedTotalDeducted != null &&
+                `Estimated fee: ~${networkFeeXlm.toFixed(7)} XLM (${Math.round(networkFeeXlm * 10_000_000)} stroops); total ~${estimatedTotalDeducted.toFixed(7)} XLM.`}
+            </p>
           </div>
         )}
 
@@ -1092,13 +1155,12 @@ export default function SendPaymentForm({
           disabled={!canSubmit || status !== "idle"}
           className="btn-primary w-full flex items-center justify-center gap-2"
         >
-          {status === "idle" ? (
-            <>
-              Send {amount || ""} <AssetBadge assetCode={selectedAsset} />
-            </>
-          ) : (
-            "Processing..."
-          )}
+          {status === "idle"
+            ? t("sendPayment.sendWithAmount", {
+                amount: amount || "",
+                asset: selectedAsset,
+              })
+            : t("sendPayment.processing")}
         </button>
       </div>
     </div>
@@ -1114,6 +1176,15 @@ export default function SendPaymentForm({
         isTipOnChain={isTipOnChain}
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={() => { setIsConfirmOpen(false); executeSend(); }}
+      />
+
+      <ContactPickerModal
+        isOpen={isContactPickerOpen}
+        onSelect={(contact) => {
+          setDestination(contact.address);
+          setIsContactPickerOpen(false);
+        }}
+        onClose={() => setIsContactPickerOpen(false)}
       />
 
       <PaymentStatusModal
@@ -1178,6 +1249,14 @@ function StarIcon({ className, filled }: { className?: string; filled?: boolean 
   );
 }
 
+function ContactsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+    </svg>
+  );
+}
+
 function QrCodeIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1237,22 +1316,28 @@ function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, es
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10 shadow-2xl">
-        <h3 className="text-xl font-bold text-white mb-4">Confirm Payment</h3>
+        <h3 className="text-xl font-bold text-white mb-4">
+          {t("sendPayment.confirmTitle")}
+        </h3>
         <div className="space-y-4">
           <div>
-            <p className="text-xs text-slate-500 uppercase font-bold">To</p>
+            <p className="text-xs text-slate-500 uppercase font-bold">
+              {t("sendPayment.to")}
+            </p>
             <p className="text-sm font-mono text-slate-200 break-all">{destination}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">Amount</p>
-              <p className="text-lg font-bold text-white flex items-center gap-2">
-                {amount} <AssetBadge assetCode={asset} />
+              <p className="text-xs text-slate-500 uppercase font-bold">
+                {t("sendPayment.amount", { asset: "XLM" })}
               </p>
-              <p className="text-xs text-slate-400">≈ ${usdValue?.toFixed(2) || "0.00"} USD</p>
+              <p className="text-lg font-bold text-white">{amount} XLM</p>
+              <p className="text-xs text-slate-400">≈ ${usdValue.toFixed(2)} USD</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">Fee</p>
+              <p className="text-xs text-slate-500 uppercase font-bold">
+                {t("sendPayment.fee")}
+              </p>
               <p className="text-sm text-slate-300">{estimatedFee}</p>
             </div>
           </div>

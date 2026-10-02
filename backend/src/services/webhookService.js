@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const { sanitizeWebhookUrl } = require("./webhookUrl");
 
 const webhooks = new Map();
 const RETRY_DELAYS_MS = [250, 500, 1000];
@@ -11,21 +12,16 @@ function register({ url, publicKey, secret }) {
     error.status = 400;
     throw error;
   }
-  try {
-    const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
-  } catch {
-    const error = new Error("url must be a valid HTTP(S) URL");
-    error.status = 400;
-    throw error;
-  }
+
+  const safeUrl = sanitizeWebhookUrl(url);
+
   if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
     const error = new Error("publicKey must be a valid Stellar public key");
     error.status = 400;
     throw error;
   }
 
-  const webhook = { id: crypto.randomUUID(), url, publicKey, secret, createdAt: new Date().toISOString() };
+  const webhook = { id: crypto.randomUUID(), url: safeUrl, publicKey, secret, createdAt: new Date().toISOString() };
   webhooks.set(webhook.id, webhook);
   return { id: webhook.id, url: webhook.url, publicKey: webhook.publicKey, createdAt: webhook.createdAt };
 }
@@ -40,10 +36,11 @@ function signature(secret, body) {
 
 async function deliver(webhook, payload, fetchImpl = fetch) {
   const body = JSON.stringify(payload);
+  const target = sanitizeWebhookUrl(webhook.url);
   let lastError;
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
     try {
-      const response = await fetchImpl(webhook.url, {
+      const response = await fetchImpl(target, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -75,4 +72,13 @@ async function publishPayment(payment, fetchImpl = fetch) {
 
 function clear() { webhooks.clear(); }
 
-module.exports = { register, remove, deliver, publishPayment, signature, clear, RETRY_DELAYS_MS };
+module.exports = {
+  register,
+  remove,
+  deliver,
+  publishPayment,
+  signature,
+  sanitizeWebhookUrl,
+  clear,
+  RETRY_DELAYS_MS,
+};

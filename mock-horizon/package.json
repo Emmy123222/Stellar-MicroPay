@@ -1,0 +1,15 @@
+{
+  "name": "mock-horizon",
+  "version": "1.0.0",
+  "description": "Minimal Horizon API mock for integration testing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": "20.19.5"
+  }
+}

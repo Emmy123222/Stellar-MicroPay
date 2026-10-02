@@ -11,6 +11,7 @@ import {
   fetchOpenOffers,
   buildCancelOfferTransaction,
   submitTransaction,
+  getNetworkPassphrase,
   USDC,
   Orderbook,
   TradeAggregation,

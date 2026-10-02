@@ -48,8 +48,8 @@ describe("Route mount configuration", () => {
             `  Duplicate: ${dup.duplicate}`
         )
         .join("\n\n");
-      
-      fail(errorMessage);
+
+      throw new Error(errorMessage);
     }
 
     expect(duplicates.length).toBe(0);
@@ -75,7 +75,7 @@ describe("Route mount configuration", () => {
     // Find the position of rate limiter application
     const rateLimiterMatch = serverContent.match(/app\.use\(limiter\)/);
     expect(rateLimiterMatch).toBeTruthy();
-    
+
     const rateLimiterPosition = rateLimiterMatch.index;
 
     // Find positions of critical route mounts

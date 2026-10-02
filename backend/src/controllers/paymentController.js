@@ -24,6 +24,31 @@ async function getPayments(req, res, next) {
 }
 
 /**
+ * POST /api/payments/submit
+ * Submit a signed payment transaction to Horizon.
+ *
+ * Safe to retry: when an `X-Idempotency-Key` header is supplied, the
+ * idempotency middleware replays the cached response for repeats within 24h.
+ */
+async function submitPayment(req, res, next) {
+  try {
+    const { signedXDR } = req.body || {};
+
+    if (!signedXDR) {
+      const error = new Error("signedXDR is required");
+      error.status = 400;
+      throw error;
+    }
+
+    const result = await stellarService.submitTransaction(signedXDR);
+
+    res.status(200).json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /api/payments/:publicKey/stats
  * Computes aggregate payment statistics for a wallet.
  */
@@ -91,4 +116,4 @@ async function getStreamStatus(req, res, next) {
   }
 }
 
-module.exports = { getPayments, getStats, getStreamStatus };
+module.exports = { getPayments, getStats, getStreamStatus, submitPayment };

@@ -23,6 +23,11 @@ export default function TipWidget({
   creatorUsername,
   destination,
 }: TipWidgetProps) {
+  const shareUrl = `https://stellarmicropay.com/tip/${encodeURIComponent(creatorUsername)}`;
+  const shareOnX = () => {
+    const text = `Send me a tip with Stellar MicroPay! ⚡ ${shareUrl}`;
+    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  };
   const { publicKey } = useWallet();
   const [amount, setAmount] = useState<string>(PRESET_TIPS[0].amount);
   const [showConnectPrompt, setShowConnectPrompt] = useState(false);
@@ -138,6 +143,15 @@ export default function TipWidget({
                 {shortenAddress(destination)}
               </p>
             </div>
+            <button
+              type="button"
+              onClick={shareOnX}
+              aria-label="Share this tip page on X"
+              className="inline-flex items-center gap-2 rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              <span aria-hidden="true" className="text-base">𝕏</span>
+              Share on X
+            </button>
           </div>
         </section>
 

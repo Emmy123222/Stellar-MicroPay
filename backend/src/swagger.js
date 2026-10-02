@@ -118,6 +118,22 @@ const options = {
             subentryCount: { type: "integer" },
           },
         },
+        StreamStatus: {
+          type: "object",
+          properties: {
+            payer: { type: "string", description: "Payer Stellar address (contract Address)" },
+            recipient: {
+              type: "string",
+              nullable: true,
+              description: "First recipient address, or null when the stream has none",
+            },
+            ratePerLedger: { type: "string", description: "Tokens accrued per ledger (i128 as string)" },
+            deposited: { type: "string", description: "Total deposited into the stream (i128 as string)" },
+            claimed: { type: "string", description: "Total claimed by all recipients so far (i128 as string)" },
+            startLedger: { type: "integer", description: "Ledger the stream started at" },
+            claimableNow: { type: "string", description: "Derived unclaimed amount as of the latest ledger (i128 as string)" },
+          },
+        },
         Tip: {
           type: "object",
           properties: {
@@ -413,6 +429,46 @@ const options = {
                 },
               },
             },
+          },
+        },
+      },
+      "/api/payments/stream-status/{streamId}": {
+        get: {
+          tags: ["Payments"],
+          summary: "Get streaming payment channel state from the Soroban contract",
+          description:
+            "Reads the `Stream` entry from the deployed MicroPay contract's persistent storage " +
+            "via Soroban RPC `getContractData` and returns its current state. The contract ID is " +
+            "configured with the `CONTRACT_ID` environment variable. `claimableNow` mirrors the " +
+            "contract's accrual logic (paused ledgers excluded, capped at the funded window).",
+          parameters: [
+            {
+              name: "streamId",
+              in: "path",
+              required: true,
+              schema: { type: "integer", minimum: 0, maximum: 4294967295 },
+              description: "u32 stream id stored in the contract",
+            },
+          ],
+          responses: {
+            200: {
+              description: "Current stream state",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: { $ref: "#/components/schemas/StreamStatus" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "streamId is not an unsigned 32-bit integer" },
+            404: { description: "Stream not found in contract storage" },
+            503: { description: "CONTRACT_ID not configured or Soroban RPC unavailable" },
+            429: { description: "Rate limit exceeded" },
           },
         },
       },
@@ -713,6 +769,29 @@ const options = {
           summary: "Get a turrets authentication challenge",
           responses: {
             200: { description: "Challenge data" },
+          },
+        },
+      },
+      "/api/events/stream": {
+        get: {
+          tags: ["Events"],
+          summary: "Stream Soroban contract events (Server-Sent Events)",
+          description:
+            "Opens a `text/event-stream` connection. Each message is a JSON envelope with a `kind` of `ready`, `event` or `status`.",
+          parameters: [
+            {
+              name: "cursor",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Resume from a paging cursor returned by Soroban RPC",
+            },
+          ],
+          responses: {
+            200: {
+              description: "Event stream",
+              content: { "text/event-stream": { schema: { type: "string" } } },
+            },
           },
         },
       },

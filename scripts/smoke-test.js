@@ -119,17 +119,17 @@ async function testHealthEndpoint(baseUrl = STAGING_URL, options = {}) {
 
 async function testApiHealthEndpoint() {
   console.log("\n[Test] API health endpoint");
-  const url = `${STAGING_URL}/api/health`;
+  const URL = `${STAGING_URL}/api/health`;
 
   try {
-    const res = await withRetry(() => makeRequest(url));
+    const res = await withRetry(() => makeRequest(URL));
     if (res.status === 200) {
-      logOk(`GET ${url} returned 200`);
+      logOk(`GET ${URL} returned 200`);
     } else {
-      logFail(`GET ${url} returned ${res.status}, expected 200`);
+      logFail(`GET ${URL} returned ${res.status}, expected 200`);
     }
   } catch (err) {
-    logFail(`GET ${url} failed: ${err.message}`);
+    logFail(`GET ${URL} failed: ${err.message}`);
   }
 }
 

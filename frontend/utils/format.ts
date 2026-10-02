@@ -1,43 +1,41 @@
 /**
  * utils/format.ts
  * Shared formatting utilities.
+ * 
+ * MIGRATION NOTE: This file now uses Intl-based formatters from intlFormatters.ts
+ * for better internationalization support. The API remains backward compatible.
  */
 
 import { PaymentRecord } from "@/lib/stellar";
-import { formatDistanceToNow, format } from "date-fns";
+import { format } from "date-fns";
+import {
+  formatAsset as formatAssetIntl,
+  formatAssetPrecise as formatAssetPreciseIntl,
+  formatStroopsToXLM as formatStroopsToXLMIntl,
+  formatUSD as formatUSDIntl,
+  formatRelativeTime,
+  formatDate as formatDateIntl,
+  shortenAddress as shortenAddressIntl,
+  getUserLocale,
+} from "./intlFormatters";
 
-interface AssetFormatRule {
-  minimumFractionDigits: number;
-  maximumFractionDigits: number;
-}
-
-const DEFAULT_ASSET_CODE = "XLM";
-const DEFAULT_ASSET_RULE: AssetFormatRule = {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 7,
-};
-const ASSET_FORMAT_RULES: Record<string, AssetFormatRule> = {
-  XLM: DEFAULT_ASSET_RULE,
-  USDC: {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  },
-};
-
-function normalizeAssetCode(assetCode?: string): string {
-  return assetCode?.trim().toUpperCase() || DEFAULT_ASSET_CODE;
-}
-
-function getAssetFormatRule(assetCode?: string): AssetFormatRule {
-  return ASSET_FORMAT_RULES[normalizeAssetCode(assetCode)] ?? DEFAULT_ASSET_RULE;
-}
+// Re-export from intlFormatters for better tree-shaking
+export {
+  formatNumber,
+  formatSmallAmount,
+  formatForScreenReader,
+  validateDate,
+  validateAmount,
+  getUserTimezone,
+  pluralize as pluralizeIntl, // Rename to avoid conflicts
+  formatDateFull,
+} from "./intlFormatters";
 
 /**
  * Shorten a Stellar address for display (e.g. GABC...XYZ1)
  */
 export function shortenAddress(address: string, chars = 4): string {
-  if (!address || address.length < chars * 2 + 2) return address;
-  return `${address.slice(0, chars)}...${address.slice(-chars)}`;
+  return shortenAddressIntl(address, chars);
 }
 
 /**
@@ -93,37 +91,23 @@ export function formatAsset(
  * @param stroops - The amount in stroops (i128 from Soroban).
  */
 export function formatStroopsToXLM(stroops: bigint | string | number): string {
-  try {
-    if (stroops === null || stroops === undefined) return "0.0000000 XLM";
-    const s = typeof stroops === "bigint" ? stroops : BigInt(stroops);
-    const xlm = Number(s) / 10_000_000;
-    return `${xlm.toFixed(7)} XLM`;
-  } catch (err) {
-    return "0.0000000 XLM";
-  }
+  return formatStroopsToXLMIntl(stroops, { locale: getUserLocale() });
 }
 
 /**
  * Format a date string as relative time (e.g., "3 minutes ago").
  */
 export function timeAgo(dateString: string): string {
-  try {
-    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
-  } catch {
-    return dateString;
-  }
+  return formatRelativeTime(dateString, { locale: getUserLocale() });
 }
 
 /**
  * Format a date string in a human-readable format.
  */
 export function formatDate(dateString: string): string {
-  try {
-    return format(new Date(dateString), "MMM d, yyyy · HH:mm");
-  } catch {
-    return dateString;
-  }
+  return formatDateIntl(dateString, { locale: getUserLocale() });
 }
+
 
 /**
  * Copy text to clipboard and return success boolean.
@@ -315,10 +299,21 @@ export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
  */
 export function formatUSD(usdValue: number): string {
+  if (usdValue == null) return `≈ $0.00 USD`;
+  if (isNaN(usdValue)) return `≈ $NaN USD`;
   return `≈ $${usdValue.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })} USD`;
+}
+
+/**
+ * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
+ * @param usdValue - The USD value to format
+ * @param locale - The locale for formatting (defaults to user's locale)
+ */
+export function formatUSD(usdValue: number, locale?: string): string {
+  return formatUSDIntl(usdValue, { locale: locale ?? getUserLocale() });
 }
 
 /**
@@ -452,4 +447,60 @@ export function exportToJSON(payments: PaymentRecord[]): void {
   const filename = `stellar-micropay-transactions-${dateStamp}.json`;
   const json = JSON.stringify(payments, null, 2);
   triggerDownload(json, filename, "application/json;charset=utf-8;");
+}
+
+/**
+ * Export the currently filtered and loaded transactions as CSV (Issue #1046).
+ *
+ * Unlike the page-level full-history export, this exports exactly the rows
+ * the user sees — the filtered set of loaded records — so accounting exports
+ * match what is on screen.
+ *
+ * Columns: date, type (sent/received), amount, asset, counterparty, memo,
+ * tx_hash. Filename: `stellar-transactions-<publicKey-short>-<date>.csv`.
+ */
+export function exportFilteredTransactionsToCSV(
+  payments: PaymentRecord[],
+  publicKey: string
+): void {
+  const HEADERS = [
+    "Date",
+    "Type",
+    "Amount",
+    "Asset",
+    "Counterparty",
+    "Memo",
+    "Tx Hash",
+  ];
+
+  const rows = payments.map((tx) => [
+    csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
+    csvCell(tx.type === "sent" ? "sent" : "received"),
+    csvCell(parseFloat(tx.amount).toFixed(7)),
+    csvCell(tx.asset ?? "XLM"),
+    // The counterparty is the other side of the payment relative to the
+    // exporting account.
+    csvCell(tx.type === "sent" ? tx.to : tx.from),
+    csvCell(tx.memo ?? ""),
+    csvCell(tx.transactionHash),
+  ]);
+
+  const csv = [
+    HEADERS.map(csvCell).join(","),
+    ...rows.map((r) => r.join(",")),
+  ].join("\r\n");
+
+  triggerDownload(csv, buildTransactionsCsvFilename(publicKey), "text/csv;charset=utf-8;");
+}
+
+/**
+ * Builds the issue-#1046 filename:
+ * `stellar-transactions-<publicKey-short>-<date>.csv` where
+ * `<publicKey-short>` is the first 4 characters of the account's public key.
+ * `now` is injectable so tests can assert the date stamp deterministically.
+ */
+export function buildTransactionsCsvFilename(publicKey: string, now: Date = new Date()): string {
+  const shortKey = (publicKey || "account").slice(0, 4).replace(/[^a-zA-Z0-9]/g, "");
+  const dateStamp = format(now, "yyyy-MM-dd");
+  return `stellar-transactions-${shortKey}-${dateStamp}.csv`;
 }

@@ -4,6 +4,39 @@
 
 This guide provides step-by-step instructions for deploying the Stellar-MicroPay streaming payment contract to the Stellar network and creating a pull request to the forked repository.
 
+## Deploy the web application
+
+The frontend is a static Next.js export and the API is an Express service. Deploy
+them separately so the frontend can be served from a CDN while API secrets remain
+on the server.
+
+### Vercel (frontend)
+
+1. Import this repository in Vercel, or use the [one-click flow](https://vercel.com/new/clone?repository-url=https://github.com/Emmy123222/Stellar-MicroPay).
+2. Set **Root Directory** to `frontend`, use the Next.js framework, and set the build command to `npm run build`.
+3. Configure these production variables:
+   - `NEXT_PUBLIC_API_URL` — public HTTPS URL of the Railway API.
+   - `NEXT_PUBLIC_STELLAR_NETWORK` — `testnet`, `mainnet`, or `custom`.
+   - `NEXT_PUBLIC_HORIZON_URL` and `NEXT_PUBLIC_SOROBAN_RPC_URL` — network endpoints.
+   - `NEXT_PUBLIC_CONTRACT_ID` — deployed MicroPay contract ID, if contract features are enabled.
+4. Deploy and verify `/tip/<username>` and `/dashboard` from the Vercel URL.
+
+### Railway (backend)
+
+1. Create a Railway service from this repository and set its root directory to `backend`.
+2. Use `npm start` as the start command and let Railway provide `PORT`.
+3. Configure these production variables (never commit them):
+   - `PORT` and `JWT_SECRET` (use a long random secret).
+   - `ALLOWED_ORIGINS` — the Vercel origin, without a trailing slash.
+   - `STELLAR_NETWORK`, `HORIZON_URL`, `SOROBAN_RPC_URL`, and `CONTRACT_ID`.
+   - `DATABASE_URL` when a managed persistent store is enabled.
+   - `LOG_LEVEL=info` and `DOMAIN` for federation discovery.
+4. Add `/health` as the Railway health check. After deployment, verify `/api/docs`.
+5. Set the Railway URL as `NEXT_PUBLIC_API_URL` in Vercel and redeploy the frontend.
+
+For local verification, copy `frontend/.env.example` and `backend/.env.example`,
+run `npm run dev --prefix backend`, then `npm run dev --prefix frontend`.
+
 ## Prerequisites
 
 1. **Rust and Soroban SDK**: Install Rust and add Soroban target
@@ -31,13 +64,13 @@ Before deploying the backend, you must configure the following environment varia
    # Generate a cryptographically secure random secret
    openssl rand -base64 48
    ```
-   
+
    Add this to your `.env` file or environment:
    ```bash
    JWT_SECRET=<generated_secret_here>
    ```
-   
-   **IMPORTANT**: 
+
+   **IMPORTANT**:
    - NEVER commit the JWT_SECRET to version control
    - Use a different secret for each environment (dev, staging, production)
    - The application will refuse to start if JWT_SECRET is not set
@@ -53,13 +86,13 @@ Before deploying the backend, you must configure the following environment varia
    # Generate a cryptographically secure random secret
    openssl rand -base64 48
    ```
-   
+
    Add this to your `.env` file or environment:
    ```bash
    JWT_SECRET=<generated_secret_here>
    ```
-   
-   **IMPORTANT**: 
+
+   **IMPORTANT**:
    - NEVER commit the JWT_SECRET to version control
    - Use a different secret for each environment (dev, staging, production)
    - The application will refuse to start if JWT_SECRET is not set

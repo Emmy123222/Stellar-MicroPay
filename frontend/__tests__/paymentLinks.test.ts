@@ -11,12 +11,31 @@ import {
   rememberPaymentLink,
   type PaymentLinkPayload,
 } from "@/lib/paymentLinks";
+import { buildSep0007Uri, parseStellarURI } from "@/lib/sep0007";
 
 const PAYLOAD: PaymentLinkPayload = {
   destination: "GABCDEF",
   amount: "10",
   memo: "thanks",
 };
+
+describe("SEP-0007 payment URI round trips", () => {
+  const destination = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+
+  it.each([
+    ["1", undefined],
+    ["0.00001", "invoice-1"],
+    ["100", "coffee & cake"],
+    ["42.5", "memo/with?reserved=chars"],
+    ["0.1", "unicode ✓"],
+  ])("preserves amount and memo (%s)", (amount, memo) => {
+    const uri = buildSep0007Uri({ destination, amount, memo });
+    const parsed = parseStellarURI(uri);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toMatchObject({ destination, amount, memo });
+    if (!memo) expect(uri).not.toContain("&memo=");
+  });
+});
 
 describe("paymentLinkId", () => {
   it("is deterministic for the same payload", () => {

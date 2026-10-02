@@ -3,7 +3,7 @@
  * Displays paginated payment history for a Stellar account.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/router";
 import {
   getPaymentHistory,
@@ -12,7 +12,12 @@ import {
   PaymentRecord,
   PaymentHistoryResponse,
 } from "@/lib/stellar";
-import { formatAmount, formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
+import {
+  exportFilteredTransactionsToCSV,
+  formatAsset,
+  timeAgo,
+  copyToClipboard,
+} from "@/utils/format";
 import clsx from "clsx";
 import { AssetBadge } from "@/components/AssetBadge";
 
@@ -133,6 +138,8 @@ export default function TransactionList({
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [stalePaymentsAt, setStalePaymentsAt] = useState<number | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
 
   const updatePayments = useCallback(
@@ -211,7 +218,42 @@ export default function TransactionList({
     fetchPayments();
   }, [fetchPayments]);
 
-  const handleLoadMore = () => fetchPayments(true);
+  const handleLoadMore = useCallback(() => fetchPayments(true), [fetchPayments]);
+
+  // Track the mobile breakpoint (<= 768px) so infinite scroll can replace
+  // the pagination button on small screens while desktop keeps the button.
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mql = window.matchMedia("(max-width: 768px)");
+    const update = () => setIsMobile(mql.matches);
+    update();
+    mql.addEventListener?.("change", update);
+    return () => mql.removeEventListener?.("change", update);
+  }, []);
+
+  // Infinite scroll: observe a sentinel at the bottom of the list and load the
+  // next page as soon as it scrolls into view. Mobile only — desktop uses the
+  // pagination button fallback below.
+  useEffect(() => {
+    if (!isMobile || !hasMore || loading || loadingMore) return;
+
+    const node = sentinelRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          handleLoadMore();
+        }
+      },
+      { rootMargin: "0px 0px 120px 0px" }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isMobile, hasMore, loading, loadingMore, handleLoadMore]);
 
   const handleCopy = async (text: string, id: string) => {
     await copyToClipboard(text);
@@ -235,6 +277,13 @@ export default function TransactionList({
   const visiblePayments = filterPayments(payments, filters);
   const hasActiveFilters =
     filters.direction !== "all" || filters.minAmount.trim() !== "" || filters.memoSearch.trim() !== "";
+
+  // Issue #1046 — export exactly what is on screen: the currently filtered,
+  // loaded rows (not all pages). Filename embeds a short key + today's date.
+  const handleExportCsv = () => {
+    if (visiblePayments.length === 0) return;
+    exportFilteredTransactionsToCSV(visiblePayments, publicKey);
+  };
 
   if (loading) {
     return (
@@ -307,13 +356,34 @@ export default function TransactionList({
                 <HistoryIcon className="w-5 h-5 text-stellar-400" />
                 Recent Payments
               </h2>
-              <button
-                onClick={() => fetchPayments()}
-                className="text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1"
-              >
-                <RefreshIcon className="w-3.5 h-3.5" />
-                Refresh
-              </button>
+              <div className="flex items-center gap-4">
+                {/* Export CSV — exports the currently filtered and loaded rows
+                    only (Issue #1046). Disabled while history is loading or
+                    when there is nothing to export. */}
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  disabled={loading || loadingMore || visiblePayments.length === 0}
+                  title="Export the currently filtered transactions as CSV"
+                  data-testid="export-csv-button"
+                  className={clsx(
+                    "text-xs transition-colors flex items-center gap-1",
+                    loading || loadingMore || visiblePayments.length === 0
+                      ? "text-slate-600 cursor-not-allowed"
+                      : "text-slate-500 hover:text-stellar-400"
+                  )}
+                >
+                  <DownloadIcon className="w-3.5 h-3.5" />
+                  Export CSV
+                </button>
+                <button
+                  onClick={() => fetchPayments()}
+                  className="text-xs text-slate-500 hover:text-stellar-400 transition-colors flex items-center gap-1"
+                >
+                  <RefreshIcon className="w-3.5 h-3.5" />
+                  Refresh
+                </button>
+              </div>
             </div>
           )}
 
@@ -446,9 +516,23 @@ export default function TransactionList({
           </div>
         ))}
 
-        {/* Load more */}
-        {hasMore && payments.length > 0 && (
-          <div className="flex justify-center mt-4">
+        {/* Infinite-scroll sentinel (mobile) */}
+        {isMobile && hasMore && payments.length > 0 && (
+          <div
+            ref={sentinelRef}
+            className="flex justify-center py-4"
+            aria-live="polite"
+            aria-label="Loading more transactions"
+          >
+            {loadingMore && (
+              <div className="w-5 h-5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+            )}
+          </div>
+        )}
+
+        {/* Pagination fallback (desktop > 768px) */}
+        {!isMobile && hasMore && payments.length > 0 && (
+          <div className="hidden md:flex justify-center mt-4">
             <button
               onClick={handleLoadMore}
               disabled={loadingMore}
@@ -464,6 +548,13 @@ export default function TransactionList({
               )}
             </button>
           </div>
+        )}
+
+        {/* End of list */}
+        {!hasMore && payments.length > 0 && (
+          <p className="text-center text-xs text-slate-500 py-4">
+            All transactions loaded
+          </p>
         )}
       </div>
     </div>
@@ -492,6 +583,14 @@ function ArrowDownIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+    </svg>
+  );
+}
+
+function DownloadIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
     </svg>
   );
 }
