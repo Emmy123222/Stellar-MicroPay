@@ -11,6 +11,31 @@ permissions:
   contents: read
 
 jobs:
+  # ─── Secret scanning ───────────────────────────────────────────────────────
+  # Scans the *full* commit history, not just the diff introduced by this branch:
+  # a secret can sit unnoticed in a commit that landed weeks ago, and a
+  # diff-only scan is exactly what lets it stay unnoticed.
+  gitleaks:
+    name: Gitleaks (secret scan)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Unshallow the clone so the scanner sees every commit, not just HEAD.
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only needed for organisation-owned repos; harmless on a personal one.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          # Project rules, including the Stellar secret-seed (S...) detector.
+          GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
+
+  # ─── Repository integrity ─────────────────────────────────────────────────
   repository:
     name: Repository integrity
     runs-on: ubuntu-latest
@@ -30,6 +55,7 @@ jobs:
             echo "No parent commit to diff; skipping whitespace check."
           fi
           ! git grep -n -E '^(<<<<<<<|=======|>>>>>>>)'
+
 
   frontend:
     name: Frontend (typecheck, lint, test, build)
