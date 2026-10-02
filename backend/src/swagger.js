@@ -306,7 +306,44 @@ const options = {
           },
         },
       },
+      "/api/accounts/{publicKey}/memo-history": {
+        get: {
+          tags: ["Accounts"],
+          summary: "Get recently used distinct memo texts for an account",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Array of distinct memo texts",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: "Unauthorized: missing or invalid token" },
+            400: { description: "Invalid public key" },
+          },
+        },
+      },
       "/api/accounts/resolve/{username}": {
+
         get: {
           tags: ["Accounts"],
           summary: "Resolve a username to a Stellar public key",

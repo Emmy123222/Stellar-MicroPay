@@ -37,8 +37,12 @@
     "node": "20.19.5"
   },
   "jest": {
-    "setupFilesAfterEnv": ["<rootDir>/jest.setup.js"],
+    "setupFilesAfterEnv": [
+      "<rootDir>/jest.setup.js"
+    ],
     "testEnvironment": "node",
-    "testPathIgnorePatterns": ["<rootDir>/__tests__/.*\\.ts$"]
+    "testPathIgnorePatterns": [
+      "<rootDir>/__tests__/.*\\.ts$"
+    ]
   }
 }

@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32v1-none
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       # Scans the workspace Cargo.lock, which pins the contract at
       # contracts/stellar-micropay-contract. cargo audit has no severity
@@ -123,7 +123,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: stellar-micropay-contract-wasm
-          path: target/wasm32v1-none/release/stellar_micropay_contract.wasm
+          path: target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
           if-no-files-found: error
 
   integration-test:
