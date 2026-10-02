@@ -31,6 +31,28 @@ function validatePublicKey(paramName = "publicKey") {
 }
 
 /**
+ * Sanitizes and validates a Stellar public key from the `:publicKey` route param.
+ * Expected format: G... (56 chars)
+ */
+function sanitizePublicKey(req, res, next) {
+  return sanitizeKeyParam(req, res, next, "publicKey");
+}
+
+/**
+ * Builds middleware that sanitizes a Stellar public key from a named route param.
+ * Use this for routes whose key param is not literally `:publicKey`, e.g.
+ * `:creatorPublicKey` on the tips routes.
+ *
+ * @param {string} paramName - Route param holding the public key
+ * @returns {Function} Express middleware
+ */
+function sanitizePublicKeyParam(paramName) {
+  return function sanitizeNamedPublicKey(req, res, next) {
+    return sanitizeKeyParam(req, res, next, paramName);
+  };
+}
+
+/**
  * Sanitizes a username by trimming and lowercasing.
  */
 function sanitizeUsername(req, res, next) {

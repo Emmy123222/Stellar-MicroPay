@@ -20,6 +20,13 @@ router.get("/leaderboard", strictLimiter, tipsController.getLeaderboard);
 router.post("/", strictLimiter, tipsController.recordTip);
 
 /**
+ * GET /api/tips/leaderboard
+ * Top creators by total tipped, across all assets.
+ * Registered before the `/:param` routes below.
+ */
+router.get("/leaderboard", strictLimiter, tipsController.getLeaderboard);
+
+/**
  * GET /api/tips/received/:creatorPublicKey
  * Get all tips received by a creator.
  */

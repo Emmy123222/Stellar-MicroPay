@@ -9,7 +9,7 @@ Three new analytics endpoints have been added to the Stellar MicroPay backend to
 ✅ **GET /api/analytics/:publicKey/activity** — Transaction counts by day of week  
 
 All endpoints include:
-- **Caching**: 5-minute TTL using in-memory Map to minimize Horizon API calls
+- **Caching**: 5-minute TTL using a bounded in-memory Map to minimize Horizon API calls
 - **Error Handling**: Graceful handling of Horizon errors and invalid public keys
 - **Rate Limiting**: Protected by `strictLimiter` middleware (same as other API routes)
 - **Input Sanitization**: Public key validation via `validatePublicKey` middleware
@@ -196,12 +196,24 @@ All endpoints use **5-minute TTL in-memory caching** to minimize Horizon API cal
 
 - **First request** → Fetches from Horizon, stores in cache
 - **Subsequent requests** (within 5 min) → Returns cached data instantly
-- **After 5 minutes** → Cache expires, fetches fresh data from Horizon
+- **After 5 minutes** → Entry is dropped and fresh data is fetched from Horizon
+
+The cache is bounded so it cannot grow without limit in the number of distinct
+public keys queried:
+
+- **Expired entries are removed on read.** Detecting a stale entry deletes it
+  rather than merely ignoring it, so it stops occupying memory immediately
+  instead of lingering until the same key is requested again.
+- **A size cap evicts the oldest entries.** Once
+  `ANALYTICS_CACHE_MAX_ENTRIES` (default `500`) is exceeded, the
+  least-recently-added entries are dropped to make room. Map preserves
+  insertion order, so the first key is the oldest.
 
 This provides:
 - ✅ Reduced API load on Stellar Horizon
 - ✅ Faster response times for repeated queries
 - ✅ No external database required (simple in-memory Map)
+- ✅ Bounded memory regardless of how many distinct keys are queried
 
 ## Performance Characteristics
 
@@ -209,10 +221,11 @@ This provides:
 |--------|-------|
 | Max transactions fetched per request | 200 |
 | Cache TTL | 5 minutes |
+| Max cache entries | 500 (configurable via `ANALYTICS_CACHE_MAX_ENTRIES`) |
 | Horizon API calls per endpoint | 1 |
 | Response time (cached) | ~5-50ms |
 | Response time (fresh from Horizon) | ~500ms-2s |
-| Memory overhead | ~1-2KB per cached public key |
+| Memory overhead | ~1-2KB per cached public key, capped at 500 entries |
 
 ## Error Handling
 

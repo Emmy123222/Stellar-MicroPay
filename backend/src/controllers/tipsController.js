@@ -9,6 +9,40 @@ const tipsService = require("../services/tipsService");
 const webhookService = require("../services/webhookService");
 
 /**
+ * Strictly parses a pagination query parameter.
+ *
+ * `parseInt` is not usable here: it accepts "1abc" as 1, turns "1.9" into 1,
+ * and yields NaN for "abc". NaN then reaches `Array.prototype.slice`, so
+ * `?limit=abc` returned an empty page and `?limit=-5` or `?offset=-1` silently
+ * applied JavaScript's negative-index semantics instead of being rejected.
+ * Every malformed value is a 400 rather than a silent coercion.
+ *
+ * @param {unknown} raw - Raw query value
+ * @param {object} options
+ * @param {string} options.name - Parameter name, used in the error message
+ * @param {number} [options.min=1] - Smallest accepted value
+ * @returns {number|undefined} undefined when the parameter is absent
+ * @throws {Error} With `status = 400` when the value is not a valid integer
+ */
+function parsePaginationParam(raw, { name, min = 1 }) {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  // A repeated parameter arrives as an array; treat it as ambiguous.
+  const candidate = typeof raw === "string" ? raw.trim() : "";
+
+  if (!/^\d+$/.test(candidate) || Number(candidate) < min) {
+    const expectation = min === 0 ? "a non-negative" : "a positive";
+    const error = new Error(`${name} must be ${expectation} integer`);
+    error.status = 400;
+    throw error;
+  }
+
+  return Number(candidate);
+}
+
+/**
  * POST /api/tips
  * Record a new tip.
  */
@@ -60,8 +94,8 @@ async function getTipsReceived(req, res, next) {
     const { limit, offset } = req.query;
 
     const result = tipsService.getTipsReceived(creatorPublicKey, {
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      limit: parsePaginationParam(limit, { name: "limit", min: 1 }),
+      offset: parsePaginationParam(offset, { name: "offset", min: 0 }),
     });
 
     // Also get stats
@@ -106,8 +140,29 @@ async function getTipsSent(req, res, next) {
     const { limit, offset } = req.query;
 
     const result = tipsService.getTipsSent(senderPublicKey, {
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      limit: parsePaginationParam(limit, { name: "limit", min: 1 }),
+      offset: parsePaginationParam(offset, { name: "offset", min: 0 }),
+    });
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/tips/leaderboard
+ * Get the top creators ranked by total amount tipped.
+ */
+async function getLeaderboard(req, res, next) {
+  try {
+    const { limit } = req.query;
+
+    const result = tipsService.getLeaderboard({
+      limit: parsePaginationParam(limit, { name: "limit", min: 1 }),
     });
 
     res.json({

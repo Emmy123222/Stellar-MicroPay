@@ -9,6 +9,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const { requestId, LOG_FORMAT } = require("./middleware/requestId");
 const turretsRoutes = require("./routes/turrets");
 const { startRunner } = require("./services/turretsService");
 
@@ -18,7 +19,9 @@ function createTurretsApp() {
   const app = express();
 
   app.use(helmet());
-  app.use(morgan("tiny"));
+  // Request ID must precede the logger so every log line carries a correlation ID.
+  app.use(requestId);
+  app.use(morgan(LOG_FORMAT));
   app.use(express.json({ limit: "10kb" }));
   app.use(cors());
 
@@ -31,7 +34,7 @@ function createTurretsApp() {
   app.use((err, req, res, next) => {
     void next;
     const status = err.status || 500;
-    res.status(status).json({ error: err.message || "Internal Server Error" });
+    res.status(status).json({ error: err.message || "Internal Server Error", requestId: req.requestId });
   });
 
   return app;

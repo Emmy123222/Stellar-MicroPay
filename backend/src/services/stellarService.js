@@ -7,6 +7,7 @@
 "use strict";
 
 const { Horizon } = require("@stellar/stellar-sdk");
+const circuitBreaker = require("./horizonCircuitBreaker");
 require("dotenv").config();
 
 const HORIZON_URL =
@@ -30,7 +31,9 @@ async function getAccount(publicKey) {
   validatePublicKey(publicKey);
 
   try {
-    const account = await server.loadAccount(publicKey);
+    const account = await circuitBreaker.exec(() => server.loadAccount(publicKey), {
+      isFailure: countsAsFailure,
+    });
 
     const balances = account.balances.map((b) => {
       if (b.asset_type === "native") {
@@ -118,7 +121,9 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     query = query.cursor(cursor);
   }
 
-  const result = await query.call();
+  const result = await circuitBreaker.exec(() => query.call(), {
+    isFailure: countsAsFailure,
+  });
 
   const payments = [];
 

@@ -27,11 +27,27 @@ const options = {
       },
     ],
     components: {
+      responses: {
+        HorizonUnavailable: {
+          description:
+            "Stellar Horizon is temporarily unavailable. The circuit breaker is open and is not calling Horizon.",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Error" },
+            },
+          },
+        },
+      },
       schemas: {
         Error: {
           type: "object",
           properties: {
             error: { type: "string", description: "Error message" },
+            requestId: {
+              type: "string",
+              description:
+                "Correlation ID for this request. Mirrors the X-Request-ID response header and is present on errors routed through the central error handler.",
+            },
           },
         },
         SuccessResponse: {
@@ -268,6 +284,7 @@ const options = {
               },
             },
             404: { description: "Account not found" },
+            503: { $ref: "#/components/responses/HorizonUnavailable" },
           },
         },
       },
@@ -303,6 +320,8 @@ const options = {
                 },
               },
             },
+            400: { description: "Invalid Stellar public key format" },
+            503: { $ref: "#/components/responses/HorizonUnavailable" },
           },
         },
       },
@@ -413,6 +432,8 @@ const options = {
                 },
               },
             },
+            400: { description: "Invalid Stellar public key format" },
+            503: { $ref: "#/components/responses/HorizonUnavailable" },
           },
         },
       },
@@ -443,6 +464,8 @@ const options = {
                 },
               },
             },
+            400: { description: "Invalid Stellar public key format" },
+            503: { $ref: "#/components/responses/HorizonUnavailable" },
           },
         },
       },
@@ -473,6 +496,8 @@ const options = {
                 },
               },
             },
+            400: { description: "Invalid Stellar public key format" },
+            503: { $ref: "#/components/responses/HorizonUnavailable" },
           },
         },
       },
@@ -508,6 +533,8 @@ const options = {
                 },
               },
             },
+            400: { description: "Invalid Stellar public key format" },
+            503: { $ref: "#/components/responses/HorizonUnavailable" },
           },
         },
       },
@@ -538,6 +565,71 @@ const options = {
                       },
                     },
                   },
+                },
+              },
+            },
+            400: { description: "Invalid Stellar public key format" },
+            503: { $ref: "#/components/responses/HorizonUnavailable" },
+          },
+        },
+      },
+      "/api/tips/leaderboard": {
+        get: {
+          tags: ["Tips"],
+          summary: "Get the top creators ranked by total amount tipped",
+          parameters: [
+            {
+              name: "limit",
+              in: "query",
+              required: false,
+              description:
+                "Maximum number of creators to return (default: 10). Must be a positive integer; fractional values, trailing characters and repeated parameters are rejected.",
+              schema: { type: "integer", minimum: 1, default: 10 },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Leaderboard entries",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: {
+                        type: "object",
+                        properties: {
+                          entries: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                creatorPublicKey: {
+                                  type: "string",
+                                  pattern: "^G[A-Z0-9]{55}$",
+                                },
+                                totalTips: { type: "integer" },
+                                totalAmount: { type: "string" },
+                                averageTip: { type: "string", nullable: true },
+                                largestTip: { type: "string", nullable: true },
+                                totalByAsset: { type: "object", additionalProperties: true },
+                              },
+                            },
+                          },
+                          totalCreators: { type: "integer" },
+                          limit: { type: "integer" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            400: {
+              description: "Invalid limit parameter",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
                 },
               },
             },
@@ -574,6 +666,7 @@ const options = {
                 },
               },
             },
+            400: { description: "Invalid Stellar public key format" },
           },
         },
       },
@@ -607,6 +700,7 @@ const options = {
                 },
               },
             },
+            400: { description: "Invalid Stellar public key format" },
           },
         },
       },
@@ -651,19 +745,20 @@ const options = {
                 schema: {
                   type: "object",
                   properties: {
-                    from: { type: "string" },
-                    to: { type: "string" },
+                    senderPublicKey: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+                    creatorPublicKey: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
                     amount: { type: "string" },
+                    asset: { type: "string", default: "XLM" },
                     memo: { type: "string" },
-                    transactionHash: { type: "string" },
+                    txHash: { type: "string" },
                   },
-                  required: ["from", "to", "amount"],
+                  required: ["senderPublicKey", "creatorPublicKey", "amount"],
                 },
               },
             },
           },
           responses: {
-            200: { description: "Tip recorded" },
+            201: { description: "Tip recorded" },
             400: { description: "Invalid tip data" },
           },
         },

@@ -85,6 +85,17 @@ function clearAnalyticsCache() {
 // ANALYTICS_CACHE_TTL_MS (default 5 minutes).
 
 /**
+ * Drops the oldest entries until the cache is within its size bound.
+ * Map preserves insertion order, so the first key is the least recently added.
+ */
+function enforceCacheLimit() {
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
+}
+
+/**
  * Cache wrapper function.
  *
  * On a cache miss the factory function `fn` is invoked and its return value
@@ -637,6 +648,22 @@ async function clearCache(publicKey) {
   await cache.clearByPrefix(`top-recipients:${publicKey}`);
   await cache.clearByPrefix(`activity:${publicKey}`);
   await cache.clearByPrefix(`cohorts:${publicKey}`);
+}
+
+/**
+ * Current number of retained cache entries.
+ * Exposed so eviction can be asserted in tests.
+ * @returns {number}
+ */
+function cacheSize() {
+  return cache.size;
+}
+
+/**
+ * Remove every cache entry.
+ */
+function clearAllCaches() {
+  cache.clear();
 }
 
 module.exports = {

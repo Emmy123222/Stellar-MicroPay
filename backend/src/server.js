@@ -64,7 +64,7 @@ app.use(express.json({ limit: "10kb" }));
 // JSON parsing error handler
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res.status(400).json({ error: "Invalid JSON body" });
+    return res.status(400).json({ error: "Invalid JSON body", requestId: req.requestId });
   }
   // Forward other body-parser errors (e.g. 413 payload too large) so they are
   // not silently swallowed and the request does not reach the route handlers.
@@ -101,8 +101,8 @@ app.use(
 
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX) || 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later." },
