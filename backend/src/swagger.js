@@ -118,6 +118,15 @@ const options = {
             subentryCount: { type: "integer" },
           },
         },
+        AssetTrustline: {
+          type: "object",
+          properties: {
+            assetCode: { type: "string", description: "Asset code (e.g. USDC)" },
+            assetIssuer: { type: "string", description: "Issuing account public key" },
+            balance: { type: "string", description: "Held balance" },
+            limit: { type: "string", description: "Trustline limit" },
+          },
+        },
         Tip: {
           type: "object",
           properties: {
@@ -303,6 +312,46 @@ const options = {
                 },
               },
             },
+          },
+        },
+      },
+      "/api/accounts/{publicKey}/assets": {
+        get: {
+          tags: ["Accounts"],
+          summary: "List non-native asset trustlines",
+          description:
+            "Returns every non-native balance the account holds a trustline for. " +
+            "Native XLM is excluded — use `/api/accounts/{publicKey}` for full balances. " +
+            "Requires a SEP-0010 JWT.",
+          parameters: [
+            {
+              name: "publicKey",
+              in: "path",
+              required: true,
+              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Non-native asset trustlines",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean" },
+                      data: {
+                        type: "array",
+                        items: { $ref: "#/components/schemas/AssetTrustline" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: "Missing, invalid, or expired JWT" },
+            404: { description: "Account not found" },
+            429: { description: "Rate limit exceeded" },
           },
         },
       },

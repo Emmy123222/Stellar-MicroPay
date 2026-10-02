@@ -43,6 +43,13 @@ router.get("/:publicKey", strictLimiter, validatePublicKey(), accountController.
 router.get("/:publicKey/balance", strictLimiter, validatePublicKey(), accountController.getBalance);
 
 /**
+ * GET /api/accounts/:publicKey/assets
+ * List all non-native asset trustlines (code, issuer, balance, limit) (#1065).
+ * Requires a valid SEP-0010 JWT.
+ */
+router.get("/:publicKey/assets", strictLimiter, verifyJWT, sanitizePublicKey, accountController.getAccountAssets);
+
+/**
  * POST /api/accounts/register
  * Register a new username with a public key.
  */

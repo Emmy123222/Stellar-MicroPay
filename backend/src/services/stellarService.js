@@ -40,6 +40,7 @@ async function getAccount(publicKey) {
         assetCode: b.asset_code,
         balance: b.balance,
         assetIssuer: b.asset_issuer,
+        limit: b.limit,
         asset_type: b.asset_type,
       };
     });
@@ -60,6 +61,31 @@ async function getAccount(publicKey) {
     }
     throw err;
   }
+}
+
+/**
+ * Get all non-native assets the account holds trustlines for (#1065).
+ *
+ * Native XLM is excluded — callers that need it can use getAccount or
+ * getXLMBalance. The result is suitable for "which of my assets can I send"
+ * pickers in the frontend.
+ *
+ * @param {string} publicKey - Stellar public key (G...)
+ * @returns {Promise<Array<{assetCode: string, assetIssuer: string, balance: string, limit: string}>>}
+ */
+async function getAccountAssets(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { balances } = await getAccount(publicKey);
+
+  return balances
+    .filter((b) => b.asset_type !== "native")
+    .map((b) => ({
+      assetCode: b.assetCode,
+      assetIssuer: b.assetIssuer,
+      balance: b.balance,
+      limit: b.limit,
+    }));
 }
 
 /**
