@@ -45,6 +45,23 @@ export default function StreamsPage() {
     deposit: "",
   });
 
+  // Keep the XLM balance in sync with the connected wallet.
+  useEffect(() => {
+    if (!publicKey) {
+      setXlmBalance("0");
+      return;
+    }
+    let active = true;
+    getXLMBalance(publicKey)
+      .then((balance) => {
+        if (active) setXlmBalance(balance);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [publicKey]);
+
   const loadStreams = useCallback(async () => {
     if (!publicKey) return;
     setLoading(true);
