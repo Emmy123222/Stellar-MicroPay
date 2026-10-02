@@ -37,6 +37,7 @@ import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
+import { AssetBadge } from "@/components/AssetBadge";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 
@@ -85,7 +86,6 @@ type FavouriteEntry = {
 };
 
 const ESTIMATED_NETWORK_FEE = `${STELLAR_BASE_FEE_XLM} XLM`;
-const XLM_USD_RATE = 0.11;
 const FAVOURITES_STORAGE_KEY = "stellar-micropay:favourites";
 
 interface BarcodeDetectorResult {
@@ -438,7 +438,7 @@ export default function SendPaymentForm({
   const balance = selectedAsset === "XLM" ? xlmBal : usdcBal;
   const maxSend =
     selectedAsset === "XLM"
-      ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM - networkFeeXlm)
+      ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM)
       : usdcBal;
 
   const amountNum = parseFloat(amount);
@@ -1058,8 +1058,8 @@ export default function SendPaymentForm({
           <div>
             <div className="mb-2 flex items-center justify-between">
               <label className="label mb-0">Amount ({selectedAsset})</label>
-              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"} title="Send Max: balance - 1 XLM base reserve - subentry reserves - current network fee">
-                Send Max: {formatXLM(maxSend)}
+              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"}>
+                Max: {formatXLM(maxSend)}
               </button>
             </div>
             <input
@@ -1076,92 +1076,6 @@ export default function SendPaymentForm({
               {feeStatus === "ready" && estimatedTotalDeducted != null &&
                 `Estimated fee: ~${networkFeeXlm.toFixed(7)} XLM (${Math.round(networkFeeXlm * 10_000_000)} stroops); total ~${estimatedTotalDeducted.toFixed(7)} XLM.`}
             </p>
-          </div>
-        )}
-
-        {/* Split Payment Mode Toggle */}
-        {!hideDestinationField && !hideAmountField && (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
-              className={clsx(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                isSplitPaymentMode ? "bg-stellar-500" : "bg-slate-600"
-              )}
-            >
-              <span
-                className={clsx(
-                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                  isSplitPaymentMode ? "translate-x-6" : "translate-x-1"
-                )}
-              />
-            </button>
-            <span className="text-sm text-slate-300">Split payment among multiple recipients</span>
-          </div>
-        )}
-
-        {/* Split Payment Recipients */}
-        {isSplitPaymentMode && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="label mb-0">Recipients ({splitRecipients.length}/10)</label>
-              <span className={clsx(
-                "text-xs font-medium",
-                totalSplitPercentage === 100 ? "text-emerald-400" : "text-amber-400"
-              )}>
-                {totalSplitPercentage}% allocated
-              </span>
-            </div>
-            {splitRecipients.map((recipient, index) => (
-              <div key={index} className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={recipient.address}
-                    onChange={(e) => handleUpdateSplitRecipient(index, "address", e.target.value)}
-                    placeholder="G..."
-                    className="input-field font-mono text-sm flex-1"
-                    disabled={status !== "idle"}
-                  />
-                  <input
-                    type="number"
-                    value={recipient.percentage}
-                    onChange={(e) => handleUpdateSplitRecipient(index, "percentage", e.target.value)}
-                    min="0"
-                    max="100"
-                    className="input-field w-20 text-sm"
-                    disabled={status !== "idle"}
-                  />
-                  <span className="text-slate-400 text-sm self-center">%</span>
-                  {splitRecipients.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSplitRecipient(index)}
-                      className="text-red-400 hover:text-red-300 px-2"
-                      disabled={status !== "idle"}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {splitRecipients.length < 10 && (
-              <button
-                type="button"
-                onClick={handleAddSplitRecipient}
-                disabled={status !== "idle"}
-                className="btn-secondary w-full text-sm"
-              >
-                + Add recipient
-              </button>
-            )}
-            {totalSplitPercentage !== 100 && (
-              <div className="text-xs text-amber-400">
-                Total percentage must equal 100% (currently {totalSplitPercentage}%)
-              </div>
-            )}
           </div>
         )}
 
@@ -1255,10 +1169,10 @@ export default function SendPaymentForm({
         isOpen={isConfirmOpen}
         destination={destination}
         amount={amountNum}
+        asset={selectedAsset}
         memo={memo}
         memoType={memoType}
         estimatedFee={ESTIMATED_NETWORK_FEE}
-        usdValue={amountNum * XLM_USD_RATE}
         isTipOnChain={isTipOnChain}
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={() => { setIsConfirmOpen(false); executeSend(); }}
@@ -1387,6 +1301,7 @@ interface SendConfirmationModalProps {
   isOpen: boolean;
   destination: string;
   amount: number;
+  asset: string;
   memo: string;
   memoType: StellarMemoType;
   estimatedFee: string;
@@ -1434,8 +1349,8 @@ function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, es
           )}
         </div>
         <div className="mt-8 flex gap-3">
-          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Back</button>
-          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm &amp; Sign</button>
+          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Cancel</button>
+          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm & Send</button>
         </div>
       </div>
     </div>

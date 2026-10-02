@@ -66,14 +66,24 @@ export function formatAsset(
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
 
   if (amount == null || Number.isNaN(num)) {
-    const zeroValue =
-      rule.minimumFractionDigits > 0
-        ? (0).toFixed(rule.minimumFractionDigits)
-        : "0";
-    return `${zeroValue} ${normalizedAssetCode}`;
+    return rule.minimumFractionDigits > 0
+      ? (0).toFixed(rule.minimumFractionDigits)
+      : "0";
   }
 
-  return `${num.toLocaleString("en-US", rule)} ${normalizedAssetCode}`;
+  return num.toLocaleString("en-US", rule);
+}
+
+/**
+ * Format a Stellar asset amount with asset-specific precision rules.
+ */
+export function formatAsset(
+  amount: string | number,
+  assetCode = DEFAULT_ASSET_CODE
+): string {
+  const normalizedAssetCode = normalizeAssetCode(assetCode);
+  const amountStr = formatAmount(amount, assetCode);
+  return `${amountStr} ${normalizedAssetCode}`;
 }
 
 /**
