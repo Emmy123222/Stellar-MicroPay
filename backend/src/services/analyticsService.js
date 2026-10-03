@@ -34,6 +34,9 @@ function sweepCache() {
     }
   }
 
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
+const CACHE_MAX_SIZE = Number.parseInt(process.env.ANALYTICS_CACHE_MAX_SIZE, 10) || 500;
+const cache = new Map();
   logger.info(`Cache sweep: evicted ${evictedCount} entries`);
   return evictedCount;
 }
@@ -85,6 +88,22 @@ function clearAnalyticsCache() {
 // ANALYTICS_CACHE_TTL_MS (default 5 minutes).
 
 /**
+ * LRU cache backed by a Map. JavaScript Maps preserve insertion order, so
+ * re-inserting an entry (delete + set) moves it to the end of the iteration
+ * order and the oldest entry can be evicted from the front.
+ */
+function setCacheEntry(key, data) {
+  cache.delete(key);
+  cache.set(key, { data, timestamp: Date.now() });
+
+  while (cache.size > CACHE_MAX_SIZE) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+}
+
+/**
  * Cache wrapper function.
  *
  * On a cache miss the factory function `fn` is invoked and its return value
@@ -97,13 +116,16 @@ function clearAnalyticsCache() {
 async function withCache(key, fn) {
   const cached = await cache.get(key);
 
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    setCacheEntry(key, cached.data);
+    return cached.data;
   // Return cached data if still fresh
   if (cached !== null) {
     return cached;
   }
 
-  // Fetch fresh data
   const data = await fn();
+  setCacheEntry(key, data);
 
   // Update cache
   await cache.set(key, data);
@@ -202,35 +224,28 @@ async function getSummary(publicKey) {
 async function getTopRecipients(publicKey) {
   return withCache(`top-recipients:${publicKey}`, async () => {
     const payments = await stellarService.getPayments(publicKey, { limit: 200 });
-
-    // Map to track total sent per recipient
     const recipientTotals = new Map();
 
     for (const payment of payments) {
-      // Only count sent payments
       if (payment.type === "sent") {
         const amount = parseFloat(payment.amount);
         const recipient = payment.to;
 
         if (recipientTotals.has(recipient)) {
-          recipientTotals.set(
-            recipient,
-            recipientTotals.get(recipient) + amount
-          );
+          recipientTotals.set(recipient, recipientTotals.get(recipient) + amount);
         } else {
           recipientTotals.set(recipient, amount);
         }
       }
     }
 
-    // Convert to array and sort by amount (descending)
     const sorted = Array.from(recipientTotals.entries())
       .map(([address, total]) => ({
         address,
         totalXLMSent: total.toFixed(7),
       }))
       .sort((a, b) => parseFloat(b.totalXLMSent) - parseFloat(a.totalXLMSent))
-      .slice(0, 5); // Top 5 only
+      .slice(0, 5);
 
     return {
       publicKey,
@@ -248,25 +263,22 @@ async function getActivityByDay(publicKey) {
   return withCache(`activity:${publicKey}`, async () => {
     const payments = await stellarService.getPayments(publicKey, { limit: 200 });
 
-    // Initialize counters for all 7 days
     const dayActivity = {
-      0: 0, // Sunday
-      1: 0, // Monday
-      2: 0, // Tuesday
-      3: 0, // Wednesday
-      4: 0, // Thursday
-      5: 0, // Friday
-      6: 0, // Saturday
+      0: 0,
+      1: 0,
+      2: 0,
+      3: 0,
+      4: 0,
+      5: 0,
+      6: 0,
     };
 
-    // Count transactions by day of week
     for (const payment of payments) {
       const date = new Date(payment.createdAt);
       const dayOfWeek = date.getUTCDay();
       dayActivity[dayOfWeek]++;
     }
 
-    // Convert to array format
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const activity = days.map((dayName, index) => ({
       day: dayName,
@@ -281,6 +293,25 @@ async function getActivityByDay(publicKey) {
   });
 }
 
+/**
+ * Clear cache for a specific public key.
+ * @param {string} publicKey
+ * @returns {number} Number of cache entries invalidated.
+ */
+function clearCache(publicKey) {
+  cache.delete(`summary:${publicKey}`);
+  cache.delete(`top-recipients:${publicKey}`);
+  cache.delete(`activity:${publicKey}`);
+}module.exports = {
+  getSummary,
+  getTopRecipients,
+  getActivityByDay,
+  clearCache,
+  getCachedAnalytics,
+  setCachedAnalytics,
+  clearAnalyticsCache,
+  stopCacheSweep,
+};
 function normalizeCohortPeriod(period) {
   return period === "week" ? "week" : "month";
 }

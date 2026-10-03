@@ -8,8 +8,27 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
-const { validatePublicKey } = require("../middleware/sanitization");
+const { verifyJWT } = require("../middleware/auth");
+const { validatePublicKey, sanitizePublicKey } = require("../middleware/sanitization");
 const analyticsController = require("../controllers/analyticsController");
+
+function getAdminPublicKeys() {
+  return (process.env.ADMIN_PUBLIC_KEYS || "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean);
+}
+
+function requireAdmin(req, res, next) {
+  const adminPublicKeys = getAdminPublicKeys();
+  if (adminPublicKeys.length === 0) {
+    return res.status(403).json({ error: "Forbidden: no admin accounts configured" });
+  }
+  if (!req.user || !adminPublicKeys.includes(req.user.publicKey)) {
+    return res.status(403).json({ error: "Forbidden: admin access required" });
+  }
+  next();
+}
 
 /**
  * GET /api/analytics/:publicKey/summary
@@ -44,4 +63,17 @@ router.get(
   analyticsController.getActivityByDay
 );
 
+/**
+ * DELETE /api/analytics/cache/:publicKey
+ * JWT-protected admin endpoint: force-invalidates cached analytics.
+ */
+router.delete(
+  "/cache/:publicKey",
+  verifyJWT,
+  requireAdmin,
+  sanitizePublicKey,
+  analyticsController.invalidateCache
+);
+
 module.exports = router;
+
