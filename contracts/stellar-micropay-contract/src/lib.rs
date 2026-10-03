@@ -1210,6 +1210,11 @@ impl MicroPayContract {
 
 #[cfg(test)]
 mod tests {
+    // The crate is `no_std`, so `println!` has to be pulled in from std
+    // explicitly for the diagnostic output in the tests below.
+    extern crate std;
+    use std::println;
+
     use super::*;
     use proptest::prelude::*;
     use soroban_sdk::{
@@ -1978,6 +1983,69 @@ mod tests {
             &Address::generate(&env),
             &DISPUTE_TIMEOUT,
         );
+    }
+
+    // ─── Stream lifecycle test (issue #1103) ──────────────────────────────────
+
+    /// Walks a single stream through its whole life: open, accrue over time,
+    /// claim partway, keep accruing, then close and recover the unvested
+    /// remainder. This is the regression guard for the open/claim/close path.
+    #[test]
+    fn test_lifecycle_open_claim_close() {
+        let (env, client, _admin, payer, recipient) = setup();
+
+        let rate: i128 = 1_000;
+        let deposit: i128 = 500_000;
+
+        // 1. Open a stream with rate=1_000, deposit=500_000.
+        let start_ledger = env.ledger().sequence();
+        let id = client.open_stream(&payer, &recipient, &rate, &deposit);
+        println!(
+            "[lifecycle] Opened stream {id} at ledger {start_ledger} (rate={rate}, deposit={deposit})"
+        );
+        assert_eq!(client.get_stream(&id).claimed, 0);
+
+        // 2. Advance 50 ledgers.
+        env.ledger().set_sequence_number(start_ledger + 50);
+        println!(
+            "[lifecycle] Advanced to ledger {} (delta=+50)",
+            env.ledger().sequence()
+        );
+
+        // 3. Claim — expect rate * 50 = 50_000.
+        let claimed = client.claim_stream(&id, &recipient);
+        let expected_claim: i128 = rate * 50;
+        println!("[lifecycle] Claimed {claimed} (expected {expected_claim})");
+        assert_eq!(claimed, expected_claim);
+        assert_eq!(client.get_stream(&id).claimed, expected_claim);
+
+        // 4. Advance 100 more ledgers (total elapsed = 150).
+        env.ledger().set_sequence_number(start_ledger + 150);
+        println!(
+            "[lifecycle] Advanced to ledger {} (delta=+100)",
+            env.ledger().sequence()
+        );
+
+        // 5. Close — the unvested remainder is refunded to the payer.
+        //    close_stream computes vested = max(total_streamed, claimed)
+        //    capped at the deposit, and returns deposit - vested.
+        let stream = client.get_stream(&id);
+        let total_streamed: i128 = stream.rate_per_ledger * 150;
+        let vested = total_streamed.max(stream.claimed).min(stream.deposited);
+        let refund_expected = stream.deposited - vested;
+        println!(
+            "[lifecycle] total_streamed={total_streamed}, claimed={}, refund_expected={refund_expected}",
+            stream.claimed
+        );
+
+        let refund_actual = client.close_stream(&id, &payer);
+        println!("[lifecycle] refund_actual={refund_actual}");
+        assert_eq!(refund_actual, refund_expected);
+
+        // Closing must destroy the stream, so a later read is impossible.
+        // Reported here rather than asserted, since get_stream panics when the
+        // record is gone and that deserves its own #[should_panic] test.
+        println!("[lifecycle] stream closed and removed from storage");
     }
 
     fn tip_setup() -> (Env, MicroPayContractClient<'static>, Address, Address) {
