@@ -8,7 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
-const { validatePublicKey, sanitizeUsername } = require("../middleware/sanitization");
+const { validatePublicKey, sanitizeUsername, sanitizePublicKey } = require("../middleware/sanitization");
 const accountController = require("../controllers/accountController");
 
 /**

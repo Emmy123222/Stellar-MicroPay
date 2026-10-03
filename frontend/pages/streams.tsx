@@ -45,20 +45,7 @@ export default function StreamsPage() {
     deposit: "",
   });
 
-  useEffect(() => {
-    let isActive = true;
-    if (!publicKey) {
-      setXlmBalance("0");
-      return () => { isActive = false; };
-    }
-
-    getXLMBalance(publicKey)
-      .then((balance) => { if (isActive) setXlmBalance(balance); })
-      .catch(() => { if (isActive) setXlmBalance("0"); });
-
-    return () => { isActive = false; };
-  }, [publicKey]);
-
+  // Load streams and wallet balance on mount
   const loadStreams = useCallback(async () => {
     if (!publicKey) return;
     setLoading(true);

@@ -84,26 +84,45 @@ function resume(req, res, next) {
   }
 }
 
-function cancel(req, res, next) {
+function getSigner(req, res) {
+  const turretSignerAddress = turretsService.getTurretSignerAddress();
+  res.json({ success: true, data: { turretSignerAddress } });
+}
+
+function createDca(req, res, next) {
   try {
-    const { id } = req.params;
-    const data = turretsService.cancelDeployment(id);
-    res.json({ success: true, data });
+    const { ownerPublicKey, intervalMinutes, amountQuote, quoteAssetCode, quoteAssetIssuer } =
+      req.body || {};
+    const data = turretsService.createDcaAutomation({
+      ownerPublicKey,
+      intervalMinutes,
+      amountQuote,
+      quoteAssetCode,
+      quoteAssetIssuer,
+    });
+    res.status(201).json({ success: true, data });
   } catch (err) {
     next(err);
   }
 }
 
-function createDca(req, res, next) {
+function createStopLoss(req, res, next) {
   try {
-    const { ownerPublicKey, recipient, amount, asset, assetIssuer, frequency } = req.body;
-    const data = turretsService.createScheduledDca({
+    const {
       ownerPublicKey,
-      recipient,
-      amount,
-      asset,
-      assetIssuer,
-      frequency,
+      thresholdPrice,
+      amountSell,
+      sellAssetCode,
+      sellAssetIssuer,
+      cooldownMinutes,
+    } = req.body || {};
+    const data = turretsService.createStopLossAutomation({
+      ownerPublicKey,
+      thresholdPrice,
+      amountSell,
+      sellAssetCode,
+      sellAssetIssuer,
+      cooldownMinutes,
     });
     res.status(201).json({ success: true, data });
   } catch (err) {
@@ -114,6 +133,9 @@ function createDca(req, res, next) {
 module.exports = {
   createChallenge,
   deploy,
+  getSigner,
+  createDca,
+  createStopLoss,
   list,
   getOne,
   getHistory,

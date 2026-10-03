@@ -2,7 +2,6 @@ import {
   buildAccountMergeTransaction,
   buildPaymentTransaction,
   collectSignatures,
-  createStellarMemo,
   getNetworkPassphrase,
   isValidStellarAddress,
   memoTextByteLength,

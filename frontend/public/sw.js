@@ -105,6 +105,9 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("push", (event) => {
+  // Push API handler (Closes #1143): parse the push payload and call
+  // self.registration.showNotification so users are notified even when
+  // the tab is backgrounded.
   let data = { title: "Stellar Pay", body: "You have a new notification." };
 
   if (event.data) {
@@ -120,18 +123,27 @@ self.addEventListener("push", (event) => {
       body: data.body,
       icon: "/icon-192.png",
       badge: "/favicon.svg",
+      data: { url: data.url || "/dashboard" },
     })
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
+  // Notification click opens the dashboard (#1143).
   event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/dashboard";
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if ("focus" in client) return client.focus();
+        if (client.url.includes("/dashboard") && "focus" in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow("/");
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });

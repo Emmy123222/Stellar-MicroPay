@@ -88,10 +88,11 @@ export default function Trade() {
         buying: offer.buying,
       });
 
-      const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
-      if (signError || !signedXDR) {
-        throw new Error(signError || "Signing cancelled");
-      }
+      // Sign with Freighter
+      const { signTransaction } = await import("@stellar/freighter-api");
+      const signedXDR = await signTransaction(transaction.toXDR(), {
+        networkPassphrase: getNetworkPassphrase(),
+      });
 
       await submitTransaction(signedXDR);
       showToast("Offer cancelled successfully!", "success");
