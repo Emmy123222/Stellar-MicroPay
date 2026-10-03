@@ -37,7 +37,7 @@ export default function StreamsPage() {
   const [receivedStreams, setReceivedStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // New stream form
   const [newStream, setNewStream] = useState<NewStreamForm>({
     recipient: "",
@@ -119,16 +119,18 @@ export default function StreamsPage() {
       return;
     }
 
-    const availableBalance = parseFloat(xlmBalance) - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM;
-    if (depositNum > availableBalance) {
-      setError("Insufficient balance");
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
     try {
+      const xlmBalance = await getXLMBalance(publicKey);
+      const availableBalance =
+        parseFloat(xlmBalance) - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM;
+      if (depositNum > availableBalance) {
+        setError("Insufficient balance");
+        return;
+      }
+
       // In production, this would build a Soroban transaction to create the stream
       // For now, we'll simulate with a regular payment
       const tx = await buildPaymentTransaction({
@@ -138,8 +140,11 @@ export default function StreamsPage() {
         memo: `Stream: ${ratePerHourNum} XLM/hour`,
       });
 
-      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) throw new Error(signError || "Signing failed");
+      const { signedXDR, error: signError } = await signTransactionWithWallet(
+        tx.toXDR(),
+      );
+      if (signError || !signedXDR)
+        throw new Error(signError || "Signing failed");
 
       await submitTransaction(signedXDR);
 
@@ -174,7 +179,11 @@ export default function StreamsPage() {
   const handleClose = async (streamId: string) => {
     if (!publicKey) return;
 
-    if (!confirm("Are you sure you want to close this stream? Any remaining funds will be refunded.")) {
+    if (
+      !confirm(
+        "Are you sure you want to close this stream? Any remaining funds will be refunded.",
+      )
+    ) {
       return;
     }
 
@@ -198,8 +207,12 @@ export default function StreamsPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      <h1 className="font-display text-3xl font-bold text-white mb-2">Streaming Payments</h1>
-      <p className="text-slate-400 mb-8">Open, view, claim, and close Soroban streaming payment contracts.</p>
+      <h1 className="font-display text-3xl font-bold text-white mb-2">
+        Streaming Payments
+      </h1>
+      <p className="text-slate-400 mb-8">
+        Open, view, claim, and close Soroban streaming payment contracts.
+      </p>
 
       {error && (
         <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
@@ -244,14 +257,18 @@ export default function StreamsPage() {
       {/* Open Stream Tab */}
       {activeTab === "open" && (
         <div className="card max-w-2xl">
-          <h2 className="font-display text-xl font-semibold text-white mb-6">Open New Stream</h2>
+          <h2 className="font-display text-xl font-semibold text-white mb-6">
+            Open New Stream
+          </h2>
           <form onSubmit={handleOpenStream} className="space-y-5">
             <div>
               <label className="label">Recipient Address</label>
               <input
                 type="text"
                 value={newStream.recipient}
-                onChange={(e) => setNewStream({ ...newStream, recipient: e.target.value })}
+                onChange={(e) =>
+                  setNewStream({ ...newStream, recipient: e.target.value })
+                }
                 placeholder="G..."
                 className="input-field font-mono"
                 disabled={loading}
@@ -265,7 +282,9 @@ export default function StreamsPage() {
                 step="0.0000001"
                 min="0"
                 value={newStream.ratePerHour}
-                onChange={(e) => setNewStream({ ...newStream, ratePerHour: e.target.value })}
+                onChange={(e) =>
+                  setNewStream({ ...newStream, ratePerHour: e.target.value })
+                }
                 placeholder="10.0"
                 className="input-field"
                 disabled={loading}
@@ -282,7 +301,9 @@ export default function StreamsPage() {
                 step="0.0000001"
                 min="0"
                 value={newStream.deposit}
-                onChange={(e) => setNewStream({ ...newStream, deposit: e.target.value })}
+                onChange={(e) =>
+                  setNewStream({ ...newStream, deposit: e.target.value })
+                }
                 placeholder="100.0"
                 className="input-field"
                 disabled={loading}
@@ -306,11 +327,15 @@ export default function StreamsPage() {
       {/* My Streams Tab */}
       {activeTab === "my-streams" && (
         <div className="card">
-          <h2 className="font-display text-xl font-semibold text-white mb-6">My Streams (Payer)</h2>
+          <h2 className="font-display text-xl font-semibold text-white mb-6">
+            My Streams (Payer)
+          </h2>
           {loading ? (
             <div className="text-center text-slate-400 py-8">Loading...</div>
           ) : myStreams.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">No active streams</div>
+            <div className="text-center text-slate-400 py-8">
+              No active streams
+            </div>
           ) : (
             <div className="space-y-4">
               {myStreams.map((stream) => (
@@ -321,26 +346,38 @@ export default function StreamsPage() {
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <p className="text-sm text-slate-400">Recipient</p>
-                      <p className="font-mono text-sm text-white">{stream.recipient}</p>
+                      <p className="font-mono text-sm text-white">
+                        {stream.recipient}
+                      </p>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      stream.isActive ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-500/20 text-slate-400"
-                    }`}>
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs ${
+                        stream.isActive
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-slate-500/20 text-slate-400"
+                      }`}
+                    >
                       {stream.isActive ? "Active" : "Closed"}
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-4 mb-4">
                     <div>
                       <p className="text-xs text-slate-500">Rate</p>
-                      <p className="text-sm font-medium text-white">{formatXLM(stream.ratePerHour)}/hr</p>
+                      <p className="text-sm font-medium text-white">
+                        {formatXLM(stream.ratePerHour)}/hr
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-slate-500">Deposit</p>
-                      <p className="text-sm font-medium text-white">{formatXLM(stream.deposit)}</p>
+                      <p className="text-sm font-medium text-white">
+                        {formatXLM(stream.deposit)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-slate-500">Claimable</p>
-                      <p className="text-sm font-medium text-stellar-300">{formatXLM(stream.claimable)}</p>
+                      <p className="text-sm font-medium text-stellar-300">
+                        {formatXLM(stream.claimable)}
+                      </p>
                     </div>
                   </div>
                   {stream.isActive && (
@@ -362,11 +399,15 @@ export default function StreamsPage() {
       {/* Received Streams Tab */}
       {activeTab === "received" && (
         <div className="card">
-          <h2 className="font-display text-xl font-semibold text-white mb-6">Received Streams</h2>
+          <h2 className="font-display text-xl font-semibold text-white mb-6">
+            Received Streams
+          </h2>
           {loading ? (
             <div className="text-center text-slate-400 py-8">Loading...</div>
           ) : receivedStreams.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">No received streams</div>
+            <div className="text-center text-slate-400 py-8">
+              No received streams
+            </div>
           ) : (
             <div className="space-y-4">
               {receivedStreams.map((stream) => (
@@ -377,26 +418,38 @@ export default function StreamsPage() {
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <p className="text-sm text-slate-400">Payer</p>
-                      <p className="font-mono text-sm text-white">{stream.payer}</p>
+                      <p className="font-mono text-sm text-white">
+                        {stream.payer}
+                      </p>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      stream.isActive ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-500/20 text-slate-400"
-                    }`}>
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs ${
+                        stream.isActive
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-slate-500/20 text-slate-400"
+                      }`}
+                    >
                       {stream.isActive ? "Active" : "Closed"}
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-4 mb-4">
                     <div>
                       <p className="text-xs text-slate-500">Rate</p>
-                      <p className="text-sm font-medium text-white">{formatXLM(stream.ratePerHour)}/hr</p>
+                      <p className="text-sm font-medium text-white">
+                        {formatXLM(stream.ratePerHour)}/hr
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-slate-500">Total Deposit</p>
-                      <p className="text-sm font-medium text-white">{formatXLM(stream.deposit)}</p>
+                      <p className="text-sm font-medium text-white">
+                        {formatXLM(stream.deposit)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-slate-500">Claimable</p>
-                      <p className="text-sm font-medium text-stellar-300">{formatXLM(stream.claimable)}</p>
+                      <p className="text-sm font-medium text-stellar-300">
+                        {formatXLM(stream.claimable)}
+                      </p>
                     </div>
                   </div>
                   {stream.isActive && (

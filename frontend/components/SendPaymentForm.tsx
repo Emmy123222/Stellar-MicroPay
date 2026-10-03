@@ -136,17 +136,28 @@ export default function SendPaymentForm({
   const [memoType, setMemoType] = useState<StellarMemoType>("text");
   const [memoError, setMemoError] = useState<string | null>(null);
   const [isResolvingUsername, setIsResolvingUsername] = useState(false);
-  const [usernameResolutionError, setUsernameResolutionError] = useState<string | null>(null);
+  const [usernameResolutionError, setUsernameResolutionError] = useState<
+    string | null
+  >(null);
 
   // SNS (.xlm domain) resolution (#1197)
   const [isResolvingSNS, setIsResolvingSNS] = useState(false);
-  const [snsResolvingDomain, setSnsResolvingDomain] = useState<string | null>(null);
-  const [snsResolvedAddress, setSnsResolvedAddress] = useState<string | null>(null);
+  const [snsResolvingDomain, setSnsResolvingDomain] = useState<string | null>(
+    null,
+  );
+  const [snsResolvedAddress, setSnsResolvedAddress] = useState<string | null>(
+    null,
+  );
   const [snsError, setSnsError] = useState<string | null>(null);
   const snsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [customAsset, setCustomAsset] = useState<CustomAsset>({ code: "", issuer: "" });
+  const [customAsset, setCustomAsset] = useState<CustomAsset>({
+    code: "",
+    issuer: "",
+  });
   const [showCustomAssetForm, setShowCustomAssetForm] = useState(false);
-  const [selectedMemoTemplate, setSelectedMemoTemplate] = useState<string | null>(null);
+  const [selectedMemoTemplate, setSelectedMemoTemplate] = useState<
+    string | null
+  >(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -154,25 +165,27 @@ export default function SendPaymentForm({
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [isTipOnChain, setIsTipOnChain] = useState(false);
   const [failedStep, setFailedStep] = useState<PaymentStepId | null>(null);
-  const [stepTimings, setStepTimings] = useState<Record<PaymentStepId, PaymentStepTiming>>(
-    createInitialStepTimings()
-  );
+  const [stepTimings, setStepTimings] = useState<
+    Record<PaymentStepId, PaymentStepTiming>
+  >(createInitialStepTimings());
   const [mintingReceipt, setMintingReceipt] = useState(false);
   const [receiptMinted, setReceiptMinted] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [isScannerSupported, setIsScannerSupported] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  
+
   // Split payment mode
   const [isSplitPaymentMode, setIsSplitPaymentMode] = useState(false);
-  const [splitRecipients, setSplitRecipients] = useState<Array<{ address: string; percentage: number }>>([
-    { address: "", percentage: 100 }
-  ]);
-  
+  const [splitRecipients, setSplitRecipients] = useState<
+    Array<{ address: string; percentage: number }>
+  >([{ address: "", percentage: 100 }]);
+
   // Federation address lookup
   const [isResolvingFederation, setIsResolvingFederation] = useState(false);
-  const [federationResolvedAddress, setFederationResolvedAddress] = useState<string | null>(null);
+  const [federationResolvedAddress, setFederationResolvedAddress] = useState<
+    string | null
+  >(null);
   const [federationError, setFederationError] = useState<string | null>(null);
   const federationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
@@ -225,7 +238,9 @@ export default function SendPaymentForm({
   const startDetection = () => {
     if (typeof window === "undefined" || !("BarcodeDetector" in window)) return;
 
-    const detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+    const detector = new (window as any).BarcodeDetector({
+      formats: ["qr_code"],
+    });
     detectorRef.current = detector;
     isDetectingRef.current = true;
 
@@ -255,8 +270,14 @@ export default function SendPaymentForm({
   const [recentRecipients, setRecentRecipients] = useState<string[]>(() => {
     try {
       if (typeof window !== "undefined") {
-        const parsed = JSON.parse(localStorage.getItem(RECENT_RECIPIENTS_KEY) ?? "[]");
-        return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string").slice(0, MAX_RECENT) : [];
+        const parsed = JSON.parse(
+          localStorage.getItem(RECENT_RECIPIENTS_KEY) ?? "[]",
+        );
+        return Array.isArray(parsed)
+          ? parsed
+              .filter((item): item is string => typeof item === "string")
+              .slice(0, MAX_RECENT)
+          : [];
       }
       return [];
     } catch {
@@ -275,7 +296,8 @@ export default function SendPaymentForm({
     }
   });
 
-  const [isFavouritesDropdownOpen, setIsFavouritesDropdownOpen] = useState(false);
+  const [isFavouritesDropdownOpen, setIsFavouritesDropdownOpen] =
+    useState(false);
   const [isRecentDropdownOpen, setIsRecentDropdownOpen] = useState(false);
   const [activeSuggestion, setActiveSuggestion] = useState(0);
   const contactSuggestions = hideDestinationField
@@ -285,15 +307,29 @@ export default function SendPaymentForm({
           (f) =>
             destination.length > 0 &&
             (f.name.toLowerCase().includes(destination.toLowerCase()) ||
-              f.address.startsWith(destination))
+              f.address.startsWith(destination)),
         )
         .slice(0, 5);
-  const handleDestinationKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleDestinationKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
     if (!contactSuggestions.length) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveSuggestion((i) => (i + 1) % contactSuggestions.length); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveSuggestion((i) => (i - 1 + contactSuggestions.length) % contactSuggestions.length); }
-    else if (e.key === "Enter" && contactSuggestions[activeSuggestion]) { e.preventDefault(); setDestination(contactSuggestions[activeSuggestion].address); setActiveSuggestion(0); }
-    else if (e.key === "Escape") { setActiveSuggestion(0); setDestination(""); }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveSuggestion((i) => (i + 1) % contactSuggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveSuggestion(
+        (i) => (i - 1 + contactSuggestions.length) % contactSuggestions.length,
+      );
+    } else if (e.key === "Enter" && contactSuggestions[activeSuggestion]) {
+      e.preventDefault();
+      setDestination(contactSuggestions[activeSuggestion].address);
+      setActiveSuggestion(0);
+    } else if (e.key === "Escape") {
+      setActiveSuggestion(0);
+      setDestination("");
+    }
   };
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -306,7 +342,11 @@ export default function SendPaymentForm({
   };
 
   const renameFavourite = (address: string, newName: string) => {
-    saveFavourites(favourites.map((f) => (f.address === address ? { ...f, name: newName } : f)));
+    saveFavourites(
+      favourites.map((f) =>
+        f.address === address ? { ...f, name: newName } : f,
+      ),
+    );
   };
 
   const deleteFavourite = (address: string) => {
@@ -315,7 +355,10 @@ export default function SendPaymentForm({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsFavouritesDropdownOpen(false);
         setIsRecentDropdownOpen(false);
       }
@@ -325,7 +368,10 @@ export default function SendPaymentForm({
   }, []);
 
   const saveRecipient = (address: string) => {
-    const updated = [address, ...recentRecipients.filter((a) => a !== address)].slice(0, MAX_RECENT);
+    const updated = [
+      address,
+      ...recentRecipients.filter((a) => a !== address),
+    ].slice(0, MAX_RECENT);
     setRecentRecipients(updated);
     if (typeof window !== "undefined") {
       localStorage.setItem(RECENT_RECIPIENTS_KEY, JSON.stringify(updated));
@@ -347,7 +393,10 @@ export default function SendPaymentForm({
     setMemoError(null);
   };
 
-  const validateMemoValue = (type: StellarMemoType, value: string): string | null => {
+  const validateMemoValue = (
+    type: StellarMemoType,
+    value: string,
+  ): string | null => {
     const trimmed = value.trim();
     if (!trimmed) return null;
     if (type === "id") {
@@ -356,7 +405,8 @@ export default function SendPaymentForm({
     }
     if (type === "hash" || type === "return") {
       const hex = trimmed.toLowerCase().replace(/^0x/, "");
-      if (!/^[0-9a-f]*$/.test(hex)) return `MEMO_${type.toUpperCase()} must be hexadecimal`;
+      if (!/^[0-9a-f]*$/.test(hex))
+        return `MEMO_${type.toUpperCase()} must be hexadecimal`;
       if (hex.length !== STELLAR_MEMO_HASH_HEX_LENGTH) {
         return `MEMO_${type.toUpperCase()} requires ${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters (32 bytes)`;
       }
@@ -384,7 +434,9 @@ export default function SendPaymentForm({
     } else if (memoType === "id") {
       next = value.replace(/\D/g, "");
     } else {
-      next = value.replace(/[^0-9a-fA-Fx]/g, "").slice(0, STELLAR_MEMO_HASH_HEX_LENGTH + 2);
+      next = value
+        .replace(/[^0-9a-fA-Fx]/g, "")
+        .slice(0, STELLAR_MEMO_HASH_HEX_LENGTH + 2);
     }
     setMemo(next);
     setMemoError(validateMemoValue(memoType, next));
@@ -438,22 +490,36 @@ export default function SendPaymentForm({
   const balance = selectedAsset === "XLM" ? xlmBal : usdcBal;
   const maxSend =
     selectedAsset === "XLM"
-      ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM - networkFeeXlm)
+      ? Math.max(
+          0,
+          xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM - networkFeeXlm,
+        )
       : usdcBal;
 
   const amountNum = parseFloat(amount);
   const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
   const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
-  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
+  const isValidDest =
+    destination.length > 0 && isValidStellarAddress(destination);
 
-  const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
+  const isUsernameDestination =
+    /^@?[a-zA-Z0-9]{3,20}$/.test(destination) &&
+    !isValidStellarAddress(destination);
   const isSNSDestination = destination.toLowerCase().endsWith(".xlm");
 
   const MIN_STROOP = 0.0000001;
-  const isValidAmt = !Number.isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
+  const isValidAmt =
+    !Number.isNaN(amountNum) && amountNum >= MIN_STROOP && amountNum <= maxSend;
 
-  const canSubmit = (isValidDest || (isUsernameDestination && !isResolvingUsername && !usernameResolutionError)) &&
-    isValidAmt && isMemoValid && status === "idle" && destination !== publicKey;
+  const canSubmit =
+    (isValidDest ||
+      (isUsernameDestination &&
+        !isResolvingUsername &&
+        !usernameResolutionError)) &&
+    isValidAmt &&
+    isMemoValid &&
+    status === "idle" &&
+    destination !== publicKey;
 
   const resolveUsername = async (username: string) => {
     const cleanUsername = username.replace(/^@/, "").toLowerCase();
@@ -544,8 +610,9 @@ export default function SendPaymentForm({
       clearTimeout(federationDebounceRef.current);
     }
 
-    const isFederationAddress = destination.includes("*") && !isValidStellarAddress(destination);
-    
+    const isFederationAddress =
+      destination.includes("*") && !isValidStellarAddress(destination);
+
     if (!isFederationAddress) {
       setFederationResolvedAddress(null);
       setFederationError(null);
@@ -597,9 +664,15 @@ export default function SendPaymentForm({
   // Split payment handlers
   const handleAddSplitRecipient = () => {
     if (splitRecipients.length >= 10) return;
-    const currentTotal = splitRecipients.reduce((sum, r) => sum + r.percentage, 0);
+    const currentTotal = splitRecipients.reduce(
+      (sum, r) => sum + r.percentage,
+      0,
+    );
     const remainingPercentage = Math.max(0, 100 - currentTotal);
-    setSplitRecipients([...splitRecipients, { address: "", percentage: remainingPercentage }]);
+    setSplitRecipients([
+      ...splitRecipients,
+      { address: "", percentage: remainingPercentage },
+    ]);
   };
 
   const handleRemoveSplitRecipient = (index: number) => {
@@ -610,13 +683,17 @@ export default function SendPaymentForm({
       // Redistribute percentages
       const total = newRecipients.reduce((sum, r) => sum + r.percentage, 0);
       if (total < 100) {
-        newRecipients[0].percentage += (100 - total);
+        newRecipients[0].percentage += 100 - total;
       }
       setSplitRecipients(newRecipients);
     }
   };
 
-  const handleUpdateSplitRecipient = (index: number, field: "address" | "percentage", value: string | number) => {
+  const handleUpdateSplitRecipient = (
+    index: number,
+    field: "address" | "percentage",
+    value: string | number,
+  ) => {
     const newRecipients = [...splitRecipients];
     if (field === "percentage") {
       const numValue = Number(value);
@@ -627,8 +704,14 @@ export default function SendPaymentForm({
     setSplitRecipients(newRecipients);
   };
 
-  const totalSplitPercentage = splitRecipients.reduce((sum, r) => sum + r.percentage, 0);
-  const splitPaymentsValid = splitRecipients.every(r => r.address && isValidStellarAddress(r.address)) && totalSplitPercentage === 100;
+  const totalSplitPercentage = splitRecipients.reduce(
+    (sum, r) => sum + r.percentage,
+    0,
+  );
+  const splitPaymentsValid =
+    splitRecipients.every(
+      (r) => r.address && isValidStellarAddress(r.address),
+    ) && totalSplitPercentage === 100;
 
   const handleSelectFavourite = (address: string) => {
     setDestination(address);
@@ -712,10 +795,10 @@ export default function SendPaymentForm({
       setStatus("building");
       const tx = isTipOnChain
         ? await buildSorobanTipTransaction({
-          fromPublicKey: publicKey,
-          toPublicKey: destination,
-          amount: amountNum.toFixed(7),
-        })
+            fromPublicKey: publicKey,
+            toPublicKey: destination,
+            amount: amountNum.toFixed(7),
+          })
         : await buildPaymentTransaction({
             fromPublicKey: publicKey,
             toPublicKey: destination,
@@ -797,7 +880,11 @@ export default function SendPaymentForm({
       <div className="card text-center animate-slide-up relative overflow-hidden">
         <div className="confetti" aria-hidden="true">
           {Array.from({ length: 10 }).map((_, i) => (
-             <div key={i} className="confetti-piece" style={{ left: `${i * 10}%`, animationDelay: `${i * 0.2}s` }} />
+            <div
+              key={i}
+              className="confetti-piece"
+              style={{ left: `${i * 10}%`, animationDelay: `${i * 0.2}s` }}
+            />
           ))}
         </div>
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stellar-500/20 text-stellar-400">
@@ -816,8 +903,15 @@ export default function SendPaymentForm({
           </p>
           <div className="flex items-center justify-center gap-2">
             <code className="text-xs text-stellar-300">{truncatedHash}</code>
-            <button onClick={handleCopy} className="text-slate-500 hover:text-white transition-colors">
-              {copied ? <CheckIcon className="h-3.5 w-3.5 text-green-400" /> : <CopyIcon className="h-3.5 w-3.5" />}
+            <button
+              onClick={handleCopy}
+              className="text-slate-500 hover:text-white transition-colors"
+            >
+              {copied ? (
+                <CheckIcon className="h-3.5 w-3.5 text-green-400" />
+              ) : (
+                <CopyIcon className="h-3.5 w-3.5" />
+              )}
             </button>
           </div>
         </div>
@@ -899,16 +993,72 @@ export default function SendPaymentForm({
             <div className="mb-2 flex items-center justify-between">
               <label className="label mb-0">{t("sendPayment.destination")}</label>
               <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                  onFocus={() =>
+                    setIsRecentDropdownOpen(recentRecipients.length > 0)
+                  }
+                  onKeyDown={handleDestinationKeyDown}
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={contactSuggestions.length > 0}
+                  aria-controls="destination-suggestions"
+                  placeholder="G... or alice.xlm"
+                  className={clsx(
+                    "input-field font-mono text-sm",
+                    destination &&
+                      !isValidDest &&
+                      !isUsernameDestination &&
+                      !isSNSDestination &&
+                      "border-red-500/50",
+                  )}
+                  disabled={status !== "idle" || destinationReadOnly}
+                />
                 <button
                   type="button"
-                  onClick={() => setIsFavouritesDropdownOpen(!isFavouritesDropdownOpen)}
-                  className="text-xs text-stellar-400 hover:text-stellar-300"
+                  onClick={() => {
+                    const existing = favourites.find(
+                      (f) => f.address === destination,
+                    );
+                    if (existing) deleteFavourite(destination);
+                    else {
+                      const name = prompt(
+                        "Name this favourite:",
+                        destination.slice(0, 8),
+                      );
+                      if (name)
+                        saveFavourites([
+                          ...favourites,
+                          { name, address: destination },
+                        ]);
+                    }
+                  }}
+                  className="text-stellar-400 hover:text-stellar-300"
+                  title={
+                    favourites.some((f) => f.address === destination)
+                      ? "Remove favourite"
+                      : "Add favourite"
+                  }
+                >
+                  <StarIcon
+                    className="h-5 w-5"
+                    filled={favourites.some((f) => f.address === destination)}
+                  />
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setIsFavouritesDropdownOpen(!isFavouritesDropdownOpen)
+                  }
+                  className="text-sm text-slate-400 hover:text-white"
                 >
                   {isFavouritesDropdownOpen
                     ? t("common.close")
                     : t("sendPayment.favourites")}
                 </button>
-                {isValidDest && (
+                {isScannerSupported && status === "idle" && (
                   <button
                     type="button"
                     onClick={() => {
@@ -955,81 +1105,66 @@ export default function SendPaymentForm({
                   </button>
                 )}
               </div>
-            </div>
 
-            <input
-              type="text"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              onFocus={() => setIsRecentDropdownOpen(recentRecipients.length > 0)}
-              onKeyDown={handleDestinationKeyDown}
-              role="combobox"
-              aria-autocomplete="list"
-              aria-expanded={contactSuggestions.length > 0}
-              aria-controls="destination-suggestions"
-              placeholder="G... or alice.xlm"
-              className={clsx("input-field font-mono text-sm", destination && !isValidDest && !isUsernameDestination && !isSNSDestination && "border-red-500/50")}
-              disabled={status !== "idle" || destinationReadOnly}
-            />
-
-            {isRecentDropdownOpen && recentRecipients.length > 0 && contactSuggestions.length === 0 && (
-              <div role="listbox" aria-label="Recent destinations" className="absolute left-0 right-0 z-40 mt-1 overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-2xl">
-                <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recent destinations</p>
-                {recentRecipients.map((address) => (
+              {isResolvingSNS && snsResolvingDomain && (
+                <p className="text-xs text-slate-400" role="status">
+                  Resolving {snsResolvingDomain}…
+                </p>
+              )}
+              {snsResolvedAddress && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="bg-green-100 rounded-lg px-3 py-2 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-200">
+                    Resolved: {snsResolvedAddress}
+                  </span>
                   <button
-                    key={address}
                     type="button"
-                    role="option"
-                    aria-selected={false}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => { setDestination(address); setIsRecentDropdownOpen(false); }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-sm text-slate-200 hover:bg-white/5"
+                    onClick={handleUseSNSAddress}
+                    className="text-xs font-semibold text-green-900 underline hover:text-green-700 dark:text-green-100 dark:hover:text-green-300"
                   >
-                    <span>{shortenAddress(address, 10)}</span>
+                    Use address
                   </button>
-                ))}
-                <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={clearRecipients} className="w-full border-t border-white/10 px-3 py-2 text-left text-xs font-medium text-red-300 hover:bg-white/5">
-                  Clear history
-                </button>
-              </div>
-            )}
+                </div>
+              )}
+              {snsError && (
+                <p className="text-xs text-red-400" role="alert">
+                  {snsError}
+                </p>
+              )}
 
-            {isResolvingSNS && snsResolvingDomain && (
-              <p className="text-xs text-slate-400" role="status">
-                Resolving {snsResolvingDomain}…
-              </p>
-            )}
-            {snsResolvedAddress && (
-              <div className="flex items-center justify-between gap-2">
-                <span className="bg-green-100 rounded-lg px-3 py-2 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-200">
-                  Resolved: {snsResolvedAddress}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleUseSNSAddress}
-                  className="text-xs font-semibold text-green-900 underline hover:text-green-700 dark:text-green-100 dark:hover:text-green-300"
-                >
-                  Use address
-                </button>
-              </div>
-            )}
-            {snsError && (
-              <p className="text-xs text-red-400" role="alert">
-                {snsError}
-              </p>
-            )}
-
-            {contactSuggestions.length > 0 && (
-              <ul id="destination-suggestions" role="listbox" aria-label="Contact suggestions" className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
-                {contactSuggestions.map((item, index) => (
-                  <li key={item.address} role="option" aria-selected={index === activeSuggestion}>
+              {isRecentDropdownOpen &&
+                recentRecipients.length > 0 &&
+                contactSuggestions.length === 0 && (
+                  <div
+                    role="listbox"
+                    aria-label="Recent destinations"
+                    className="absolute left-0 right-0 z-40 mt-1 overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-2xl"
+                  >
+                    <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Recent destinations
+                    </p>
+                    {recentRecipients.map((address) => (
+                      <button
+                        key={address}
+                        type="button"
+                        role="option"
+                        aria-selected={destination === address}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setDestination(address);
+                          setIsRecentDropdownOpen(false);
+                        }}
+                        className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-sm text-slate-200 hover:bg-white/5"
+                      >
+                        <span>{shortenAddress(address, 10)}</span>
+                      </button>
+                    ))}
                     <button
                       type="button"
-                      onClick={() => { setDestination(item.address); setActiveSuggestion(0); }}
-                      className={clsx("flex w-full flex-col items-start rounded-lg px-3 py-2 text-left", index === activeSuggestion ? "bg-white/5" : "hover:bg-white/5")}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={clearRecipients}
+                      className="w-full border-t border-white/10 px-3 py-2 text-left text-xs font-medium text-red-300 hover:bg-white/5"
                     >
-                      <span className="text-sm font-medium text-slate-200">{item.name}</span>
-                      <span className="text-xs text-slate-500">{shortenAddress(item.address, 8)}</span>
+                      Clear history
                     </button>
                   </li>
                 ))}
@@ -1079,91 +1214,117 @@ export default function SendPaymentForm({
           </div>
         )}
 
-        {/* Split Payment Mode Toggle */}
-        {!hideDestinationField && !hideAmountField && (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
-              className={clsx(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                isSplitPaymentMode ? "bg-stellar-500" : "bg-slate-600"
-              )}
-            >
-              <span
-                className={clsx(
-                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                  isSplitPaymentMode ? "translate-x-6" : "translate-x-1"
-                )}
-              />
-            </button>
-            <span className="text-sm text-slate-300">Split payment among multiple recipients</span>
-          </div>
-        )}
-
-        {/* Split Payment Recipients */}
-        {isSplitPaymentMode && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="label mb-0">Recipients ({splitRecipients.length}/10)</label>
-              <span className={clsx(
-                "text-xs font-medium",
-                totalSplitPercentage === 100 ? "text-emerald-400" : "text-amber-400"
-              )}>
-                {totalSplitPercentage}% allocated
-              </span>
-            </div>
-            {splitRecipients.map((recipient, index) => (
-              <div key={index} className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={recipient.address}
-                    onChange={(e) => handleUpdateSplitRecipient(index, "address", e.target.value)}
-                    placeholder="G..."
-                    className="input-field font-mono text-sm flex-1"
-                    disabled={status !== "idle"}
-                  />
-                  <input
-                    type="number"
-                    value={recipient.percentage}
-                    onChange={(e) => handleUpdateSplitRecipient(index, "percentage", e.target.value)}
-                    min="0"
-                    max="100"
-                    className="input-field w-20 text-sm"
-                    disabled={status !== "idle"}
-                  />
-                  <span className="text-slate-400 text-sm self-center">%</span>
-                  {splitRecipients.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSplitRecipient(index)}
-                      className="text-red-400 hover:text-red-300 px-2"
-                      disabled={status !== "idle"}
+              {contactSuggestions.length > 0 && (
+                <ul
+                  id="destination-suggestions"
+                  role="listbox"
+                  aria-label="Contact suggestions"
+                  className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl"
+                >
+                  {contactSuggestions.map((item, index) => (
+                    <li
+                      key={item.address}
+                      role="option"
+                      aria-selected={index === activeSuggestion}
                     >
-                      ×
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDestination(item.address);
+                          setActiveSuggestion(0);
+                        }}
+                        className={clsx(
+                          "flex w-full flex-col items-start rounded-lg px-3 py-2 text-left",
+                          index === activeSuggestion
+                            ? "bg-white/5"
+                            : "hover:bg-white/5",
+                        )}
+                      >
+                        <span className="text-sm font-medium text-slate-200">
+                          {item.name}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {shortenAddress(item.address, 8)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {isFavouritesDropdownOpen && favourites.length > 0 && (
+                <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
+                  {favourites.map((item) => (
+                    <button
+                      key={item.address}
+                      type="button"
+                      onClick={() => handleSelectFavourite(item.address)}
+                      className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-white/5"
+                    >
+                      <span className="text-sm font-medium text-slate-200">
+                        {item.name}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {shortenAddress(item.address, 8)}
+                      </span>
                     </button>
-                  )}
+                  ))}
                 </div>
+              )}
+            </div>
+          )}
+
+          {!hideAmountField && (
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="label mb-0">Amount ({selectedAsset})</label>
+                <button
+                  type="button"
+                  onClick={setMaxAmount}
+                  className="text-xs text-stellar-400 hover:text-stellar-300"
+                  disabled={status !== "idle"}
+                  title="Send Max: balance - 1 XLM base reserve - subentry reserves - current network fee"
+                >
+                  Send Max: {formatXLM(maxSend)}
+                </button>
               </div>
-            ))}
-            {splitRecipients.length < 10 && (
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.0000000"
+                className={clsx(
+                  "input-field",
+                  amount && !isValidAmt && "border-red-500/50",
+                )}
+                disabled={status !== "idle"}
+              />
+            </div>
+          )}
+
+          {/* Split Payment Mode Toggle */}
+          {!hideDestinationField && !hideAmountField && (
+            <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={handleAddSplitRecipient}
-                disabled={status !== "idle"}
-                className="btn-secondary w-full text-sm"
+                onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
+                className={clsx(
+                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                  isSplitPaymentMode ? "bg-stellar-500" : "bg-slate-600",
+                )}
               >
-                + Add recipient
+                <span
+                  className={clsx(
+                    "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                    isSplitPaymentMode ? "translate-x-6" : "translate-x-1",
+                  )}
+                />
               </button>
-            )}
-            {totalSplitPercentage !== 100 && (
-              <div className="text-xs text-amber-400">
-                Total percentage must equal 100% (currently {totalSplitPercentage}%)
-              </div>
-            )}
-          </div>
-        )}
+              <span className="text-sm text-slate-300">
+                Split payment among multiple recipients
+              </span>
+            </div>
+          )}
 
         {!hideMemoField && (
           <div>
@@ -1249,7 +1410,6 @@ export default function SendPaymentForm({
             : t("sendPayment.processing")}
         </button>
       </div>
-    </div>
 
       <SendConfirmationModal
         isOpen={isConfirmOpen}
@@ -1261,7 +1421,10 @@ export default function SendPaymentForm({
         usdValue={amountNum * XLM_USD_RATE}
         isTipOnChain={isTipOnChain}
         onCancel={() => setIsConfirmOpen(false)}
-        onConfirm={() => { setIsConfirmOpen(false); executeSend(); }}
+        onConfirm={() => {
+          setIsConfirmOpen(false);
+          executeSend();
+        }}
       />
 
       <ContactPickerModal
@@ -1297,40 +1460,96 @@ export default function SendPaymentForm({
 // Icons
 function SendIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+      />
     </svg>
   );
 }
 
 function CheckIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M5 13l4 4L19 7"
+      />
     </svg>
   );
 }
 
 function CopyIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+      />
     </svg>
   );
 }
 
 function ExternalLinkIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+      />
     </svg>
   );
 }
 
-function StarIcon({ className, filled }: { className?: string; filled?: boolean }) {
+function StarIcon({
+  className,
+  filled,
+}: {
+  className?: string;
+  filled?: boolean;
+}) {
   return (
-    <svg className={className} fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.382-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+    <svg
+      className={className}
+      fill={filled ? "currentColor" : "none"}
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.382-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+      />
     </svg>
   );
 }
@@ -1345,40 +1564,90 @@ function ContactsIcon({ className }: { className?: string }) {
 
 function QrCodeIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+      />
     </svg>
   );
 }
 
 function PencilIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+      />
     </svg>
   );
 }
 
 function TrashIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+      />
     </svg>
   );
 }
 
 function InfoIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
     </svg>
   );
 }
 
 function ReceiptIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+      />
     </svg>
   );
 }
@@ -1396,7 +1665,17 @@ interface SendConfirmationModalProps {
   onConfirm: () => void;
 }
 
-function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, estimatedFee, usdValue, onCancel, onConfirm }: SendConfirmationModalProps) {
+function SendConfirmationModal({
+  isOpen,
+  destination,
+  amount,
+  memo,
+  memoType,
+  estimatedFee,
+  usdValue,
+  onCancel,
+  onConfirm,
+}: SendConfirmationModalProps) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -1417,7 +1696,9 @@ function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, es
                 {t("sendPayment.amount", { asset: "XLM" })}
               </p>
               <p className="text-lg font-bold text-white">{amount} XLM</p>
-              <p className="text-xs text-slate-400">≈ ${usdValue.toFixed(2)} USD</p>
+              <p className="text-xs text-slate-400">
+                ≈ ${usdValue.toFixed(2)} USD
+              </p>
             </div>
             <div>
               <p className="text-xs text-slate-500 uppercase font-bold">
@@ -1428,14 +1709,23 @@ function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, es
           </div>
           {memo && (
             <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">Memo ({memoType.toUpperCase()})</p>
+              <p className="text-xs text-slate-500 uppercase font-bold">
+                Memo ({memoType.toUpperCase()})
+              </p>
               <p className="text-sm text-slate-200 break-all">{memo}</p>
             </div>
           )}
         </div>
         <div className="mt-8 flex gap-3">
-          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Back</button>
-          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm &amp; Sign</button>
+          <button
+            onClick={onCancel}
+            className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all"
+          >
+            Back
+          </button>
+          <button onClick={onConfirm} className="flex-1 btn-primary py-3">
+            Confirm &amp; Sign
+          </button>
         </div>
       </div>
     </div>

@@ -7,8 +7,8 @@ import {
   isValidStellarAddress,
   memoTextByteLength,
   server,
-  TransactionCategory,
   truncateMemoText,
+  TransactionCategory,
 } from "@/lib/stellar";
 import { Account, Keypair, Transaction } from "@stellar/stellar-sdk";
 
@@ -18,7 +18,8 @@ const VALID_MAINNET_ADDRESS =
 
 describe("Stellar helper", () => {
   it("builds an account merge transaction using Operation.accountMerge", async () => {
-    const sourcePublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+    const sourcePublicKey =
+      "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
     const destinationPublicKey = VALID_MAINNET_ADDRESS;
 
     const mockAccount = new Account(sourcePublicKey, "1234567890");
@@ -77,7 +78,10 @@ describe("Stellar helper", () => {
       const signedXDR2 = tx2.toXDR();
 
       // Collect signatures from both signers
-      const combinedXDR = await collectSignatures(unsignedXDR, [signedXDR1, signedXDR2]);
+      const combinedXDR = await collectSignatures(unsignedXDR, [
+        signedXDR1,
+        signedXDR2,
+      ]);
 
       // Parse the combined transaction and verify it has both signatures
       const combinedTx = new Transaction(combinedXDR, getNetworkPassphrase());
@@ -86,7 +90,7 @@ describe("Stellar helper", () => {
 
       // Verify that the signatures match the expected signers
       const hints = combinedTx.signatures.map((sig) =>
-        Buffer.from(sig.hint()).toString("hex")
+        Buffer.from(sig.hint()).toString("hex"),
       );
 
       // Get expected hints from the signers' public keys (last 4 bytes)
@@ -124,7 +128,10 @@ describe("Stellar helper", () => {
       const signedXDR = tx.toXDR();
 
       // Try to collect the same signature twice
-      const combinedXDR = await collectSignatures(unsignedXDR, [signedXDR, signedXDR]);
+      const combinedXDR = await collectSignatures(unsignedXDR, [
+        signedXDR,
+        signedXDR,
+      ]);
 
       const combinedTx = new Transaction(combinedXDR, getNetworkPassphrase());
 
@@ -134,8 +141,10 @@ describe("Stellar helper", () => {
 
     it("throws an error for invalid XDR input", async () => {
       await expect(
-        collectSignatures("INVALID_XDR", ["ALSO_INVALID"])
-      ).rejects.toThrow("Invalid transaction XDR or signature collection failed");
+        collectSignatures("INVALID_XDR", ["ALSO_INVALID"]),
+      ).rejects.toThrow(
+        "Invalid transaction XDR or signature collection failed",
+      );
     });
   });
 
@@ -161,7 +170,8 @@ describe("Stellar helper", () => {
     });
 
     it("truncates to the 28-byte MEMO_TEXT limit after stripping control characters", () => {
-      const longMemo = "\u0000This memo is definitely longer than twenty eight bytes";
+      const longMemo =
+        "\u0000This memo is definitely longer than twenty eight bytes";
       const result = truncateMemoText(longMemo);
 
       expect(result.startsWith("\u0000")).toBe(false);
@@ -178,7 +188,8 @@ describe("Stellar helper", () => {
   });
 
   describe("memo types in buildPaymentTransaction", () => {
-    const sourcePublicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+    const sourcePublicKey =
+      "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
     const destinationPublicKey = VALID_MAINNET_ADDRESS;
     const HASH_HEX = "a".repeat(64);
 
@@ -226,7 +237,9 @@ describe("Stellar helper", () => {
         memoType: "hash",
       });
       expect(tx.memo.type).toBe("hash");
-      expect(Buffer.from(tx.memo.value as Buffer).toString("hex")).toBe(HASH_HEX);
+      expect(Buffer.from(tx.memo.value as Buffer).toString("hex")).toBe(
+        HASH_HEX,
+      );
       expect(createStellarMemo("hash", HASH_HEX).type).toBe("hash");
     });
 
@@ -239,13 +252,17 @@ describe("Stellar helper", () => {
         memoType: "return",
       });
       expect(tx.memo.type).toBe("return");
-      expect(Buffer.from(tx.memo.value as Buffer).toString("hex")).toBe(HASH_HEX);
+      expect(Buffer.from(tx.memo.value as Buffer).toString("hex")).toBe(
+        HASH_HEX,
+      );
       expect(createStellarMemo("return", HASH_HEX).type).toBe("return");
     });
 
     it("rejects invalid MEMO_ID and MEMO_HASH values", () => {
       expect(() => createStellarMemo("id", "not-a-number")).toThrow(/uint64/i);
-      expect(() => createStellarMemo("hash", "deadbeef")).toThrow(/32-byte hex/i);
+      expect(() => createStellarMemo("hash", "deadbeef")).toThrow(
+        /32-byte hex/i,
+      );
       expect(() => createStellarMemo("return", "xyz")).toThrow(/32-byte hex/i);
     });
   });

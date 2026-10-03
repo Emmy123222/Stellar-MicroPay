@@ -20,4 +20,6 @@ COPY --from=builder /app/out /usr/share/nginx/html
 # Expose port 80
 EXPOSE 80
 
+HEALTHCHECK CMD wget -q -O /dev/null http://localhost/ || exit 1
+
 CMD ["nginx", "-g", "daemon off;"]
