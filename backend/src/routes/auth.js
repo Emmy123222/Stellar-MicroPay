@@ -4,6 +4,7 @@
  *
  * GET  /api/auth?account=G... → returns a challenge transaction
  * POST /api/auth              → verifies signed challenge, returns JWT
+ * GET  /api/auth/csrf         → issues a CSRF double-submit token
  */
 "use strict";
 
@@ -86,7 +87,10 @@ function verifyChallenge(req, res) {
       maxAge:   24 * 60 * 60 * 1000,
     });
 
-    res.json({ success: true, token });
+    // Establish the readable double-submit token alongside the session.
+    const csrfToken = setCsrfCookie(res);
+
+    res.json({ success: true, token, csrfToken });
   } catch (e) {
     res.status(401).json({ error: "Unauthorized: " + e.message });
   }

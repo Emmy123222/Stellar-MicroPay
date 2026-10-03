@@ -10,11 +10,15 @@ import { useRouter } from "next/router";
 import Head from "next/head";
 import Navbar from "@/components/Navbar";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import QuickSendModal from "@/components/QuickSendModal";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
 import ToastProvider from "@/lib/ToastContext";
 
 const AIPaymentAssistant = dynamic(() => import("@/components/AIPaymentAssistant"), {
+  ssr: false,
+});
+// Lazy-load the quick-send modal: it pulls in the full Stellar SDK and only
+// mounts for connected wallets, so keep it out of the initial bundle.
+const QuickSendModal = dynamic(() => import("@/components/QuickSendModal"), {
   ssr: false,
 });
 import {
@@ -130,37 +134,13 @@ function AppShell({
   setIsQuickSendOpen: (isOpen: boolean) => void;
 }) {
   const { publicKey } = useWallet();
-  const router = useRouter();
-  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const isModifierPressed = event.metaKey || event.ctrlKey;
-      if (!isModifierPressed || event.key.toLowerCase() !== "k") return;
-
-      // Only intercept the browser/OS's own Cmd/Ctrl+K when the assistant
-      // isn't already open — while it's open, AIPaymentAssistant itself
-      // owns Escape-to-close, so there's nothing else to prevent here.
-      event.preventDefault();
-      setIsAssistantOpen((open) => !open);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  const handleAssistantConfirm = useCallback(
-    (intent: { amount: string; recipient: string; memo: string }) => {
-      setIsAssistantOpen(false);
-      void router.push(
-        `/dashboard?to=${encodeURIComponent(intent.recipient)}&amount=${encodeURIComponent(intent.amount)}`
-      );
-    },
-    [router]
-  );
 
   return (
     <>
+      {isOffline && (
+        <div role="alert" className="w-full bg-amber-500/15 px-4 py-2 text-center text-sm text-amber-200">You&apos;re offline — data may not be up to date.</div>
+      )}
       <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
         <Navbar onOpenAssistant={() => setIsAssistantOpen(true)} />
         <main>

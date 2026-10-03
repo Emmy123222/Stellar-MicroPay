@@ -289,6 +289,8 @@ export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
  */
 export function formatUSD(usdValue: number): string {
+  if (usdValue == null) return `≈ $0.00 USD`;
+  if (isNaN(usdValue)) return `≈ $NaN USD`;
   return `≈ $${usdValue.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

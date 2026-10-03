@@ -291,6 +291,8 @@ impl MicroPayContract {
         to: Address,
         amount: i128,
     ) {
+        require_not_frozen(&env);
+
         // Require sender authorization
         from.require_auth();
 
@@ -515,6 +517,8 @@ impl MicroPayContract {
         amount: i128,
         memo: Symbol,
     ) -> u32 {
+        require_not_frozen(&env);
+
         from.require_auth();
 
         if amount <= 0 {
@@ -1192,20 +1196,22 @@ impl MicroPayContract {
     /// [PLACEHOLDER] Batch multiple micro-payments in a single transaction.
     /// See ROADMAP.md v2.0 — Multi-Currency Payments.
     pub fn batch_send(
-        _env: Env,
+        env: Env,
         _from: Address,
         _recipients: soroban_sdk::Vec<Address>,
         _amounts: soroban_sdk::Vec<i128>,
     ) {
+        require_not_frozen(&env);
         panic!("Batch payments coming in v2.0 — see ROADMAP.md");
     }
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+// ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use soroban_sdk::{
         testutils::{Address as _, Events as _, Ledger},
         Address, Env,

@@ -80,6 +80,8 @@ import {
   getFriendBotFunding,
   waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
+  streamPayments,
+  shortenAddress,
   getRecentPaymentsForStats,
   getRecentPaymentsForSparkline,
   fetchAllPayments,
@@ -217,6 +219,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [staleBalanceAt, setStaleBalanceAt] = useState<number | null>(null);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
+  const [fiatCurrency, setFiatCurrency] = useState("USD");
+  useEffect(() => { const saved = localStorage.getItem("stellar-micropay:fiat") || "USD"; setFiatCurrency(saved); const id = setInterval(() => setFiatCurrency(localStorage.getItem("stellar-micropay:fiat") || "USD"), 60000); return () => clearInterval(id); }, []);
+  const fiatRate = ({ USD: 1, EUR: 0.92, BRL: 5.4, GBP: 0.79 } as Record<string, number>)[fiatCurrency] ?? 1;
+  const fiatSymbol = ({ USD: "$", EUR: "€", BRL: "R$", GBP: "£" } as Record<string, string>)[fiatCurrency] ?? "$";
   const [copied, setCopied] = useState(false);
   const [addressExpanded, setAddressExpanded] = useState(false);
   const [balanceFlash, setBalanceFlash] = useState(false);
@@ -1328,7 +1334,10 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                 </div>
                 {xlmPrice !== null && (
                   <p className="text-sm text-slate-400 mt-0.5">
-                    {formatUSD(parseFloat(xlmBalance) * xlmPrice)}
+                    {formatUSD(parseFloat(xlmBalance) * xlmPrice)}{" "}
+                    <span className="text-[11px] text-slate-500">
+                      ≈ {fiatSymbol} {((parseFloat(xlmBalance) * xlmPrice * fiatRate)).toFixed(2)} {fiatCurrency}
+                    </span>
                   </p>
                 )}
                 {staleBalanceAt && (

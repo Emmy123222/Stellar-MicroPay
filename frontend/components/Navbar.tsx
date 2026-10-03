@@ -38,6 +38,15 @@ export interface NavbarProps {
   onOpenAssistant?: () => void;
 }
 
+function SparkleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3Z" />
+      <path strokeLinecap="round" d="m19 14 .9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14Z" />
+    </svg>
+  );
+}
+
 export default function Navbar({ onOpenAssistant }: NavbarProps) {
   const router = useRouter();
   const { publicKey, connectWallet, disconnectWallet } = useWallet();

@@ -99,6 +99,23 @@ app.use(
   })
 );
 
+// ─── CSRF Protection ────────────────────────────────────────────────────────
+// Double-submit cookie verification for state-changing requests. The SEP-0010
+// auth endpoints bootstrap the token/session and must stay reachable without
+// one, so they are exempt. See src/middleware/csrf.js and the analysis in
+// src/middleware/auth.js.
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/auth")) return next();
+  return csrfProtection(req, res, next);
+});
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+app.use("/api/auth",     authRoutes);
+app.use("/api/accounts", accountRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/health",       healthRoutes);
+
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -125,6 +142,12 @@ app.use("/api/price-alerts", priceAlertsRoutes);
 app.use("/federation", federationRoutes);
 
 // ─── API Documentation ─────────────────────────────────────────────────────────
+
+if (process.env.METRICS_ENABLED === "true") {
+  const client = require("prom-client");
+  client.collectDefaultMetrics();
+  app.get("/metrics", (req, res) => { res.set("Content-Type", client.register.contentType); res.end(client.register.metrics()); });
+}
 
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customSiteTitle: "Stellar MicroPay API Docs",

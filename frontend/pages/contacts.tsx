@@ -21,9 +21,12 @@ interface Contact {
   name: string;
   address: string;
   createdAt: number;
+  favourite?: boolean;
 }
 
 const STORAGE_KEY = "stellar-micropay-contacts";
+const FAV_TAB_KEY = "stellar-micropay-contacts-favourites-only";
+type ContactFilter = "all" | "favourites";
 
 export default function Contacts() {
   const { publicKey } = useWallet();
@@ -39,6 +42,11 @@ export default function Contacts() {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
+  useEffect(() => { setContactFilter(localStorage.getItem(FAV_TAB_KEY) === "1" ? "favourites" : "all"); }, []);
+  const setFilter = (filter: ContactFilter) => { setContactFilter(filter); localStorage.setItem(FAV_TAB_KEY, filter === "favourites" ? "1" : "0"); };
+  const toggleFavourite = (id: string) => setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, favourite: !c.favourite } : c)));
+  const visibleContacts = contactFilter === "favourites" ? contacts.filter((c) => c.favourite) : contacts;
 
   // Federation lookup state
   const [federationInput, setFederationInput] = useState("");
@@ -374,6 +382,17 @@ export default function Contacts() {
 
         {/* Contacts List */}
         <div>
+          <div className="mb-4 flex items-center gap-2">
+            {(["all", "favourites"] as ContactFilter[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setFilter(tab)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${contactFilter === tab ? "bg-stellar-500/15 text-stellar-300 border border-stellar-500/30" : "text-slate-400 hover:text-white border border-transparent"}`}
+              >
+                {tab === "all" ? "All" : "Favourites"}
+              </button>
+            ))}
+          </div>
           <h2 className="font-display text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <ContactsIcon className="w-5 h-5 text-stellar-400" />
             {`Saved Contacts`}
@@ -408,7 +427,7 @@ export default function Contacts() {
             </div>
           ) : (
             <div className="space-y-3">
-              {contacts.map((contact) => (
+              {visibleContacts.map((contact) => (
                 <div
                   key={contact.id}
                   className="card-hover p-4 rounded-xl border border-slate-700/50 bg-slate-800/30 transition-all"
@@ -422,6 +441,16 @@ export default function Contacts() {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {/* Favourite star toggle */}
+                      <button
+                        onClick={() => toggleFavourite(contact.id)}
+                        title={contact.favourite ? "Remove from Favourites" : "Add to Favourites"}
+                        aria-pressed={!!contact.favourite}
+                        className={`p-2 rounded-lg transition-colors ${contact.favourite ? "text-amber-300 hover:bg-amber-400/10" : "text-slate-500 hover:text-amber-300 hover:bg-slate-700/50"}`}
+                      >
+                        {contact.favourite ? "★" : "☆"}
+                      </button>
+
                       {/* Copy button */}
                       <button
                         onClick={() => handleCopyAddress(contact.address)}
