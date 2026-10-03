@@ -55,3 +55,6 @@ frontend/tsconfig.tsbuildinfo
 
 # Codex CI artifacts
 .codex-artifacts/
+
+# ─── Persistent username store (Issue #1056) ────────────────────────────────
+backend/data/
