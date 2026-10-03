@@ -9,7 +9,16 @@ const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
 const { validatePublicKey } = require("../middleware/sanitization");
+const { idempotency } = require("../middleware/idempotency");
 const paymentController = require("../controllers/paymentController");
+const streamController = require("../controllers/streamController");
+
+/**
+ * GET /api/payments/stream-status/:streamId
+ * Read the current streaming-payment channel state from the Soroban contract (#1066).
+ * Registered before /:publicKey so "stream-status" is not matched as a key.
+ */
+router.get("/stream-status/:streamId", strictLimiter, streamController.getStreamStatus);
 
 /**
  * GET /api/payments/stream-status/:streamId
@@ -17,6 +26,13 @@ const paymentController = require("../controllers/paymentController");
  * Must be defined before :publicKey to avoid route conflicts.
  */
 router.get("/stream-status/:streamId", strictLimiter, paymentController.getStreamStatus);
+
+/**
+ * POST /api/payments/submit
+ * Submit a signed payment. Accepts an optional `X-Idempotency-Key` header (UUID)
+ * so retried submissions replay the original response instead of double-spending.
+ */
+router.post("/submit", strictLimiter, idempotency, paymentController.submitPayment);
 
 /**
  * GET /api/payments/:publicKey

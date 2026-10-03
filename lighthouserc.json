@@ -6,7 +6,7 @@
         "http://localhost:3000/dashboard",
         "http://localhost:3000/pay"
       ],
-      "numberOfRuns": 1,
+      "numberOfRuns": 3,
       "settings": {
         "chromeFlags": "--no-sandbox --headless --disable-gpu"
       }

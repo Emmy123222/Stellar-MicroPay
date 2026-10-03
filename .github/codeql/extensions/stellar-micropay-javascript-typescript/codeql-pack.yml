@@ -1,0 +1,8 @@
+name: stellar-micropay/javascript-typescript-models
+version: 0.0.1
+library: true
+extensionTargets:
+  codeql/javascript-all: "*"
+  codeql/javascript-queries: "*"
+dataExtensions:
+  - models/**/*.yml

@@ -1,0 +1,14 @@
+extensions:
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: barrierModel
+    data:
+      # Webhook delivery URLs are validated by sanitizeWebhookUrl(), which
+      # rejects non-HTTP(S) schemes and loopback/private/link-local/reserved
+      # hosts. Mark its return value as a barrier for request forgery so
+      # CodeQL recognises the SSRF guard before the URL reaches fetch().
+      - [
+          "file:backend/src/services/webhookUrl.js",
+          "Member[sanitizeWebhookUrl].ReturnValue",
+          "request-forgery",
+        ]
