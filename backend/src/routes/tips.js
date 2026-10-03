@@ -8,16 +8,15 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
+const { validatePublicKey } = require("../middleware/sanitization");
 
 const tipsController = require("../controllers/tipsController");
-
-router.get("/leaderboard", strictLimiter, tipsController.getLeaderboard);
 
 /**
  * POST /api/tips
  * Record a new tip.
  */
-router.post("/", strictLimiter, validateBody(tipBodySchema), tipsController.recordTip);
+router.post("/", strictLimiter, tipsController.recordTip);
 
 /**
  * GET /api/tips/received/:creatorPublicKey
@@ -45,13 +44,13 @@ router.get(
  * GET /api/tips/sent/:senderPublicKey
  * Get all tips sent by a user.
  */
-  router.get("/sent/:senderPublicKey", strictLimiter, validatePublicKey("senderPublicKey"), tipsController.getTipsSent);
+router.get("/sent/:senderPublicKey", strictLimiter, validatePublicKey("senderPublicKey"), tipsController.getTipsSent);
 
 /**
  * GET /api/tips/leaderboard/:creatorPublicKey
  * Get top tippers for a creator.
  */
-  router.get("/leaderboard/:creatorPublicKey", strictLimiter, validatePublicKey("creatorPublicKey"), tipsController.getTopTippers);
+router.get("/leaderboard/:creatorPublicKey", strictLimiter, validatePublicKey("creatorPublicKey"), tipsController.getTopTippers);
 
 /**
  * GET /api/tips/leaderboard

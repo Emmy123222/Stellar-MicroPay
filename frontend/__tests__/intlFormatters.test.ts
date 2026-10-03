@@ -85,7 +85,7 @@ describe('intlFormatters', () => {
   describe('Stroops Conversion', () => {
     it('should convert stroops to XLM correctly', () => {
       // 1 XLM = 10,000,000 stroops
-      expect(formatStroopsToXLM(10000000n, { locale: 'en-US' })).toBe('1.0000000 XLM');
+      expect(formatStroopsToXLM(BigInt(10000000), { locale: 'en-US' })).toBe('1.0000000 XLM');
       expect(formatStroopsToXLM(123456, { locale: 'en-US' })).toBe('0.0123456 XLM');
       expect(formatStroopsToXLM('5000000', { locale: 'en-US' })).toBe('0.5000000 XLM');
     });

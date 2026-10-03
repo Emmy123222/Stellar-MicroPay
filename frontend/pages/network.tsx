@@ -11,9 +11,188 @@
  * Horizon latencies are measured client-side on every refresh.
  */
 
-import { useState, useEffect, useCallback } from "react";
-import { fetchNetworkStats, NetworkStats } from "@/lib/stellar";
-import FeeHistorySparkline from "@/components/FeeHistorySparkline";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Head from "next/head";
+import { fetchNetworkMetrics, type NetworkMetrics } from "@/lib/stellar";
+
+/** How often the page re-reads Horizon. */
+const AUTO_REFRESH_MS = 10_000;
+
+type LoadState = "connecting" | "ready" | "error";
+
+/** A single metric row. `value` is `null` when Horizon could not supply it. */
+interface MetricRow {
+  key: string;
+  metric: string;
+  value: string;
+  unit: string;
+  detail?: string;
+}
+
+function formatLedgerSequence(sequence: number): string {
+  return `#${sequence.toLocaleString("en-US")}`;
+}
+
+/** Deterministic UTC rendering, e.g. `2026-09-24 10:35:22 UTC`. */
+function formatUtc(isoTimestamp: string): string {
+  const parsed = new Date(isoTimestamp);
+  if (Number.isNaN(parsed.getTime())) return "Unknown";
+  return `${parsed.toISOString().slice(0, 19).replace("T", " ")} UTC`;
+}
+
+function formatXlm(amount: number): string {
+  return amount.toFixed(7);
+}
+
+function formatCount(value: number | null): string {
+  return value === null ? "Unavailable" : value.toLocaleString("en-US");
+}
+
+function buildMetricRows(metrics: NetworkMetrics): MetricRow[] {
+  return [
+    {
+      key: "ledger",
+      metric: "Latest ledger",
+      value: formatLedgerSequence(metrics.latestLedgerSequence),
+      unit: "sequence number",
+      detail: "Newest ledger Horizon has ingested",
+    },
+    {
+      key: "close-time",
+      metric: "Last ledger close time",
+      value: formatUtc(metrics.lastLedgerCloseTime),
+      unit: "UTC",
+      detail: "When the newest ledger closed",
+    },
+    {
+      key: "close-lag",
+      metric: "Time since last close",
+      value: metrics.ledgerCloseLagSeconds.toLocaleString("en-US"),
+      unit: "seconds",
+      detail: "Ledgers close roughly every 5 seconds",
+    },
+    {
+      key: "base-fee",
+      metric: "Base fee",
+      value: formatXlm(metrics.baseFeeXlm),
+      unit: "XLM",
+      detail: "Protocol minimum fee per operation",
+    },
+    {
+      key: "recommended-fee",
+      metric: "Recommended fee",
+      value: formatXlm(metrics.recommendedFeeXlm),
+      unit: "XLM",
+      detail: "Median fee charged by recent transactions",
+    },
+    {
+      key: "p95-fee",
+      metric: "P95 fee",
+      value: formatXlm(metrics.feeP95Xlm),
+      unit: "XLM",
+      detail: "95th percentile fee charged",
+    },
+    {
+      key: "p99-fee",
+      metric: "P99 fee",
+      value: formatXlm(metrics.feeP99Xlm),
+      unit: "XLM",
+      detail: "99th percentile fee charged",
+    },
+    {
+      key: "active-accounts",
+      metric: "Active accounts",
+      value: formatCount(metrics.activeAccounts),
+      unit: "accounts",
+      detail: `Distinct accounts in ledger ${formatLedgerSequence(
+        metrics.activeAccountsLedger
+      )}`,
+    },
+    {
+      key: "ops-per-second",
+      metric: "Operations per second",
+      value:
+        metrics.operationsPerSecond === null
+          ? "Unavailable"
+          : metrics.operationsPerSecond.toFixed(2),
+      unit: "ops/s",
+      detail: `Average over the last ${metrics.sampledLedgerCount} ledgers`,
+    },
+    {
+      key: "horizon-latency",
+      metric: "Horizon root latency",
+      value: metrics.horizonLatencyMs.toFixed(0),
+      unit: "milliseconds",
+      detail: "Measured client-side on this device",
+    },
+    {
+      key: "fee-stats-latency",
+      metric: "Horizon fee stats latency",
+      value: metrics.feeStatsLatencyMs.toFixed(0),
+      unit: "milliseconds",
+      detail: "Measured client-side on this device",
+    },
+    {
+      key: "fee-level",
+      metric: "Fee level",
+      value: metrics.feeLevel,
+      unit: "band",
+      detail: "normal · elevated · high",
+    },
+    {
+      key: "protocol",
+      metric: "Protocol version",
+      value: metrics.protocolVersion === null ? "Unknown" : String(metrics.protocolVersion),
+      unit: "version",
+    },
+    {
+      key: "passphrase",
+      metric: "Network passphrase",
+      value: metrics.networkPassphrase ?? "Unknown",
+      unit: "identifier",
+    },
+    {
+      key: "horizon-version",
+      metric: "Horizon version",
+      value: metrics.horizonVersion ?? "Unknown",
+      unit: "build",
+    },
+    {
+      key: "core-version",
+      metric: "Stellar Core version",
+      value: metrics.coreVersion ?? "Unknown",
+      unit: "build",
+    },
+  ];
+}
+
+function ConnectingSkeleton() {
+  return (
+    <div
+      className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-5 h-5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+        <p className="text-slate-300 font-medium">Connecting…</p>
+      </div>
+      <p className="text-sm text-slate-500 mb-6">
+        Contacting the Horizon API for the latest ledger, fee and account data.
+      </p>
+      <div className="space-y-3" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5].map((row) => (
+          <div key={row} className="flex items-center gap-4">
+            <div className="h-4 w-1/3 rounded bg-white/5 animate-pulse" />
+            <div className="h-4 w-1/4 rounded bg-white/5 animate-pulse" />
+            <div className="h-4 w-1/6 rounded bg-white/5 animate-pulse" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Network() {
   const [metrics, setMetrics] = useState<NetworkMetrics | null>(null);
@@ -156,46 +335,19 @@ export default function Network() {
         </div>
       )}
 
-        {/* Average Transaction Count */}
-        <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-2">Avg Transactions</h3>
-          <div className="text-2xl font-bold text-white">
-            {stats!.avgTransactionCount.toLocaleString()}
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Per ledger (last 10)
-          </p>
-        </div>
-
-        {/* Current Base Fee */}
-        <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-2">Base Fee</h3>
-          <div className="text-2xl font-bold text-white">
-            {formatFee(stats!.currentBaseFee)} XLM
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Minimum transaction fee
-          </p>
-        </div>
-
-        {/* P50 Fee */}
-        <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-2">P50 Fee</h3>
-          <div className="text-2xl font-bold text-white mb-3">
-            {formatFee(stats!.p50Fee)} XLM
-          </div>
-          <p className="text-xs text-slate-400 mb-3">50th percentile fee</p>
-          <div className="mt-4">
-            <p className="text-xs text-slate-400 mb-2">Fee History (24h)</p>
-            <FeeHistorySparkline className="w-full" />
-          </div>
-        </div>
-
-        {/* P95 Fee */}
-        <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-2">P95 Fee</h3>
-          <div className="text-2xl font-bold text-white">
-            {formatFee(stats!.p95Fee)} XLM
+      {/* Live ledger ticker */}
+      <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6 mb-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${
+                ledgerPulse ? "bg-emerald-400 animate-ping" : "bg-emerald-500/60"
+              }`}
+              aria-hidden="true"
+            />
+            <span className="text-sm text-slate-400" aria-live="polite">
+              {ledgerPulse ? "New ledger closed!" : "Waiting for the next ledger…"}
+            </span>
           </div>
           <div className="text-right">
             <span className="text-xs uppercase tracking-wider text-slate-500">

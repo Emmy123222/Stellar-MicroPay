@@ -40,6 +40,7 @@ const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"),
 const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
 const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
 const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
+const LiveEventsFeed = dynamic(() => import("../components/LiveEventsFeed"), { ssr: false });
 
 // The assistant panel (and its dependencies) should not ship in the initial
 // bundle — it's only ever needed after the user opens the floating button,
@@ -80,7 +81,6 @@ import {
   waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
-  shortenAddress,
   getRecentPaymentsForStats,
   getRecentPaymentsForSparkline,
   fetchAllPayments,
@@ -92,6 +92,7 @@ import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { useTranslation } from "@/contexts/I18nContext";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;
@@ -202,6 +203,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const { publicKey } = useWallet();
   const { t } = useTranslation();
   const AUTO_REFRESH_SECONDS = 30;
+  const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
   // now-hidden Connect control (#252).
@@ -1146,6 +1148,37 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       </div>
 
+      <div
+        role="tablist"
+        aria-label={t("dashboard.tabsLabel")}
+        className="mb-6 flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1"
+      >
+        {DASHBOARD_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            id={`dashboard-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`dashboard-panel-${tab.id}`}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+              activeTab === tab.id
+                ? "bg-stellar-500/20 text-stellar-200"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            }`}
+          >
+            {t(tab.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <div
+        id="dashboard-panel-overview"
+        role="tabpanel"
+        aria-labelledby="dashboard-tab-overview"
+        hidden={activeTab !== "overview"}
+      >
       {(() => {
         const widgetContent: Record<DashboardWidgetId, { label: string; node: React.ReactNode }> = {
           stats: {
@@ -1763,7 +1796,7 @@ function PaymentStatsWidget({
     <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
       <StatsCard
         label="Total Sent"
-        value={formatStatsXLM(stats.totalSentXLM)}
+        value={formatStatsXLM(stats.totalSentXLM, t("dashboard.suffixSent"))}
         helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
         delta={volumeDelta}
         deltaType={typeof volumeDelta === "number" ? (volumeDelta > 0 ? "positive" : volumeDelta < 0 ? "negative" : "neutral") : undefined}

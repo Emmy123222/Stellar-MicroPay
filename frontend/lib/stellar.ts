@@ -21,7 +21,7 @@ import {
   nativeToScVal,
   scValToNative,
   xdr,
-  SorobanRpc,
+  rpc as SorobanRpc,
   Federation,
 } from "@stellar/stellar-sdk";
 
@@ -746,15 +746,6 @@ export async function buildChangeTrustTransaction({
 /**
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
  */
-/** Supported Stellar memo types for payment construction. */
-export type StellarMemoType = "text" | "id" | "hash" | "return";
-
-/** Maximum uint64 value accepted by MEMO_ID. */
-export const STELLAR_MEMO_ID_MAX = "18446744073709551615";
-
-/** MEMO_HASH / MEMO_RETURN must be exactly 32 bytes (64 hex characters). */
-export const STELLAR_MEMO_HASH_HEX_LENGTH = 64;
-
 /**
  * Validate and build a Stellar Memo for the given type and value.
  * @throws {Error} When the memo value is invalid for the selected type.
@@ -972,7 +963,7 @@ export async function buildAssetIssueTransaction({
 
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.payment({
@@ -1002,7 +993,7 @@ export async function buildHomeDomainTransaction({
 
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(Operation.setOptions({ homeDomain }))
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
@@ -1011,7 +1002,7 @@ export async function buildHomeDomainTransaction({
 
 /** Stellar Expert URL for an issued asset, e.g. `.../asset/COOL-GABC...`. */
 export function assetExplorerUrl(assetCode: string, issuer: string): string {
-  const net = NETWORK === "mainnet" ? "public" : "testnet";
+  const net = getNetwork() === "mainnet" ? "public" : "testnet";
   return `https://stellar.expert/explorer/${net}/asset/${assetCode}-${issuer}`;
 }
 
@@ -1041,7 +1032,7 @@ export function buildStellarToml({
   issuerPublicKey: string;
   network?: "testnet" | "mainnet";
 }): string {
-  const activeNetwork = network ?? NETWORK;
+  const activeNetwork = network ?? getNetwork();
   const accounts = [issuerPublicKey];
 
   if (activeNetwork === "mainnet") {
@@ -1130,8 +1121,8 @@ export async function collectSignatures(unsignedXDR: string, signedXDRs: string[
       for (const sig of signedTx.signatures) {
         // Check if signature already exists to avoid duplicates
         const exists = transaction.signatures.some(existing =>
-          existing.hint().equals(sig.hint()) &&
-          existing.signature().equals(sig.signature())
+          existing.hint.equals(sig.hint) &&
+          existing.signature.equals(sig.signature)
         );
         if (!exists) {
           transaction.signatures.push(sig);

@@ -134,6 +134,30 @@ function AppShell({
   setIsQuickSendOpen: (isOpen: boolean) => void;
 }) {
   const { publicKey } = useWallet();
+  const router = useRouter();
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
+
+  useEffect(() => {
+    const updateConnectionStatus = () => setIsOffline(!navigator.onLine);
+    updateConnectionStatus();
+    window.addEventListener("online", updateConnectionStatus);
+    window.addEventListener("offline", updateConnectionStatus);
+    return () => {
+      window.removeEventListener("online", updateConnectionStatus);
+      window.removeEventListener("offline", updateConnectionStatus);
+    };
+  }, []);
+
+  const handleAssistantConfirm = useCallback(
+    (intent: { amount: string; recipient: string; memo: string }) => {
+      setIsAssistantOpen(false);
+      void router.push(
+        `/dashboard?to=${encodeURIComponent(intent.recipient)}&amount=${encodeURIComponent(intent.amount)}`
+      );
+    },
+    [router]
+  );
 
 
   return (
