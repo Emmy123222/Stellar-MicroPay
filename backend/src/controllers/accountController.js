@@ -108,4 +108,4 @@ async function hasUSDCTrustline(req, res, next) {
   }
 }
 
-module.exports = { getAccount, getBalance, registerUsername, resolveUsername, hasUSDCTrustline };
+module.exports = { getAccount, getBalance, getStreaks, registerUsername, resolveUsername, hasUSDCTrustline };

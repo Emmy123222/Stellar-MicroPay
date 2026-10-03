@@ -5,7 +5,14 @@
 
 "use strict";
 
+const path = require("path");
+
 const swaggerJsdoc = require("swagger-jsdoc");
+
+// Route files scanned for JSDoc `@swagger` annotations. Federation, analytics,
+// and turrets operations are documented in their route files; the remaining
+// operations are defined statically in `definition.paths` below.
+const routesGlob = `${path.join(__dirname, "routes").split(path.sep).join("/")}/*.js`;
 
 const options = {
   definition: {
@@ -77,25 +84,86 @@ const options = {
             publicKey: { type: "string" },
             totalSentXLM: { type: "string" },
             totalReceivedXLM: { type: "string" },
-            sentCount: { type: "integer" },
-            receivedCount: { type: "integer" },
+            uniqueCounterparties: { type: "integer" },
+            averageTransactionSize: { type: "string" },
             totalTransactions: { type: "integer" },
           },
         },
         TopRecipient: {
           type: "object",
           properties: {
-            publicKey: { type: "string" },
-            totalXLM: { type: "string" },
-            count: { type: "integer" },
+            address: { type: "string" },
+            totalXLMSent: { type: "string" },
           },
         },
         ActivityDay: {
           type: "object",
           properties: {
-            date: { type: "string", format: "date" },
-            totalXLM: { type: "string" },
-            count: { type: "integer" },
+            day: { type: "string", example: "Monday" },
+            dayIndex: { type: "integer", minimum: 0, maximum: 6 },
+            transactionCount: { type: "integer" },
+          },
+        },
+        TurretsChallenge: {
+          type: "object",
+          properties: {
+            challengeXDR: {
+              type: "string",
+              description: "ManageData challenge transaction to sign and deploy.",
+            },
+            deploymentHash: { type: "string" },
+            normalizedConfig: {
+              type: "object",
+              description: "Configuration after validation and normalization.",
+            },
+            networkPassphrase: { type: "string" },
+          },
+        },
+        TxFunctionDeployment: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            ownerPublicKey: { type: "string" },
+            type: { type: "string", enum: ["dca", "stop_loss"] },
+            status: { type: "string", enum: ["active", "paused"] },
+            config: { type: "object" },
+            deploymentHash: { type: "string" },
+            signedChallengeXDR: { type: "string" },
+            createdAt: { type: "string", format: "date-time" },
+            nextRunAt: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+            },
+            lastExecutedAt: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+            },
+            lastCheckedAt: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+            },
+            lastObservedPriceUsd: {
+              type: "number",
+              nullable: true,
+            },
+            lastError: {
+              type: "string",
+              nullable: true,
+            },
+          },
+        },
+        ExecutionLogEntry: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            deploymentId: { type: "string", format: "uuid" },
+            status: { type: "string", example: "executed" },
+            message: { type: "string" },
+            result: { type: "object", nullable: true },
+            createdAt: { type: "string", format: "date-time" },
           },
         },
         AccountBalance: {
@@ -502,104 +570,6 @@ const options = {
           },
         },
       },
-      "/api/analytics/{publicKey}/summary": {
-        get: {
-          tags: ["Analytics"],
-          summary: "Get payment summary for an account",
-          parameters: [
-            {
-              name: "publicKey",
-              in: "path",
-              required: true,
-              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
-            },
-          ],
-          responses: {
-            200: {
-              description: "Analytics summary",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      data: { $ref: "#/components/schemas/AnalyticsSummary" },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/api/analytics/{publicKey}/top-recipients": {
-        get: {
-          tags: ["Analytics"],
-          summary: "Get top payment recipients",
-          parameters: [
-            {
-              name: "publicKey",
-              in: "path",
-              required: true,
-              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
-            },
-          ],
-          responses: {
-            200: {
-              description: "Top recipients",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      data: {
-                        type: "array",
-                        items: {
-                          $ref: "#/components/schemas/TopRecipient",
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/api/analytics/{publicKey}/activity": {
-        get: {
-          tags: ["Analytics"],
-          summary: "Get payment activity by day",
-          parameters: [
-            {
-              name: "publicKey",
-              in: "path",
-              required: true,
-              schema: { type: "string", pattern: "^G[A-Z0-9]{55}$" },
-            },
-          ],
-          responses: {
-            200: {
-              description: "Activity data",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      data: {
-                        type: "array",
-                        items: { $ref: "#/components/schemas/ActivityDay" },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
       "/api/tips/received/{creatorPublicKey}": {
         get: {
           tags: ["Tips"],
@@ -754,24 +724,6 @@ const options = {
           responses: { 204: { description: "Webhook removed" }, 404: { description: "Webhook not found" } },
         },
       },
-      "/api/turrets": {
-        get: {
-          tags: ["Turrets"],
-          summary: "List deployed turrets",
-          responses: {
-            200: { description: "List of turrets" },
-          },
-        },
-      },
-      "/api/turrets/challenge": {
-        post: {
-          tags: ["Turrets"],
-          summary: "Get a turrets authentication challenge",
-          responses: {
-            200: { description: "Challenge data" },
-          },
-        },
-      },
       "/api/events/stream": {
         get: {
           tags: ["Events"],
@@ -795,34 +747,9 @@ const options = {
           },
         },
       },
-      "/federation": {
-        get: {
-          tags: ["Federation"],
-          summary: "SEP-0002 federation endpoint",
-          parameters: [
-            {
-              name: "q",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-              description: "Query string (username or Stellar address)",
-            },
-            {
-              name: "type",
-              in: "query",
-              required: true,
-              schema: { type: "string", enum: ["name", "id", "tx_id"] },
-              description: "Query type",
-            },
-          ],
-          responses: {
-            200: { description: "Federation record" },
-          },
-        },
-      },
     },
   },
-  apis: [],
+  apis: [routesGlob],
 };
 
 module.exports = swaggerJsdoc(options);
