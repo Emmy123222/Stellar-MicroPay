@@ -1,10 +1,12 @@
 import {
   buildAccountMergeTransaction,
+  buildMemo,
   buildPaymentTransaction,
   collectSignatures,
   createStellarMemo,
   getNetworkPassphrase,
   isValidStellarAddress,
+  memoValueError,
   memoTextByteLength,
   server,
   truncateMemoText,
@@ -90,21 +92,16 @@ describe("Stellar helper", () => {
 
       // Verify that the signatures match the expected signers
       const hints = combinedTx.signatures.map((sig) =>
-        Buffer.from(sig.hint()).toString("hex"),
+        Buffer.from(sig.hint.toXDR()).toString("hex"),
       );
 
       // Get expected hints from the signers' public keys (last 4 bytes)
-      const expectedHint1 = Keypair.fromPublicKey(signer1.publicKey())
-        .rawPublicKey()
-        .slice(-4)
-        .toString("hex");
-      const expectedHint2 = Keypair.fromPublicKey(signer2.publicKey())
-        .rawPublicKey()
-        .slice(-4)
-        .toString("hex");
-
-      expect(hints).toContain(expectedHint1);
-      expect(hints).toContain(expectedHint2);
+      expect(hints).toContain(Buffer.from(
+        Keypair.fromPublicKey(signer1.publicKey()).rawPublicKey().slice(-4),
+      ).toString("hex"));
+      expect(hints).toContain(Buffer.from(
+        Keypair.fromPublicKey(signer2.publicKey()).rawPublicKey().slice(-4),
+      ).toString("hex"));
     });
 
     it("handles duplicate signatures gracefully", async () => {
