@@ -1588,7 +1588,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           </div>
         </div>
       </div>
-      </div>
 
       {activeTab === "events" && (
         <div

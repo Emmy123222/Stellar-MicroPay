@@ -1105,6 +1105,7 @@ export default function SendPaymentForm({
                   </button>
                 )}
               </div>
+            </div>
 
               {isResolvingSNS && snsResolvingDomain && (
                 <p className="text-xs text-slate-400" role="status">
@@ -1166,10 +1167,46 @@ export default function SendPaymentForm({
                     >
                       Clear history
                     </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                  </div>
+                )}
+
+              {contactSuggestions.length > 0 && (
+                <ul
+                  id="destination-suggestions"
+                  role="listbox"
+                  aria-label="Contact suggestions"
+                  className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl"
+                >
+                  {contactSuggestions.map((item, index) => (
+                    <li
+                      key={item.address}
+                      role="option"
+                      aria-selected={index === activeSuggestion}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDestination(item.address);
+                          setActiveSuggestion(0);
+                        }}
+                        className={clsx(
+                          "flex w-full flex-col items-start rounded-lg px-3 py-2 text-left",
+                          index === activeSuggestion
+                            ? "bg-white/5"
+                            : "hover:bg-white/5",
+                        )}
+                      >
+                        <span className="text-sm font-medium text-slate-200">
+                          {item.name}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {shortenAddress(item.address, 8)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
 
             {isFavouritesDropdownOpen && favourites.length > 0 && (
               <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
@@ -1213,94 +1250,6 @@ export default function SendPaymentForm({
             </p>
           </div>
         )}
-
-              {contactSuggestions.length > 0 && (
-                <ul
-                  id="destination-suggestions"
-                  role="listbox"
-                  aria-label="Contact suggestions"
-                  className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl"
-                >
-                  {contactSuggestions.map((item, index) => (
-                    <li
-                      key={item.address}
-                      role="option"
-                      aria-selected={index === activeSuggestion}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDestination(item.address);
-                          setActiveSuggestion(0);
-                        }}
-                        className={clsx(
-                          "flex w-full flex-col items-start rounded-lg px-3 py-2 text-left",
-                          index === activeSuggestion
-                            ? "bg-white/5"
-                            : "hover:bg-white/5",
-                        )}
-                      >
-                        <span className="text-sm font-medium text-slate-200">
-                          {item.name}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {shortenAddress(item.address, 8)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {isFavouritesDropdownOpen && favourites.length > 0 && (
-                <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
-                  {favourites.map((item) => (
-                    <button
-                      key={item.address}
-                      type="button"
-                      onClick={() => handleSelectFavourite(item.address)}
-                      className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-white/5"
-                    >
-                      <span className="text-sm font-medium text-slate-200">
-                        {item.name}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {shortenAddress(item.address, 8)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {!hideAmountField && (
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <label className="label mb-0">Amount ({selectedAsset})</label>
-                <button
-                  type="button"
-                  onClick={setMaxAmount}
-                  className="text-xs text-stellar-400 hover:text-stellar-300"
-                  disabled={status !== "idle"}
-                  title="Send Max: balance - 1 XLM base reserve - subentry reserves - current network fee"
-                >
-                  Send Max: {formatXLM(maxSend)}
-                </button>
-              </div>
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.0000000"
-                className={clsx(
-                  "input-field",
-                  amount && !isValidAmt && "border-red-500/50",
-                )}
-                disabled={status !== "idle"}
-              />
-            </div>
-          )}
 
           {/* Split Payment Mode Toggle */}
           {!hideDestinationField && !hideAmountField && (
@@ -1409,6 +1358,7 @@ export default function SendPaymentForm({
               })
             : t("sendPayment.processing")}
         </button>
+      </div>
       </div>
 
       <SendConfirmationModal
