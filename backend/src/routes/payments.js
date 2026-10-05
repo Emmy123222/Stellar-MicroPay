@@ -11,14 +11,7 @@ const { strictLimiter } = require("../middleware/rateLimit");
 const { validatePublicKey } = require("../middleware/sanitization");
 const { idempotency } = require("../middleware/idempotency");
 const paymentController = require("../controllers/paymentController");
-const streamController = require("../controllers/streamController");
-
-/**
- * GET /api/payments/stream-status/:streamId
- * Read the current streaming-payment channel state from the Soroban contract (#1066).
- * Registered before /:publicKey so "stream-status" is not matched as a key.
- */
-router.get("/stream-status/:streamId", strictLimiter, streamController.getStreamStatus);
+const { horizonCircuitBreakerMiddleware } = require("../middleware/horizonCircuitBreaker");
 
 /**
  * GET /api/payments/stream-status/:streamId
@@ -42,12 +35,12 @@ router.post("/submit", strictLimiter, idempotency, paymentController.submitPayme
  *   limit  — number of results (default: 20, max: 100)
  *   cursor — pagination cursor
  */
-router.get("/:publicKey", strictLimiter, validatePublicKey(), paymentController.getPayments);
+router.get("/:publicKey", strictLimiter, validatePublicKey(), horizonCircuitBreakerMiddleware, paymentController.getPayments);
 
 /**
  * GET /api/payments/:publicKey/stats
  * Return aggregate stats for an account (total sent, received, count).
  */
-router.get("/:publicKey/stats", validatePublicKey(), paymentController.getStats);
+router.get("/:publicKey/stats", validatePublicKey(), horizonCircuitBreakerMiddleware, paymentController.getStats);
 
 module.exports = router;

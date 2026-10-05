@@ -14,6 +14,7 @@ import TransactionList, {
 import { fetchAllPayments, getNetwork, shortenAddress, PaymentRecord } from "@/lib/stellar";
 import { exportToCSV, exportToJSON, formatAsset, formatDate } from "@/utils/format";
 import { useWallet } from "@/lib/useWallet";
+import { loadAllPaymentNotes } from "@/lib/usePaymentNotes";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const TRANSACTION_FILTERS_STORAGE_KEY = "stellar-micropay:transaction-filters";
@@ -128,7 +129,9 @@ export default function Transactions() {
       if (allPayments.length === 0) return;
 
       if (format === "csv") {
-        exportToCSV(allPayments);
+        // Include private notes in CSV export (Issue #1189)
+        const notes = loadAllPaymentNotes();
+        exportToCSV(allPayments, notes);
       } else {
         exportToJSON(allPayments);
       }
