@@ -132,7 +132,9 @@ export default function SendPaymentForm({
   const { t } = useTranslation();
   const [selectedAsset, setSelectedAsset] = useState<AssetType>("XLM");
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
-  const [feeStatus, setFeeStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [feeStatus, setFeeStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
@@ -190,17 +192,23 @@ export default function SendPaymentForm({
     string | null
   >(null);
   const [federationError, setFederationError] = useState<string | null>(null);
-  const federationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const federationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
 
   // Convert & Send (path payment) mode — Issue #1190
   const [isConvertAndSend, setIsConvertAndSend] = useState(false);
   const [pathRoutes, setPathRoutes] = useState<PathPaymentRoute[]>([]);
-  const [selectedRoute, setSelectedRoute] = useState<PathPaymentRoute | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<PathPaymentRoute | null>(
+    null,
+  );
   const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   // Destination asset for Convert & Send (what the recipient receives)
-  const [convertDestAsset, setConvertDestAsset] = useState<"USDC" | "XLM">("USDC");
+  const [convertDestAsset, setConvertDestAsset] = useState<"USDC" | "XLM">(
+    "USDC",
+  );
   // Slippage tolerance (percentage, e.g. 1.0 = 1%)
   const CONVERT_SLIPPAGE_PCT = 1.0;
 
@@ -506,8 +514,14 @@ export default function SendPaymentForm({
       setIsLoadingRoutes(true);
       setRouteError(null);
       try {
-        const sendAsset = selectedAsset === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
-        const destAsset = convertDestAsset === "USDC" ? new Asset("USDC", USDC_ISSUER) : Asset.native();
+        const sendAsset =
+          selectedAsset === "XLM"
+            ? Asset.native()
+            : new Asset("USDC", USDC_ISSUER);
+        const destAsset =
+          convertDestAsset === "USDC"
+            ? new Asset("USDC", USDC_ISSUER)
+            : Asset.native();
         const routes = await findStrictSendPaths({
           sourceAsset: sendAsset,
           sourceAmount: amountNum.toFixed(7),
@@ -517,7 +531,9 @@ export default function SendPaymentForm({
           setPathRoutes(routes);
           setSelectedRoute(routes[0] ?? null);
           if (routes.length === 0) {
-            setRouteError("No conversion path found. Try a different amount or asset pair.");
+            setRouteError(
+              "No conversion path found. Try a different amount or asset pair.",
+            );
           }
         }
       } catch (err: any) {
@@ -535,7 +551,14 @@ export default function SendPaymentForm({
       clearTimeout(debounce);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConvertAndSend, amount, destination, selectedAsset, convertDestAsset, isValidDest]);
+  }, [
+    isConvertAndSend,
+    amount,
+    destination,
+    selectedAsset,
+    convertDestAsset,
+    isValidDest,
+  ]);
 
   useEffect(() => {
     if (!prefill) return;
@@ -590,7 +613,9 @@ export default function SendPaymentForm({
     setUsernameResolutionError(null);
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-      const response = await fetch(`${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`);
+      const response = await fetch(
+        `${apiBase}/api/accounts/resolve/${encodeURIComponent(cleanUsername)}`,
+      );
       if (!response.ok) throw new Error(t("sendPayment.usernameNotFound"));
       const payload = await response.json();
       if (payload?.success && payload?.data?.publicKey) {
@@ -601,7 +626,9 @@ export default function SendPaymentForm({
       }
     } catch (err) {
       setUsernameResolutionError(
-        err instanceof Error ? err.message : t("sendPayment.usernameResolveFailed")
+        err instanceof Error
+          ? err.message
+          : t("sendPayment.usernameResolveFailed"),
       );
     } finally {
       setIsResolvingUsername(false);
@@ -833,7 +860,9 @@ export default function SendPaymentForm({
         amount: amountNum.toFixed(7),
         memo: memo.trim() || undefined,
       });
-      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
+      const { signedXDR, error: signError } = await signTransactionWithWallet(
+        tx.toXDR(),
+      );
       if (signError || !signedXDR)
         throw new Error(signError || t("sendPayment.receiptSigningFailed"));
       const result = await submitTransaction(signedXDR);
@@ -856,11 +885,20 @@ export default function SendPaymentForm({
       let tx;
       if (isConvertAndSend && selectedRoute) {
         // Path payment strict send (Convert & Send mode)
-        const sendAsset = selectedAsset === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
-        const destAsset = convertDestAsset === "USDC" ? new Asset("USDC", USDC_ISSUER) : Asset.native();
+        const sendAsset =
+          selectedAsset === "XLM"
+            ? Asset.native()
+            : new Asset("USDC", USDC_ISSUER);
+        const destAsset =
+          convertDestAsset === "USDC"
+            ? new Asset("USDC", USDC_ISSUER)
+            : Asset.native();
         // Apply slippage: minDestAmount = destinationAmount * (1 - slippage%/100)
         const rawDestAmt = parseFloat(selectedRoute.destinationAmount);
-        const minDestAmount = (rawDestAmt * (1 - CONVERT_SLIPPAGE_PCT / 100)).toFixed(7);
+        const minDestAmount = (
+          rawDestAmt *
+          (1 - CONVERT_SLIPPAGE_PCT / 100)
+        ).toFixed(7);
         tx = await buildPathPaymentStrictSendTransaction({
           fromPublicKey: publicKey,
           toPublicKey: destination,
@@ -890,7 +928,9 @@ export default function SendPaymentForm({
       activeStep = "signing";
       markStepStarted("signing");
       setStatus("signing");
-      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
+      const { signedXDR, error: signError } = await signTransactionWithWallet(
+        tx.toXDR(),
+      );
       if (signError || !signedXDR)
         throw new Error(signError || t("sendPayment.signingFailed"));
       markStepCompleted("signing");
@@ -996,8 +1036,14 @@ export default function SendPaymentForm({
         </div>
 
         <div className="flex flex-col gap-3">
-          <a href={explorerUrl(txHash)} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center justify-center gap-2">
-            {t("sendPayment.viewOnExplorer")} <ExternalLinkIcon className="h-4 w-4" />
+          <a
+            href={explorerUrl(txHash)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary flex items-center justify-center gap-2"
+          >
+            {t("sendPayment.viewOnExplorer")}{" "}
+            <ExternalLinkIcon className="h-4 w-4" />
           </a>
 
           {!receiptMinted ? (
@@ -1028,7 +1074,10 @@ export default function SendPaymentForm({
             <p className="text-xs text-red-400 text-center">{receiptError}</p>
           )}
 
-          <button onClick={() => setStatus("idle")} className="text-sm text-slate-400 hover:text-white transition-colors">
+          <button
+            onClick={() => setStatus("idle")}
+            className="text-sm text-slate-400 hover:text-white transition-colors"
+          >
             {t("sendPayment.sendAnother")}
           </button>
         </div>
@@ -1039,152 +1088,170 @@ export default function SendPaymentForm({
   return (
     <>
       <div className="card animate-fade-in">
-      <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
-        <SendIcon className="w-5 h-5 text-stellar-400" />
-        {title ?? t("sendPayment.title")}
-      </h2>
+        <h2 className="font-display text-lg font-semibold text-white mb-6 flex items-center gap-2">
+          <SendIcon className="w-5 h-5 text-stellar-400" />
+          {title ?? t("sendPayment.title")}
+        </h2>
 
-      <div className="space-y-5">
-        {!hideAssetSelector && (
-          <div className="flex gap-2">
-            {assetOptions.map((a) => (
-              <button
-                key={a}
-                type="button"
-                onClick={() => { setSelectedAsset(a); setAmount(""); }}
-                disabled={a === "USDC" && !usdcBalance}
-                className={clsx(
-                  "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
-                  selectedAsset === a
-                    ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                    : "text-slate-400 border-white/10 hover:border-white/20",
-                  a === "USDC" && !usdcBalance && "opacity-40 cursor-not-allowed"
-                )}
-              >
-                {a}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {!hideDestinationField && (
-          <div className="relative" ref={dropdownRef}>
-            <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">{t("sendPayment.destination")}</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  onFocus={() =>
-                    setIsRecentDropdownOpen(recentRecipients.length > 0)
-                  }
-                  onKeyDown={handleDestinationKeyDown}
-                  role="combobox"
-                  aria-autocomplete="list"
-                  aria-expanded={contactSuggestions.length > 0}
-                  aria-controls="destination-suggestions"
-                  placeholder="G... or alice.xlm"
-                  className={clsx(
-                    "input-field font-mono text-sm",
-                    destination &&
-                      !isValidDest &&
-                      !isUsernameDestination &&
-                      !isSNSDestination &&
-                      "border-red-500/50",
-                  )}
-                  disabled={status !== "idle" || destinationReadOnly}
-                />
+        <div className="space-y-5">
+          {!hideAssetSelector && (
+            <div className="flex gap-2">
+              {assetOptions.map((a) => (
                 <button
+                  key={a}
                   type="button"
                   onClick={() => {
-                    const existing = favourites.find(
-                      (f) => f.address === destination,
-                    );
-                    if (existing) deleteFavourite(destination);
-                    else {
-                      const name = prompt(
-                        "Name this favourite:",
-                        destination.slice(0, 8),
-                      );
-                      if (name)
-                        saveFavourites([
-                          ...favourites,
-                          { name, address: destination },
-                        ]);
-                    }
+                    setSelectedAsset(a);
+                    setAmount("");
                   }}
-                  className="text-stellar-400 hover:text-stellar-300"
-                  title={
-                    favourites.some((f) => f.address === destination)
-                      ? "Remove favourite"
-                      : "Add favourite"
-                  }
+                  disabled={a === "USDC" && !usdcBalance}
+                  className={clsx(
+                    "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
+                    selectedAsset === a
+                      ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
+                      : "text-slate-400 border-white/10 hover:border-white/20",
+                    a === "USDC" &&
+                      !usdcBalance &&
+                      "opacity-40 cursor-not-allowed",
+                  )}
                 >
-                  <StarIcon
-                    className="h-5 w-5"
-                    filled={favourites.some((f) => f.address === destination)}
+                  {a}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!hideDestinationField && (
+            <div className="relative" ref={dropdownRef}>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="label mb-0">
+                  {t("sendPayment.destination")}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={destination}
+                    onChange={(e) => setDestination(e.target.value)}
+                    onFocus={() =>
+                      setIsRecentDropdownOpen(recentRecipients.length > 0)
+                    }
+                    onKeyDown={handleDestinationKeyDown}
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={contactSuggestions.length > 0}
+                    aria-controls="destination-suggestions"
+                    placeholder="G... or alice.xlm"
+                    className={clsx(
+                      "input-field font-mono text-sm",
+                      destination &&
+                        !isValidDest &&
+                        !isUsernameDestination &&
+                        !isSNSDestination &&
+                        "border-red-500/50",
+                    )}
+                    disabled={status !== "idle" || destinationReadOnly}
                   />
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setIsFavouritesDropdownOpen(!isFavouritesDropdownOpen)
-                  }
-                  className="text-sm text-slate-400 hover:text-white"
-                >
-                  {isFavouritesDropdownOpen
-                    ? t("common.close")
-                    : t("sendPayment.favourites")}
-                </button>
-                {isScannerSupported && status === "idle" && (
                   <button
                     type="button"
                     onClick={() => {
-                      const existing = favourites.find((f) => f.address === destination);
+                      const existing = favourites.find(
+                        (f) => f.address === destination,
+                      );
                       if (existing) deleteFavourite(destination);
                       else {
                         const name = prompt(
-                          t("sendPayment.nameFavouritePrompt"),
-                          destination.slice(0, 8)
+                          "Name this favourite:",
+                          destination.slice(0, 8),
                         );
-                        if (name) saveFavourites([...favourites, { name, address: destination }]);
+                        if (name)
+                          saveFavourites([
+                            ...favourites,
+                            { name, address: destination },
+                          ]);
                       }
                     }}
                     className="text-stellar-400 hover:text-stellar-300"
                     title={
                       favourites.some((f) => f.address === destination)
-                        ? t("sendPayment.removeFavourite")
-                        : t("sendPayment.addFavourite")
+                        ? "Remove favourite"
+                        : "Add favourite"
                     }
                   >
-                    <StarIcon className="h-5 w-5" filled={favourites.some((f) => f.address === destination)} />
+                    <StarIcon
+                      className="h-5 w-5"
+                      filled={favourites.some((f) => f.address === destination)}
+                    />
                   </button>
-                )}
-                {isScannerSupported && status === "idle" && (
                   <button
                     type="button"
-                    onClick={openScanner}
-                    className="text-slate-400 hover:text-white"
-                    title={t("sendPayment.scanQr")}
+                    onClick={() =>
+                      setIsFavouritesDropdownOpen(!isFavouritesDropdownOpen)
+                    }
+                    className="text-sm text-slate-400 hover:text-white"
                   >
-                    <QrCodeIcon className="h-5 w-5" />
+                    {isFavouritesDropdownOpen
+                      ? t("common.close")
+                      : t("sendPayment.favourites")}
                   </button>
-                )}
-                {status === "idle" && (
-                  <button
-                    type="button"
-                    onClick={() => setIsContactPickerOpen(true)}
-                    className="text-slate-400 hover:text-white"
-                    title="Pick from address book"
-                    aria-label="Pick from address book"
-                    data-testid="open-contact-picker"
-                  >
-                    <ContactsIcon className="h-5 w-5" />
-                  </button>
-                )}
+                  {isScannerSupported && status === "idle" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const existing = favourites.find(
+                          (f) => f.address === destination,
+                        );
+                        if (existing) deleteFavourite(destination);
+                        else {
+                          const name = prompt(
+                            t("sendPayment.nameFavouritePrompt"),
+                            destination.slice(0, 8),
+                          );
+                          if (name)
+                            saveFavourites([
+                              ...favourites,
+                              { name, address: destination },
+                            ]);
+                        }
+                      }}
+                      className="text-stellar-400 hover:text-stellar-300"
+                      title={
+                        favourites.some((f) => f.address === destination)
+                          ? t("sendPayment.removeFavourite")
+                          : t("sendPayment.addFavourite")
+                      }
+                    >
+                      <StarIcon
+                        className="h-5 w-5"
+                        filled={favourites.some(
+                          (f) => f.address === destination,
+                        )}
+                      />
+                    </button>
+                  )}
+                  {isScannerSupported && status === "idle" && (
+                    <button
+                      type="button"
+                      onClick={openScanner}
+                      className="text-slate-400 hover:text-white"
+                      title={t("sendPayment.scanQr")}
+                    >
+                      <QrCodeIcon className="h-5 w-5" />
+                    </button>
+                  )}
+                  {status === "idle" && (
+                    <button
+                      type="button"
+                      onClick={() => setIsContactPickerOpen(true)}
+                      className="text-slate-400 hover:text-white"
+                      title="Pick from address book"
+                      aria-label="Pick from address book"
+                      data-testid="open-contact-picker"
+                    >
+                      <ContactsIcon className="h-5 w-5" />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
 
               {isResolvingSNS && snsResolvingDomain && (
                 <p className="text-xs text-slate-400" role="status">
@@ -1287,219 +1354,178 @@ export default function SendPaymentForm({
                 </ul>
               )}
 
-            {isFavouritesDropdownOpen && favourites.length > 0 && (
-              <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
-                {favourites.map((item) => (
-                  <button
-                    key={item.address}
-                    type="button"
-                    onClick={() => handleSelectFavourite(item.address)}
-                    className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-white/5"
-                  >
-                    <span className="text-sm font-medium text-slate-200">{item.name}</span>
-                    <span className="text-xs text-slate-500">{shortenAddress(item.address, 8)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+              {isFavouritesDropdownOpen && favourites.length > 0 && (
+                <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl">
+                  {favourites.map((item) => (
+                    <button
+                      key={item.address}
+                      type="button"
+                      onClick={() => handleSelectFavourite(item.address)}
+                      className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-white/5"
+                    >
+                      <span className="text-sm font-medium text-slate-200">
+                        {item.name}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {shortenAddress(item.address, 8)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
-        {!hideAmountField && (
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <label className="label mb-0">Amount ({selectedAsset})</label>
-              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"} title="Send Max: balance - 1 XLM base reserve - subentry reserves - current network fee">
-                Send Max: {formatXLM(maxSend)}
+          {!hideAmountField && (
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="label mb-0">Amount ({selectedAsset})</label>
+                <button
+                  type="button"
+                  onClick={setMaxAmount}
+                  className="text-xs text-stellar-400 hover:text-stellar-300"
+                  disabled={status !== "idle"}
+                  title="Send Max: balance - 1 XLM base reserve - subentry reserves - current network fee"
+                >
+                  Send Max: {formatXLM(maxSend)}
+                </button>
+              </div>
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.0000000"
+                className={clsx(
+                  "input-field",
+                  amount && !isValidAmt && "border-red-500/50",
+                )}
+                disabled={status !== "idle"}
+              />
+              <p className="mt-2 text-xs text-slate-400" role="status">
+                {feeStatus === "loading" && "Fetching current network fee…"}
+                {feeStatus === "error" &&
+                  `Network fee unavailable; using ${STELLAR_BASE_FEE_XLM} XLM fallback.`}
+                {feeStatus === "ready" &&
+                  estimatedTotalDeducted != null &&
+                  `Estimated fee: ~${networkFeeXlm.toFixed(7)} XLM (${Math.round(networkFeeXlm * 10_000_000)} stroops); total ~${estimatedTotalDeducted.toFixed(7)} XLM.`}
+              </p>
+            </div>
+          )}
+
+          {/* Convert & Send Toggle - Issue #1190 */}
+          {!hideAssetSelector && !hideDestinationField && !hideAmountField && (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsConvertAndSend(!isConvertAndSend);
+                  setPathRoutes([]);
+                  setSelectedRoute(null);
+                  setRouteError(null);
+                }}
+                id="convert-send-toggle"
+                aria-pressed={isConvertAndSend}
+                className={clsx(
+                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                  isConvertAndSend ? "bg-stellar-500" : "bg-slate-600",
+                )}
+              >
+                <span
+                  className={clsx(
+                    "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                    isConvertAndSend ? "translate-x-6" : "translate-x-1",
+                  )}
+                />
               </button>
-            </div>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.0000000"
-              className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
-              disabled={status !== "idle"}
-            />
-            <p className="mt-2 text-xs text-slate-400" role="status">
-              {feeStatus === "loading" && "Fetching current network fee…"}
-              {feeStatus === "error" && `Network fee unavailable; using ${STELLAR_BASE_FEE_XLM} XLM fallback.`}
-              {feeStatus === "ready" && estimatedTotalDeducted != null &&
-                `Estimated fee: ~${networkFeeXlm.toFixed(7)} XLM (${Math.round(networkFeeXlm * 10_000_000)} stroops); total ~${estimatedTotalDeducted.toFixed(7)} XLM.`}
-            </p>
-          </div>
-        )}
-
-        {/* Convert & Send Toggle - Issue #1190 */}
-        {!hideAssetSelector && !hideDestinationField && !hideAmountField && (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setIsConvertAndSend(!isConvertAndSend);
-                setPathRoutes([]);
-                setSelectedRoute(null);
-                setRouteError(null);
-              }}
-              id="convert-send-toggle"
-              aria-pressed={isConvertAndSend}
-              className={clsx(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                isConvertAndSend ? "bg-stellar-500" : "bg-slate-600"
-              )}
-            >
-              <span
-                className={clsx(
-                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                  isConvertAndSend ? "translate-x-6" : "translate-x-1"
-                )}
-              />
-            </button>
-            <span className="text-sm text-slate-300">Convert &amp; Send (via Stellar DEX)</span>
-          </div>
-        )}
-
-        {/* Convert & Send destination asset selector */}
-        {isConvertAndSend && (
-          <div className="rounded-xl border border-stellar-500/20 bg-stellar-500/5 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <SwitchIcon className="w-4 h-4 text-stellar-400" />
-              <span className="text-sm font-medium text-stellar-300">Recipient receives</span>
-            </div>
-            <div className="flex gap-2">
-              {(["USDC", "XLM"] as const)
-                .filter((a) => a !== selectedAsset)
-                .map((a) => (
-                  <button
-                    key={a}
-                    type="button"
-                    onClick={() => setConvertDestAsset(a)}
-                    className={clsx(
-                      "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
-                      convertDestAsset === a
-                        ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
-                        : "text-slate-400 border-white/10 hover:border-white/20"
-                    )}
-                  >
-                    {a}
-                  </button>
-                ))}
-            </div>
-
-            {/* Route preview */}
-            {isLoadingRoutes && (
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
-                Finding best route...
-              </div>
-            )}
-
-            {routeError && !isLoadingRoutes && (
-              <p className="text-xs text-amber-400">{routeError}</p>
-            )}
-
-            {selectedRoute && !isLoadingRoutes && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Estimated received</span>
-                  <span className="text-emerald-400 font-medium font-mono">
-                    ~{parseFloat(selectedRoute.destinationAmount).toFixed(6)} {convertDestAsset}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Exchange rate</span>
-                  <span className="text-slate-300 font-mono">
-                    1 {selectedAsset} ≈ {selectedRoute.exchangeRate.toFixed(6)} {convertDestAsset}
-                  </span>
-                </div>
-                {selectedRoute.path.length > 0 && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Route</span>
-                    <span className="text-slate-400">
-                      {selectedAsset} →{" "}
-                      {selectedRoute.path.map((p) => (p.isNative() ? "XLM" : p.getCode())).join(" → ")}{" "}
-                      → {convertDestAsset}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Slippage tolerance</span>
-                  <span className="text-slate-400">{CONVERT_SLIPPAGE_PCT}%</span>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Split Payment Mode Toggle */}
-        {!hideDestinationField && !hideAmountField && (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
-              className={clsx(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                isSplitPaymentMode ? "bg-stellar-500" : "bg-slate-600"
-              )}
-            >
-              <span
-                className={clsx(
-                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                  isSplitPaymentMode ? "translate-x-6" : "translate-x-1"
-                )}
-              />
-            </button>
-            <span className="text-sm text-slate-300">Split payment among multiple recipients</span>
-          </div>
-        )}
-
-        {/* Split Payment Recipients */}
-        {isSplitPaymentMode && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="label mb-0">Recipients ({splitRecipients.length}/10)</label>
-              <span className={clsx(
-                "text-xs font-medium",
-                totalSplitPercentage === 100 ? "text-emerald-400" : "text-amber-400"
-              )}>
-                {totalSplitPercentage}% allocated
+              <span className="text-sm text-slate-300">
+                Convert &amp; Send (via Stellar DEX)
               </span>
             </div>
-            {splitRecipients.map((recipient, index) => (
-              <div key={index} className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={recipient.address}
-                    onChange={(e) => handleUpdateSplitRecipient(index, "address", e.target.value)}
-                    placeholder="G..."
-                    className="input-field font-mono text-sm flex-1"
-                    disabled={status !== "idle"}
-                  />
-                  <input
-                    type="number"
-                    value={recipient.percentage}
-                    onChange={(e) => handleUpdateSplitRecipient(index, "percentage", e.target.value)}
-                    min="0"
-                    max="100"
-                    className="input-field w-20 text-sm"
-                    disabled={status !== "idle"}
-                  />
-                  <span className="text-slate-400 text-sm self-center">%</span>
-                  {splitRecipients.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSplitRecipient(index)}
-                      className="text-red-400 hover:text-red-300 px-2"
-                      disabled={status !== "idle"}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
+          )}
+
+          {/* Convert & Send destination asset selector */}
+          {isConvertAndSend && (
+            <div className="rounded-xl border border-stellar-500/20 bg-stellar-500/5 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <SwitchIcon className="w-4 h-4 text-stellar-400" />
+                <span className="text-sm font-medium text-stellar-300">
+                  Recipient receives
+                </span>
               </div>
-            ))}
-            {splitRecipients.length < 10 && (
+              <div className="flex gap-2">
+                {(["USDC", "XLM"] as const)
+                  .filter((a) => a !== selectedAsset)
+                  .map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => setConvertDestAsset(a)}
+                      className={clsx(
+                        "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
+                        convertDestAsset === a
+                          ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
+                          : "text-slate-400 border-white/10 hover:border-white/20",
+                      )}
+                    >
+                      {a}
+                    </button>
+                  ))}
+              </div>
+
+              {/* Route preview */}
+              {isLoadingRoutes && (
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                  Finding best route...
+                </div>
+              )}
+
+              {routeError && !isLoadingRoutes && (
+                <p className="text-xs text-amber-400">{routeError}</p>
+              )}
+
+              {selectedRoute && !isLoadingRoutes && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Estimated received</span>
+                    <span className="text-emerald-400 font-medium font-mono">
+                      ~{parseFloat(selectedRoute.destinationAmount).toFixed(6)}{" "}
+                      {convertDestAsset}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Exchange rate</span>
+                    <span className="text-slate-300 font-mono">
+                      1 {selectedAsset} ≈{" "}
+                      {selectedRoute.exchangeRate.toFixed(6)} {convertDestAsset}
+                    </span>
+                  </div>
+                  {selectedRoute.path.length > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Route</span>
+                      <span className="text-slate-400">
+                        {selectedAsset} →{" "}
+                        {selectedRoute.path
+                          .map((p) => (p.isNative() ? "XLM" : p.getCode()))
+                          .join(" → ")}{" "}
+                        → {convertDestAsset}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Slippage tolerance</span>
+                    <span className="text-slate-400">
+                      {CONVERT_SLIPPAGE_PCT}%
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Split Payment Mode Toggle */}
+          {!hideDestinationField && !hideAmountField && (
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
@@ -1521,418 +1547,546 @@ export default function SendPaymentForm({
             </div>
           )}
 
-        {!hideMemoField && (
-          <div>
-            <label className="label" htmlFor="memo-type">Memo (optional)</label>
-            <select
-              id="memo-type"
-              value={memoType}
-              onChange={(e) => handleMemoTypeChange(e.target.value as StellarMemoType)}
-              className="input-field mb-2"
-              disabled={status !== "idle"}
-              aria-label="Memo type"
-            >
-              <option value="text">MEMO_TEXT</option>
-              <option value="id">MEMO_ID</option>
-              <option value="hash">MEMO_HASH</option>
-              <option value="return">MEMO_RETURN</option>
-            </select>
-            <input
-              type={memoType === "id" ? "text" : "text"}
-              inputMode={memoType === "id" ? "numeric" : "text"}
-              value={memo}
-              onChange={(e) => handleMemoChange(e.target.value)}
-              placeholder={memoPlaceholder}
-              className={clsx("input-field", memoError && "border-red-500/50")}
-              disabled={status !== "idle"}
-              maxLength={
-                memoType === "text"
-                  ? STELLAR_MEMO_TEXT_MAX_BYTES
-                  : memoType === "id"
-                    ? 20
-                    : STELLAR_MEMO_HASH_HEX_LENGTH + 2
-              }
-              aria-label="Memo value"
-            />
-            {memoType === "text" && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {memoTemplates.map((template) => {
-                  const isActive = selectedMemoTemplate === template;
-                  return (
+          {/* Split Payment Recipients */}
+          {isSplitPaymentMode && (
+            <>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="label mb-0">
+                    Recipients ({splitRecipients.length}/10)
+                  </label>
+                  <span
+                    className={clsx(
+                      "text-xs font-medium",
+                      totalSplitPercentage === 100
+                        ? "text-emerald-400"
+                        : "text-amber-400",
+                    )}
+                  >
+                    {totalSplitPercentage}% allocated
+                  </span>
+                </div>
+                {splitRecipients.map((recipient, index) => (
+                  <div
+                    key={index}
+                    className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2"
+                  >
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={recipient.address}
+                        onChange={(e) =>
+                          handleUpdateSplitRecipient(
+                            index,
+                            "address",
+                            e.target.value,
+                          )
+                        }
+                        placeholder="G..."
+                        className="input-field font-mono text-sm flex-1"
+                        disabled={status !== "idle"}
+                      />
+                      <input
+                        type="number"
+                        value={recipient.percentage}
+                        onChange={(e) =>
+                          handleUpdateSplitRecipient(
+                            index,
+                            "percentage",
+                            e.target.value,
+                          )
+                        }
+                        min="0"
+                        max="100"
+                        className="input-field w-20 text-sm"
+                        disabled={status !== "idle"}
+                      />
+                      <span className="text-slate-400 text-sm self-center">
+                        %
+                      </span>
+                      {splitRecipients.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSplitRecipient(index)}
+                          className="text-red-400 hover:text-red-300 px-2"
+                          disabled={status !== "idle"}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {splitRecipients.length < 10 && (
+                  <div>
                     <button
-                      key={template}
                       type="button"
-                      onClick={() => handleMemoTemplateClick(template)}
-                      disabled={status !== "idle"}
+                      onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
                       className={clsx(
-                        "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
-                        isActive
-                          ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
-                          : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
-                        status !== "idle" && "cursor-not-allowed opacity-50",
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                        isSplitPaymentMode ? "bg-stellar-500" : "bg-slate-600",
                       )}
                     >
-                      {template}
+                      <span
+                        className={clsx(
+                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                          isSplitPaymentMode
+                            ? "translate-x-6"
+                            : "translate-x-1",
+                        )}
+                      />
                     </button>
-                  );
-                })}
+                    <span className="text-sm text-slate-300">
+                      Split payment among multiple recipients
+                    </span>
+                  </div>
+                )}
+
+                {!hideMemoField && (
+                  <div>
+                    <label className="label" htmlFor="memo-type">
+                      Memo (optional)
+                    </label>
+                    <select
+                      id="memo-type"
+                      value={memoType}
+                      onChange={(e) =>
+                        handleMemoTypeChange(e.target.value as StellarMemoType)
+                      }
+                      className="input-field mb-2"
+                      disabled={status !== "idle"}
+                      aria-label="Memo type"
+                    >
+                      <option value="text">MEMO_TEXT</option>
+                      <option value="id">MEMO_ID</option>
+                      <option value="hash">MEMO_HASH</option>
+                      <option value="return">MEMO_RETURN</option>
+                    </select>
+                    <input
+                      type={memoType === "id" ? "text" : "text"}
+                      inputMode={memoType === "id" ? "numeric" : "text"}
+                      value={memo}
+                      onChange={(e) => handleMemoChange(e.target.value)}
+                      placeholder={memoPlaceholder}
+                      className={clsx(
+                        "input-field",
+                        memoError && "border-red-500/50",
+                      )}
+                      disabled={status !== "idle"}
+                      maxLength={
+                        memoType === "text"
+                          ? STELLAR_MEMO_TEXT_MAX_BYTES
+                          : memoType === "id"
+                            ? 20
+                            : STELLAR_MEMO_HASH_HEX_LENGTH + 2
+                      }
+                      aria-label="Memo value"
+                    />
+                    {memoType === "text" && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {memoTemplates.map((template) => {
+                          const isActive = selectedMemoTemplate === template;
+                          return (
+                            <button
+                              key={template}
+                              type="button"
+                              onClick={() => handleMemoTemplateClick(template)}
+                              disabled={status !== "idle"}
+                              className={clsx(
+                                "inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+                                isActive
+                                  ? "bg-stellar-500/20 border-stellar-500/30 text-stellar-300"
+                                  : "bg-stellar-500/10 border-stellar-500/15 text-slate-300 hover:bg-stellar-500/15",
+                                status !== "idle" &&
+                                  "cursor-not-allowed opacity-50",
+                              )}
+                            >
+                              {template}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {memoError ? (
+                      <p className="mt-3 text-xs text-red-400">{memoError}</p>
+                    ) : (
+                      <p className="mt-3 text-xs text-slate-500">
+                        {memoType === "text"
+                          ? `${memoTextByteLength(memo)}/${STELLAR_MEMO_TEXT_MAX_BYTES} characters`
+                          : memoType === "id"
+                            ? "Unsigned 64-bit integer (uint64)"
+                            : `${memo.replace(/^0x/i, "").length}/${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters`}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  onClick={openConfirmation}
+                  disabled={!canSubmit || status !== "idle"}
+                  className="btn-primary w-full flex items-center justify-center gap-2"
+                >
+                  {status === "idle"
+                    ? t("sendPayment.sendWithAmount", {
+                        amount: amount || "",
+                        asset: selectedAsset,
+                      })
+                    : t("sendPayment.processing")}
+                </button>
               </div>
-            )}
-            {memoError ? (
-              <p className="mt-3 text-xs text-red-400">{memoError}</p>
-            ) : (
-              <p className="mt-3 text-xs text-slate-500">
-                {memoType === "text"
-                  ? `${memoTextByteLength(memo)}/${STELLAR_MEMO_TEXT_MAX_BYTES} characters`
-                  : memoType === "id"
-                    ? "Unsigned 64-bit integer (uint64)"
-                    : `${memo.replace(/^0x/i, "").length}/${STELLAR_MEMO_HASH_HEX_LENGTH} hex characters`}
-              </p>
-            )}
-          </div>
-        )}
 
-        <button
-          onClick={openConfirmation}
-          disabled={!canSubmit || status !== "idle"}
-          className="btn-primary w-full flex items-center justify-center gap-2"
-        >
-          {status === "idle"
-            ? t("sendPayment.sendWithAmount", {
-                amount: amount || "",
-                asset: selectedAsset,
-              })
-            : t("sendPayment.processing")}
-        </button>
-      </div>
-      </div>
+              <SendConfirmationModal
+                isOpen={isConfirmOpen}
+                destination={destination}
+                amount={amountNum}
+                memo={memo}
+                memoType={memoType}
+                estimatedFee={ESTIMATED_NETWORK_FEE}
+                usdValue={amountNum * XLM_USD_RATE}
+                isTipOnChain={isTipOnChain}
+                onCancel={() => setIsConfirmOpen(false)}
+                onConfirm={() => {
+                  setIsConfirmOpen(false);
+                  executeSend();
+                }}
+              />
 
-      <SendConfirmationModal
-        isOpen={isConfirmOpen}
-        destination={destination}
-        amount={amountNum}
-        memo={memo}
-        memoType={memoType}
-        estimatedFee={ESTIMATED_NETWORK_FEE}
-        usdValue={amountNum * XLM_USD_RATE}
-        isTipOnChain={isTipOnChain}
-        onCancel={() => setIsConfirmOpen(false)}
-        onConfirm={() => {
-          setIsConfirmOpen(false);
-          executeSend();
-        }}
-      />
+              <ContactPickerModal
+                isOpen={isContactPickerOpen}
+                onSelect={(contact) => {
+                  setDestination(contact.address);
+                  setIsContactPickerOpen(false);
+                }}
+                onClose={() => setIsContactPickerOpen(false)}
+              />
 
-      <ContactPickerModal
-        isOpen={isContactPickerOpen}
-        onSelect={(contact) => {
-          setDestination(contact.address);
-          setIsContactPickerOpen(false);
-        }}
-        onClose={() => setIsContactPickerOpen(false)}
-      />
-
-      <PaymentStatusModal
-        isOpen={isStatusModalOpen}
-        status={status}
-        txHash={txHash}
-        error={error}
-        failedStep={failedStep}
-        stepTimings={stepTimings}
-        timeoutSeconds={60}
-        onClose={closeStatusModal}
-        receipt={{
-          sender: publicKey,
-          recipient: destination,
-          amount: hasAmount ? amountNum.toFixed(7) : undefined,
-          asset: selectedAsset,
-          memo: memo.trim() || undefined,
-        }}
-      />
-    </>
-  );
-}
-
-// Icons
-function SendIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-      />
-    </svg>
-  );
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M5 13l4 4L19 7"
-      />
-    </svg>
-  );
-}
-
-function CopyIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-      />
-    </svg>
-  );
-}
-
-function ExternalLinkIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-      />
-    </svg>
-  );
-}
-
-function StarIcon({
-  className,
-  filled,
-}: {
-  className?: string;
-  filled?: boolean;
-}) {
-  return (
-    <svg
-      className={className}
-      fill={filled ? "currentColor" : "none"}
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.382-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-      />
-    </svg>
-  );
-}
-
-function ContactsIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-    </svg>
-  );
-}
-
-function QrCodeIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
-      />
-    </svg>
-  );
-}
-
-function PencilIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-      />
-    </svg>
-  );
-}
-
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-      />
-    </svg>
-  );
-}
-
-function InfoIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-      />
-    </svg>
-  );
-}
-
-function ReceiptIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-      />
-    </svg>
-  );
-}
-
-function SwitchIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-    </svg>
-  );
-}
-
-interface SendConfirmationModalProps {
-  isOpen: boolean;
-  destination: string;
-  amount: number;
-  memo: string;
-  memoType: StellarMemoType;
-  estimatedFee: string;
-  usdValue: number;
-  isTipOnChain: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}
-
-function SendConfirmationModal({
-  isOpen,
-  destination,
-  amount,
-  memo,
-  memoType,
-  estimatedFee,
-  usdValue,
-  onCancel,
-  onConfirm,
-}: SendConfirmationModalProps) {
-  const { t } = useTranslation();
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10 shadow-2xl">
-        <h3 className="text-xl font-bold text-white mb-4">
-          {t("sendPayment.confirmTitle")}
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs text-slate-500 uppercase font-bold">
-              {t("sendPayment.to")}
-            </p>
-            <p className="text-sm font-mono text-slate-200 break-all">{destination}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">
-                {t("sendPayment.amount", { asset: "XLM" })}
-              </p>
-              <p className="text-lg font-bold text-white">{amount} XLM</p>
-              <p className="text-xs text-slate-400">
-                ≈ ${usdValue.toFixed(2)} USD
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">
-                {t("sendPayment.fee")}
-              </p>
-              <p className="text-sm text-slate-300">{estimatedFee}</p>
-            </div>
-          </div>
-          {memo && (
-            <div>
-              <p className="text-xs text-slate-500 uppercase font-bold">
-                Memo ({memoType.toUpperCase()})
-              </p>
-              <p className="text-sm text-slate-200 break-all">{memo}</p>
-            </div>
+              <PaymentStatusModal
+                isOpen={isStatusModalOpen}
+                status={status}
+                txHash={txHash}
+                error={error}
+                failedStep={failedStep}
+                stepTimings={stepTimings}
+                timeoutSeconds={60}
+                onClose={closeStatusModal}
+                receipt={{
+                  sender: publicKey,
+                  recipient: destination,
+                  amount: hasAmount ? amountNum.toFixed(7) : undefined,
+                  asset: selectedAsset,
+                  memo: memo.trim() || undefined,
+                }}
+              />
+            </>
           )}
         </div>
-        <div className="mt-8 flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all"
-          >
-            Back
-          </button>
-          <button onClick={onConfirm} className="flex-1 btn-primary py-3">
-            Confirm &amp; Sign
-          </button>
+      </div>
+    </>
+  );
+
+  // Icons
+  function SendIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+        />
+      </svg>
+    );
+  }
+
+  function CheckIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M5 13l4 4L19 7"
+        />
+      </svg>
+    );
+  }
+
+  function CopyIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+        />
+      </svg>
+    );
+  }
+
+  function ExternalLinkIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+        />
+      </svg>
+    );
+  }
+
+  function StarIcon({
+    className,
+    filled,
+  }: {
+    className?: string;
+    filled?: boolean;
+  }) {
+    return (
+      <svg
+        className={className}
+        fill={filled ? "currentColor" : "none"}
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.382-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+        />
+      </svg>
+    );
+  }
+
+  function ContactsIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+        />
+      </svg>
+    );
+  }
+
+  function QrCodeIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+        />
+      </svg>
+    );
+  }
+
+  function PencilIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+        />
+      </svg>
+    );
+  }
+
+  function TrashIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+        />
+      </svg>
+    );
+  }
+
+  function InfoIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
+      </svg>
+    );
+  }
+
+  function ReceiptIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
+      </svg>
+    );
+  }
+
+  function SwitchIcon({ className }: { className?: string }) {
+    return (
+      <svg
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"
+        />
+      </svg>
+    );
+  }
+
+  interface SendConfirmationModalProps {
+    isOpen: boolean;
+    destination: string;
+    amount: number;
+    memo: string;
+    memoType: StellarMemoType;
+    estimatedFee: string;
+    usdValue: number;
+    isTipOnChain: boolean;
+    onCancel: () => void;
+    onConfirm: () => void;
+  }
+
+  function SendConfirmationModal({
+    isOpen,
+    destination,
+    amount,
+    memo,
+    memoType,
+    estimatedFee,
+    usdValue,
+    onCancel,
+    onConfirm,
+  }: SendConfirmationModalProps) {
+    const { t } = useTranslation();
+    if (!isOpen) return null;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-white/10 shadow-2xl">
+          <h3 className="text-xl font-bold text-white mb-4">
+            {t("sendPayment.confirmTitle")}
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs text-slate-500 uppercase font-bold">
+                {t("sendPayment.to")}
+              </p>
+              <p className="text-sm font-mono text-slate-200 break-all">
+                {destination}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-slate-500 uppercase font-bold">
+                  {t("sendPayment.amount", { asset: "XLM" })}
+                </p>
+                <p className="text-lg font-bold text-white">{amount} XLM</p>
+                <p className="text-xs text-slate-400">
+                  ≈ ${usdValue.toFixed(2)} USD
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 uppercase font-bold">
+                  {t("sendPayment.fee")}
+                </p>
+                <p className="text-sm text-slate-300">{estimatedFee}</p>
+              </div>
+            </div>
+            {memo && (
+              <div>
+                <p className="text-xs text-slate-500 uppercase font-bold">
+                  Memo ({memoType.toUpperCase()})
+                </p>
+                <p className="text-sm text-slate-200 break-all">{memo}</p>
+              </div>
+            )}
+          </div>
+          <div className="mt-8 flex gap-3">
+            <button
+              onClick={onCancel}
+              className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all"
+            >
+              Back
+            </button>
+            <button onClick={onConfirm} className="flex-1 btn-primary py-3">
+              Confirm &amp; Sign
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 }
