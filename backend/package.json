@@ -28,7 +28,6 @@
     "eslint": "^8.57.0",
     "eslint-plugin-rulesdir": "^0.2.2",
     "jest": "^30.5.1",
-    "nodemon": "^3.1.2",
     "supertest": "^7.3.0"
   },
   "overrides": {
