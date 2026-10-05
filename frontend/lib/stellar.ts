@@ -21,7 +21,7 @@ import {
   nativeToScVal,
   scValToNative,
   xdr,
-  SorobanRpc,
+  rpc as SorobanRpc,
   Federation,
 } from "@stellar/stellar-sdk";
 
@@ -743,57 +743,136 @@ export async function buildChangeTrustTransaction({
   return builder.build();
 }
 
+export const ASSET_CODE_MAX_LENGTH = 12;
+
+export function validateAssetCode(assetCode: string): string | null {
+  const code = assetCode.trim();
+  if (!code) return "Asset code is required.";
+  if (code.length > ASSET_CODE_MAX_LENGTH) {
+    return `Asset code must be ${ASSET_CODE_MAX_LENGTH} characters or fewer.`;
+  }
+  if (!/^[A-Z0-9]+$/.test(code)) {
+    return "Use uppercase letters and numbers only.";
+  }
+  if (code === "XLM") return "XLM is reserved and cannot be issued as a custom asset.";
+  return null;
+}
+
+export function validateHomeDomain(homeDomain: string): string | null {
+  const domain = homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  if (!domain) return "Home domain is required.";
+  if (domain.length > 253 || !/^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(?:\.(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))+$/.test(domain)) {
+    return "Enter a valid domain name.";
+  }
+  return null;
+}
+
+export function stellarTomlUrl(homeDomain: string): string {
+  const domain = homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  return `https://${domain}/.well-known/stellar.toml`;
+}
+
+export function assetExplorerUrl(assetCode: string, issuer: string): string {
+  const network = getNetwork() === "mainnet" ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${network}/asset/${encodeURIComponent(assetCode)}-${encodeURIComponent(issuer)}`;
+}
+
+export function buildStellarToml({
+  homeDomain,
+  assetCode,
+  issuerPublicKey,
+  network,
+}: {
+  homeDomain: string;
+  assetCode: string;
+  issuerPublicKey: string;
+  network: "testnet" | "mainnet";
+}): string {
+  const normalizedDomain = homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  const lines = [
+    `# Stellar TOML for ${normalizedDomain}`,
+    `NETWORK="${network === "mainnet" ? "PUBLIC" : "TESTNET"}`,
+    "",
+    "[DOCUMENTATION]",
+    `ORG_NAME="${normalizedDomain}"`,
+    "",
+    "[[CURRENCIES]]",
+    `code="${assetCode}"`,
+    `issuer="${issuerPublicKey}"`,
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export async function buildAssetIssueTransaction({
+  issuerPublicKey,
+  distributorPublicKey,
+  assetCode,
+  amount,
+}: {
+  issuerPublicKey: string;
+  distributorPublicKey: string;
+  assetCode: string;
+  amount: string;
+}): Promise<Transaction> {
+  const codeError = validateAssetCode(assetCode);
+  if (codeError) throw new Error(codeError);
+  if (!isValidStellarAddress(issuerPublicKey) || !isValidStellarAddress(distributorPublicKey)) {
+    throw new Error("Issuer and distributor must be valid Stellar public keys.");
+  }
+  if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+    throw new Error("Asset amount must be greater than zero.");
+  }
+
+  const sourceAccount = await server.loadAccount(issuerPublicKey);
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(
+      Operation.payment({
+        destination: distributorPublicKey,
+        asset: new Asset(assetCode, issuerPublicKey),
+        amount,
+      })
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+export async function buildHomeDomainTransaction({
+  publicKey,
+  homeDomain,
+}: {
+  publicKey: string;
+  homeDomain: string;
+}): Promise<Transaction> {
+  const domainError = validateHomeDomain(homeDomain);
+  if (domainError) throw new Error(domainError);
+  if (!isValidStellarAddress(publicKey)) {
+    throw new Error("The account must be a valid Stellar public key.");
+  }
+
+  const normalizedDomain = homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  const sourceAccount = await server.loadAccount(publicKey);
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(Operation.setOptions({ homeDomain: normalizedDomain }))
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
 /**
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
  */
 /** Supported Stellar memo types for payment construction. */
-export type StellarMemoType = "text" | "id" | "hash" | "return";
-
-/** Maximum uint64 value accepted by MEMO_ID. */
-export const STELLAR_MEMO_ID_MAX = "18446744073709551615";
-
-/** MEMO_HASH / MEMO_RETURN must be exactly 32 bytes (64 hex characters). */
-export const STELLAR_MEMO_HASH_HEX_LENGTH = 64;
-
 /**
  * Validate and build a Stellar Memo for the given type and value.
  * @throws {Error} When the memo value is invalid for the selected type.
  */
 export function createStellarMemo(type: StellarMemoType, value: string): Memo {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw new Error("Memo value is required for the selected memo type");
-  }
-
-  switch (type) {
-    case "text":
-      return Memo.text(truncateMemoText(trimmed));
-    case "id": {
-      if (!/^\d+$/.test(trimmed)) {
-        throw new Error("MEMO_ID must be a non-negative uint64 integer");
-      }
-      // Reject values that exceed uint64 max by comparing digit-length / lexicographically.
-      if (
-        trimmed.length > STELLAR_MEMO_ID_MAX.length ||
-        (trimmed.length === STELLAR_MEMO_ID_MAX.length && trimmed > STELLAR_MEMO_ID_MAX)
-      ) {
-        throw new Error("MEMO_ID exceeds the maximum uint64 value");
-      }
-      return Memo.id(trimmed);
-    }
-    case "hash":
-    case "return": {
-      const hex = trimmed.toLowerCase().replace(/^0x/, "");
-      if (!/^[0-9a-f]{64}$/.test(hex)) {
-        throw new Error(
-          `MEMO_${type.toUpperCase()} must be a 32-byte hex string (${STELLAR_MEMO_HASH_HEX_LENGTH} characters)`
-        );
-      }
-      return type === "hash" ? Memo.hash(hex) : Memo.return(hex);
-    }
-    default:
-      throw new Error(`Unsupported memo type: ${String(type)}`);
-  }
+  return buildMemo(type, value);
 }
 
 export async function buildPaymentTransaction({
@@ -984,6 +1063,7 @@ export async function buildPathPaymentStrictSendTransaction({
   sendAmount,
   destAsset,
   minDestAmount,
+  destMin,
   path = [],
   memo,
 }: {
@@ -992,10 +1072,15 @@ export async function buildPathPaymentStrictSendTransaction({
   sendAsset: Asset;
   sendAmount: string;
   destAsset: Asset;
-  minDestAmount: string;
+  minDestAmount?: string;
+  destMin?: string;
   path?: Asset[];
   memo?: string;
 }): Promise<Transaction> {
+  const minimumDestinationAmount = minDestAmount ?? destMin;
+  if (!minimumDestinationAmount) {
+    throw new Error("A minimum destination amount is required for a strict-send payment.");
+  }
   const sourceAccount = await server.loadAccount(fromPublicKey);
 
   const builder = new TransactionBuilder(sourceAccount, {
@@ -1008,7 +1093,7 @@ export async function buildPathPaymentStrictSendTransaction({
         sendAmount,
         destination: toPublicKey,
         destAsset,
-        destMin: minDestAmount,
+        destMin: minimumDestinationAmount,
         path,
       })
     )
@@ -1076,8 +1161,8 @@ export async function collectSignatures(unsignedXDR: string, signedXDRs: string[
       for (const sig of signedTx.signatures) {
         // Check if signature already exists to avoid duplicates
         const exists = transaction.signatures.some(existing =>
-          existing.hint().equals(sig.hint()) &&
-          existing.signature().equals(sig.signature())
+          existing.hint.toString() === sig.hint.toString() &&
+          existing.signature.toString() === sig.signature.toString()
         );
         if (!exists) {
           transaction.signatures.push(sig);
@@ -2247,42 +2332,6 @@ export async function fetchStrictSendPaths({
 /**
  * Build a pathPaymentStrictSend transaction for DEX swaps.
  */
-export async function buildPathPaymentStrictSendTransaction({
-  fromPublicKey,
-  toPublicKey,
-  sendAsset,
-  sendAmount,
-  destAsset,
-  destMin,
-  path,
-}: {
-  fromPublicKey: string;
-  toPublicKey: string;
-  sendAsset: Asset;
-  sendAmount: string;
-  destAsset: Asset;
-  destMin: string;
-  path: Asset[];
-}): Promise<Transaction> {
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-  return new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: getNetworkPassphrase(),
-  })
-    .addOperation(
-      Operation.pathPaymentStrictSend({
-        sendAsset,
-        sendAmount,
-        destination: toPublicKey,
-        destAsset,
-        destMin,
-        path,
-      })
-    )
-    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
-    .build();
-}
-
 /**
  * Read the actual destination amount received from a path_payment_strict_send result.
  */

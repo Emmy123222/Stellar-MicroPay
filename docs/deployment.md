@@ -43,8 +43,8 @@ The deployment consists of three main containers:
 - **Reverse Proxy**: Proxies `/api/` to the backend service.
 
 ### Dockerfiles
-- **Frontend**: Multi-stage build using `node:20-alpine` for building and `nginx:alpine` for serving.
-- **Backend**: Uses `node:20-alpine` for a lightweight production image.
+- **Frontend**: Multi-stage build using `node:22.21.0-alpine` for building and `nginx:alpine` for serving.
+- **Backend**: Uses `node:22.21.0-alpine` for a lightweight production image.
 
 ## Troubleshooting
 

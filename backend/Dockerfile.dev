@@ -1,4 +1,4 @@
-FROM node:20.19.5-alpine
+FROM node:22.21.0-alpine
 
 WORKDIR /app
 
@@ -9,5 +9,5 @@ RUN npm ci
 # Source is mounted via volume at runtime — no COPY needed
 EXPOSE 4000
 
-# nodemon watches for changes and restarts automatically
+# Node's built-in watch mode restarts the server when source files change
 CMD ["npm", "run", "dev"]

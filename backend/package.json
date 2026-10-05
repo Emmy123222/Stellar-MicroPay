@@ -4,8 +4,8 @@
   "description": "Backend API for Stellar MicroPay",
   "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon src/server.js",
-    "dev:turrets": "TURRETS_PORT=4100 nodemon src/server.js",
+    "dev": "node --watch src/server.js",
+    "dev:turrets": "cross-env TURRETS_PORT=4100 node --watch src/server.js",
     "start": "node src/server.js",
     "test": "jest",
     "lint": "eslint src/**/*.js"
@@ -28,14 +28,13 @@
     "eslint": "^8.57.0",
     "eslint-plugin-rulesdir": "^0.2.2",
     "jest": "^30.5.1",
-    "nodemon": "^3.1.2",
     "supertest": "^7.3.0"
   },
   "overrides": {
     "toml": "^4.2.0"
   },
   "engines": {
-    "node": "20.19.5"
+    "node": "22.21.0"
   },
   "jest": {
     "setupFilesAfterEnv": [

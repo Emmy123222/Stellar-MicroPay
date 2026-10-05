@@ -13,9 +13,6 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
 import ToastProvider from "@/lib/ToastContext";
 
-const AIPaymentAssistant = dynamic(() => import("@/components/AIPaymentAssistant"), {
-  ssr: false,
-});
 // Lazy-load the quick-send modal: it pulls in the full Stellar SDK and only
 // mounts for connected wallets, so keep it out of the initial bundle.
 const QuickSendModal = dynamic(() => import("@/components/QuickSendModal"), {
@@ -134,7 +131,17 @@ function AppShell({
   setIsQuickSendOpen: (isOpen: boolean) => void;
 }) {
   const { publicKey } = useWallet();
-
+  const [isOffline, setIsOffline] = useState(false);
+  useEffect(() => {
+    const update = () => setIsOffline(!navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
 
   return (
     <>
@@ -142,7 +149,7 @@ function AppShell({
         <div role="alert" className="w-full bg-amber-500/15 px-4 py-2 text-center text-sm text-amber-200">You&apos;re offline — data may not be up to date.</div>
       )}
       <div className="min-h-screen bg-white bg-grid transition-colors duration-300 dark:bg-cosmos-900">
-        <Navbar onOpenAssistant={() => setIsAssistantOpen(true)} />
+        <Navbar />
         <main>
           <Component {...pageProps} stellarURI={stellarURI} />
         </main>
@@ -158,12 +165,6 @@ function AppShell({
           usdcBalance={null}
         />
       )}
-
-      <AIPaymentAssistant
-        isOpen={isAssistantOpen}
-        onClose={() => setIsAssistantOpen(false)}
-        onConfirm={handleAssistantConfirm}
-      />
     </>
   );
 }
