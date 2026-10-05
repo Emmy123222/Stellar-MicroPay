@@ -21,7 +21,7 @@ import {
   nativeToScVal,
   scValToNative,
   xdr,
-  SorobanRpc,
+  rpc as SorobanRpc,
   Federation,
 } from "@stellar/stellar-sdk";
 
@@ -747,53 +747,12 @@ export async function buildChangeTrustTransaction({
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
  */
 /** Supported Stellar memo types for payment construction. */
-export type StellarMemoType = "text" | "id" | "hash" | "return";
-
-/** Maximum uint64 value accepted by MEMO_ID. */
-export const STELLAR_MEMO_ID_MAX = "18446744073709551615";
-
-/** MEMO_HASH / MEMO_RETURN must be exactly 32 bytes (64 hex characters). */
-export const STELLAR_MEMO_HASH_HEX_LENGTH = 64;
-
 /**
  * Validate and build a Stellar Memo for the given type and value.
  * @throws {Error} When the memo value is invalid for the selected type.
  */
 export function createStellarMemo(type: StellarMemoType, value: string): Memo {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw new Error("Memo value is required for the selected memo type");
-  }
-
-  switch (type) {
-    case "text":
-      return Memo.text(truncateMemoText(trimmed));
-    case "id": {
-      if (!/^\d+$/.test(trimmed)) {
-        throw new Error("MEMO_ID must be a non-negative uint64 integer");
-      }
-      // Reject values that exceed uint64 max by comparing digit-length / lexicographically.
-      if (
-        trimmed.length > STELLAR_MEMO_ID_MAX.length ||
-        (trimmed.length === STELLAR_MEMO_ID_MAX.length && trimmed > STELLAR_MEMO_ID_MAX)
-      ) {
-        throw new Error("MEMO_ID exceeds the maximum uint64 value");
-      }
-      return Memo.id(trimmed);
-    }
-    case "hash":
-    case "return": {
-      const hex = trimmed.toLowerCase().replace(/^0x/, "");
-      if (!/^[0-9a-f]{64}$/.test(hex)) {
-        throw new Error(
-          `MEMO_${type.toUpperCase()} must be a 32-byte hex string (${STELLAR_MEMO_HASH_HEX_LENGTH} characters)`
-        );
-      }
-      return type === "hash" ? Memo.hash(hex) : Memo.return(hex);
-    }
-    default:
-      throw new Error(`Unsupported memo type: ${String(type)}`);
-  }
+  return buildMemo(type, value);
 }
 
 export async function buildPaymentTransaction({
@@ -972,7 +931,7 @@ export async function buildAssetIssueTransaction({
 
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.payment({
@@ -1002,7 +961,7 @@ export async function buildHomeDomainTransaction({
 
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(Operation.setOptions({ homeDomain }))
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
@@ -1011,7 +970,7 @@ export async function buildHomeDomainTransaction({
 
 /** Stellar Expert URL for an issued asset, e.g. `.../asset/COOL-GABC...`. */
 export function assetExplorerUrl(assetCode: string, issuer: string): string {
-  const net = NETWORK === "mainnet" ? "public" : "testnet";
+  const net = getNetwork() === "mainnet" ? "public" : "testnet";
   return `https://stellar.expert/explorer/${net}/asset/${assetCode}-${issuer}`;
 }
 
@@ -1041,7 +1000,7 @@ export function buildStellarToml({
   issuerPublicKey: string;
   network?: "testnet" | "mainnet";
 }): string {
-  const activeNetwork = network ?? NETWORK;
+  const activeNetwork = network ?? getNetwork();
   const accounts = [issuerPublicKey];
 
   if (activeNetwork === "mainnet") {
@@ -1130,8 +1089,8 @@ export async function collectSignatures(unsignedXDR: string, signedXDRs: string[
       for (const sig of signedTx.signatures) {
         // Check if signature already exists to avoid duplicates
         const exists = transaction.signatures.some(existing =>
-          existing.hint().equals(sig.hint()) &&
-          existing.signature().equals(sig.signature())
+          existing.hint.toString() === sig.hint.toString() &&
+          existing.signature.toString() === sig.signature.toString()
         );
         if (!exists) {
           transaction.signatures.push(sig);

@@ -81,7 +81,6 @@ import {
   waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
-  shortenAddress,
   getRecentPaymentsForStats,
   getRecentPaymentsForSparkline,
   fetchAllPayments,
@@ -93,6 +92,7 @@ import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { useTranslation } from "@/contexts/I18nContext";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;
@@ -202,6 +202,7 @@ function saveWidgetOrder(order: DashboardWidgetId[]) {
 export default function Dashboard({ stellarURI }: DashboardProps) {
   const { publicKey } = useWallet();
   const { t } = useTranslation();
+  const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const AUTO_REFRESH_SECONDS = 30;
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
@@ -1147,6 +1148,33 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       </div>
 
+      <div
+        role="tablist"
+        aria-label="Dashboard sections"
+        className="mb-6 flex gap-2 border-b border-white/10"
+      >
+        {DASHBOARD_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            id={`dashboard-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`dashboard-panel-${tab.id}`}
+            onClick={() => setActiveTab(tab.id)}
+            className={`border-b-2 px-4 py-2 text-sm transition-colors ${
+              activeTab === tab.id
+                ? "border-stellar-400 text-stellar-300"
+                : "border-transparent text-slate-400 hover:text-white"
+            }`}
+          >
+            {t(tab.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "overview" && (
+      <div id="dashboard-panel-overview" role="tabpanel" aria-labelledby="dashboard-tab-overview">
       {(() => {
         const widgetContent: Record<DashboardWidgetId, { label: string; node: React.ReactNode }> = {
           stats: {
@@ -1589,6 +1617,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           </div>
         </div>
       </div>
+      </div>
+      )}
 
       {activeTab === "events" && (
         <div
@@ -1763,7 +1793,7 @@ function PaymentStatsWidget({
     <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
       <StatsCard
         label="Total Sent"
-        value={formatStatsXLM(stats.totalSentXLM)}
+        value={formatStatsXLM(stats.totalSentXLM, "XLM")}
         helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
         delta={volumeDelta}
         deltaType={typeof volumeDelta === "number" ? (volumeDelta > 0 ? "positive" : volumeDelta < 0 ? "negative" : "neutral") : undefined}

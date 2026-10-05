@@ -59,21 +59,9 @@ export function formatXLMPrecise(amount: string | number): string {
  */
 export function formatAsset(
   amount: string | number,
-  assetCode = DEFAULT_ASSET_CODE
+  assetCode = "XLM"
 ): string {
-  const normalizedAssetCode = normalizeAssetCode(assetCode);
-  const rule = getAssetFormatRule(normalizedAssetCode);
-  const num = typeof amount === "string" ? parseFloat(amount) : amount;
-
-  if (amount == null || Number.isNaN(num)) {
-    const zeroValue =
-      rule.minimumFractionDigits > 0
-        ? (0).toFixed(rule.minimumFractionDigits)
-        : "0";
-    return `${zeroValue} ${normalizedAssetCode}`;
-  }
-
-  return `${num.toLocaleString("en-US", rule)} ${normalizedAssetCode}`;
+  return formatAssetIntl(amount, assetCode, { locale: "en-US" });
 }
 
 /**
@@ -288,15 +276,6 @@ export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
 /**
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
  */
-export function formatUSD(usdValue: number): string {
-  if (usdValue == null) return `≈ $0.00 USD`;
-  if (isNaN(usdValue)) return `≈ $NaN USD`;
-  return `≈ $${usdValue.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} USD`;
-}
-
 /**
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
  * @param usdValue - The USD value to format

@@ -20,17 +20,18 @@ import {
 import { useWallet } from "@/lib/useWallet";
 import { useTheme } from "@/pages/_app";
 import { copyToClipboard } from "@/utils/format";
+import { useTranslation } from "@/contexts/I18nContext";
 
 /** Nav entries carry an i18n key so labels follow the active locale (#1145). */
 const navLinks = [
-  { href: "/", label: "Home" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/trade", label: "Trade" },
-  { href: "/scheduled-payments", label: "Scheduled" },
-  { href: "/transactions", label: "Transactions" },
-  { href: "/leaderboard", label: "Leaderboard" },
-  { href: "/network", label: "Network" },
-  { href: "/settings", label: "Settings" },
+  { href: "/", labelKey: "navbar.home" },
+  { href: "/dashboard", labelKey: "navbar.dashboard" },
+  { href: "/trade", labelKey: "navbar.trade" },
+  { href: "/scheduled-payments", labelKey: "navbar.scheduled" },
+  { href: "/transactions", labelKey: "navbar.transactions" },
+  { href: "/leaderboard", labelKey: "navbar.leaderboard" },
+  { href: "/network", labelKey: "navbar.network" },
+  { href: "/settings", labelKey: "navbar.settings" },
 ];
 
 export interface NavbarProps {
@@ -286,17 +287,6 @@ function StarIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M12 2L14.09 8.26L21 9L15.5 14.14L17.18 21L12 17.77L6.82 21L8.5 14.14L3 9L9.91 8.26L12 2Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function SparkleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M12 2L13.89 8.63L20.5 10.5L13.89 12.37L12 19L10.11 12.37L3.5 10.5L10.11 8.63L12 2Z"
         fill="currentColor"
       />
     </svg>

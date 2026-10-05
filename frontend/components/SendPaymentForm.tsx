@@ -30,12 +30,12 @@ import {
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
-  type StellarMemoType,
 } from "@/lib/stellar";
 import { Federation } from "@stellar/stellar-sdk";
 import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { resolveSNSDomain } from "@/utils/snsResolver";
+import { useTranslation } from "@/contexts/I18nContext";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
@@ -1397,6 +1397,7 @@ interface SendConfirmationModalProps {
 }
 
 function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, estimatedFee, usdValue, onCancel, onConfirm }: SendConfirmationModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
