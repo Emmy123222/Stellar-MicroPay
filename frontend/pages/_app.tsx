@@ -12,6 +12,7 @@ import Navbar from "@/components/Navbar";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { WalletProvider, useWallet } from "@/lib/useWallet";
 import ToastProvider from "@/lib/ToastContext";
+import { I18nProvider } from "@/contexts/I18nContext";
 
 const AIPaymentAssistant = dynamic(() => import("@/components/AIPaymentAssistant"), {
   ssr: false,
@@ -134,7 +135,35 @@ function AppShell({
   setIsQuickSendOpen: (isOpen: boolean) => void;
 }) {
   const { publicKey } = useWallet();
+  const router = useRouter();
+  const [isOffline, setIsOffline] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
+  useEffect(() => {
+    const updateNetworkStatus = () => setIsOffline(!navigator.onLine);
+    updateNetworkStatus();
+    window.addEventListener("online", updateNetworkStatus);
+    window.addEventListener("offline", updateNetworkStatus);
+    return () => {
+      window.removeEventListener("online", updateNetworkStatus);
+      window.removeEventListener("offline", updateNetworkStatus);
+    };
+  }, []);
+
+  const handleAssistantConfirm = useCallback(
+    (intent: { amount: string; recipient: string; memo: string }) => {
+      setIsAssistantOpen(false);
+      void router.push({
+        pathname: "/dashboard",
+        query: {
+          aiTo: intent.recipient,
+          aiAmount: intent.amount,
+          aiMemo: intent.memo,
+        },
+      });
+    },
+    [router],
+  );
 
   return (
     <>
@@ -228,6 +257,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <I18nProvider>
       <WalletProvider>
         <ToastProvider>
         <Head>
@@ -279,6 +309,7 @@ export default function App({ Component, pageProps }: AppProps) {
         </ErrorBoundary>
         </ToastProvider>
       </WalletProvider>
+      </I18nProvider>
     </ThemeContext.Provider>
   );
 }

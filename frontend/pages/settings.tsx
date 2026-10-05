@@ -11,6 +11,13 @@ import { disconnectWallet } from "@/lib/wallet";
 import { shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
 import WalletHealthPanel from "@/components/WalletHealthPanel";
+import { useTranslation } from "@/contexts/I18nContext";
+import { resetOnboardingTour } from "@/hooks/useOnboarding";
+import {
+  LOCALE_LABELS,
+  SUPPORTED_LOCALES,
+  type Locale,
+} from "@/lib/i18n";
 
 export default function SettingsPage() {
   const { publicKey, disconnectWallet: disconnectCurrentWallet } = useWallet();

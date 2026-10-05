@@ -125,7 +125,7 @@ export default function SwapForm({
         sendAsset: getAsset(sellAsset),
         sendAmount: parseFloat(sellAmount).toFixed(7),
         destAsset: getAsset(buyAsset),
-        destMin,
+        minDestAmount: destMin,
         path: quote.path,
       });
 

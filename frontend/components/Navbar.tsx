@@ -20,31 +20,23 @@ import {
 import { useWallet } from "@/lib/useWallet";
 import { useTheme } from "@/pages/_app";
 import { copyToClipboard } from "@/utils/format";
+import { useTranslation } from "@/contexts/I18nContext";
 
 /** Nav entries carry an i18n key so labels follow the active locale (#1145). */
 const navLinks = [
-  { href: "/", label: "Home" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/trade", label: "Trade" },
+  { href: "/", label: "Home", labelKey: "navbar.home" },
+  { href: "/dashboard", label: "Dashboard", labelKey: "navbar.dashboard" },
+  { href: "/trade", label: "Trade", labelKey: "navbar.trade" },
   { href: "/scheduled-payments", label: "Scheduled" },
-  { href: "/transactions", label: "Transactions" },
+  { href: "/transactions", label: "Transactions", labelKey: "navbar.transactions" },
   { href: "/leaderboard", label: "Leaderboard" },
-  { href: "/network", label: "Network" },
-  { href: "/settings", label: "Settings" },
+  { href: "/network", label: "Network", labelKey: "navbar.network" },
+  { href: "/settings", label: "Settings", labelKey: "navbar.settings" },
 ];
 
 export interface NavbarProps {
   /** Opens the global AI payment assistant (also reachable via Cmd/Ctrl+K). */
   onOpenAssistant?: () => void;
-}
-
-function SparkleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3Z" />
-      <path strokeLinecap="round" d="m19 14 .9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14Z" />
-    </svg>
-  );
 }
 
 export default function Navbar({ onOpenAssistant }: NavbarProps) {
@@ -144,7 +136,7 @@ export default function Navbar({ onOpenAssistant }: NavbarProps) {
           <span
             className={clsx(
               "hidden items-center rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide md:inline-flex",
-              networkBadgeClassName
+              networkBadgeClassName,
             )}
           >
             {networkLabel}
@@ -158,7 +150,7 @@ export default function Navbar({ onOpenAssistant }: NavbarProps) {
                 "hidden h-2.5 w-2.5 rounded-full border transition-colors md:inline-block",
                 feeLevel === "normal" && "border-emerald-400/50 bg-emerald-400",
                 feeLevel === "elevated" && "border-amber-400/50 bg-amber-400",
-                feeLevel === "high" && "border-red-400/50 bg-red-400"
+                feeLevel === "high" && "border-red-400/50 bg-red-400",
               )}
             />
           )}
@@ -172,10 +164,10 @@ export default function Navbar({ onOpenAssistant }: NavbarProps) {
                   "rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150",
                   router.pathname === link.href
                     ? "bg-stellar-500/15 text-stellar-300"
-                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200",
                 )}
               >
-                {t(link.labelKey)}
+                {link.labelKey ? t(link.labelKey) : link.label}
               </Link>
             ))}
           </div>
@@ -189,7 +181,7 @@ export default function Navbar({ onOpenAssistant }: NavbarProps) {
               aria-label="Open AI payment assistant. Keyboard shortcut: Command K on Mac, Control K on Windows and Linux."
               className="hidden h-9 items-center gap-1.5 rounded-lg border border-stellar-500/20 bg-stellar-500/5 px-3 text-xs font-medium text-stellar-400 transition-colors hover:bg-stellar-500/10 sm:inline-flex"
             >
-              <SparkleIcon className="h-3.5 w-3.5" />
+              <StarIcon className="h-3.5 w-3.5" />
               Ask AI
               <kbd className="ml-1 hidden select-none rounded border border-stellar-500/20 bg-stellar-500/10 px-1 py-0.5 font-mono text-[10px] md:inline">
                 &#8984;K
@@ -283,20 +275,14 @@ export default function Navbar({ onOpenAssistant }: NavbarProps) {
 
 function StarIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
       <path
         d="M12 2L14.09 8.26L21 9L15.5 14.14L17.18 21L12 17.77L6.82 21L8.5 14.14L3 9L9.91 8.26L12 2Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function SparkleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M12 2L13.89 8.63L20.5 10.5L13.89 12.37L12 19L10.11 12.37L3.5 10.5L10.11 8.63L12 2Z"
         fill="currentColor"
       />
     </svg>

@@ -11,9 +11,37 @@
  * Horizon latencies are measured client-side on every refresh.
  */
 
-import { useState, useEffect, useCallback } from "react";
-import { fetchNetworkStats, NetworkStats } from "@/lib/stellar";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Head from "next/head";
+import { fetchNetworkMetrics, type NetworkMetrics } from "@/lib/stellar";
 import FeeHistorySparkline from "@/components/FeeHistorySparkline";
+
+const AUTO_REFRESH_MS = 10_000;
+type LoadState = "connecting" | "ready" | "error";
+
+function formatFee(xlm: number): string {
+  return xlm.toFixed(7).replace(/\.?0+$/, "");
+}
+
+function buildMetricRows(metrics: NetworkMetrics) {
+  return [
+    { key: "ledger", metric: "Latest ledger", value: metrics.latestLedgerSequence.toLocaleString(), unit: "ledger" },
+    { key: "close-time", metric: "Last ledger close", value: metrics.lastLedgerCloseTime, unit: "UTC" },
+    { key: "close-lag", metric: "Ledger close lag", value: metrics.ledgerCloseLagSeconds.toFixed(2), unit: "seconds" },
+    { key: "ops", metric: "Operations per second", value: metrics.operationsPerSecond?.toFixed(2) ?? "Unavailable", unit: "ops/s", detail: `Average across ${metrics.sampledLedgerCount} ledgers` },
+    { key: "active-accounts", metric: "Active accounts", value: metrics.activeAccounts?.toLocaleString() ?? "Unavailable", unit: "accounts", detail: `Ledger ${metrics.activeAccountsLedger.toLocaleString()}` },
+    { key: "base-fee", metric: "Base fee", value: formatFee(metrics.baseFeeXlm), unit: "XLM" },
+    { key: "recommended-fee", metric: "Recommended fee", value: formatFee(metrics.recommendedFeeXlm), unit: "XLM" },
+    { key: "p95-fee", metric: "P95 fee", value: formatFee(metrics.feeP95Xlm), unit: "XLM" },
+    { key: "p99-fee", metric: "P99 fee", value: formatFee(metrics.feeP99Xlm), unit: "XLM" },
+    { key: "horizon-latency", metric: "Horizon latency", value: metrics.horizonLatencyMs.toFixed(0), unit: "ms" },
+    { key: "fee-latency", metric: "Fee stats latency", value: metrics.feeStatsLatencyMs.toFixed(0), unit: "ms" },
+    { key: "protocol", metric: "Protocol version", value: metrics.protocolVersion?.toString() ?? "Unavailable", unit: "version" },
+    { key: "horizon", metric: "Horizon version", value: metrics.horizonVersion ?? "Unavailable", unit: "version" },
+    { key: "core", metric: "Stellar Core version", value: metrics.coreVersion ?? "Unavailable", unit: "version" },
+    { key: "network", metric: "Network passphrase", value: metrics.networkPassphrase ?? "Unavailable", unit: "network" },
+  ];
+}
 
 export default function Network() {
   const [metrics, setMetrics] = useState<NetworkMetrics | null>(null);
@@ -92,7 +120,10 @@ export default function Network() {
           <title>Network Status | Stellar-MicroPay</title>
         </Head>
         {header}
-        <ConnectingSkeleton />
+        <div className="space-y-4 animate-pulse" aria-label="Loading network metrics">
+          <div className="h-32 rounded-xl bg-white/5" />
+          <div className="h-72 rounded-xl bg-white/5" />
+        </div>
       </div>
     );
   }
@@ -156,14 +187,15 @@ export default function Network() {
         </div>
       )}
 
-        {/* Average Transaction Count */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        {/* Average operation rate */}
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
-          <h3 className="text-sm font-medium text-slate-400 mb-2">Avg Transactions</h3>
+          <h3 className="text-sm font-medium text-slate-400 mb-2">Operations per second</h3>
           <div className="text-2xl font-bold text-white">
-            {stats!.avgTransactionCount.toLocaleString()}
+            {metrics.operationsPerSecond?.toFixed(2) ?? "Unavailable"}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Per ledger (last 10)
+            Average across {metrics.sampledLedgerCount} ledgers
           </p>
         </div>
 
@@ -171,7 +203,7 @@ export default function Network() {
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
           <h3 className="text-sm font-medium text-slate-400 mb-2">Base Fee</h3>
           <div className="text-2xl font-bold text-white">
-            {formatFee(stats!.currentBaseFee)} XLM
+            {formatFee(metrics.baseFeeXlm)} XLM
           </div>
           <p className="text-xs text-slate-500 mt-1">
             Minimum transaction fee
@@ -182,9 +214,9 @@ export default function Network() {
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
           <h3 className="text-sm font-medium text-slate-400 mb-2">P50 Fee</h3>
           <div className="text-2xl font-bold text-white mb-3">
-            {formatFee(stats!.p50Fee)} XLM
+            {formatFee(metrics.recommendedFeeXlm)} XLM
           </div>
-          <p className="text-xs text-slate-400 mb-3">50th percentile fee</p>
+          <p className="text-xs text-slate-400 mb-3">Recommended fee</p>
           <div className="mt-4">
             <p className="text-xs text-slate-400 mb-2">Fee History (24h)</p>
             <FeeHistorySparkline className="w-full" />
@@ -195,7 +227,7 @@ export default function Network() {
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
           <h3 className="text-sm font-medium text-slate-400 mb-2">P95 Fee</h3>
           <div className="text-2xl font-bold text-white">
-            {formatFee(stats!.p95Fee)} XLM
+            {formatFee(metrics.feeP95Xlm)} XLM
           </div>
           <div className="text-right">
             <span className="text-xs uppercase tracking-wider text-slate-500">
@@ -206,7 +238,7 @@ export default function Network() {
                 ledgerPulse ? "text-emerald-400" : "text-white"
               }`}
             >
-              {formatLedgerSequence(metrics.latestLedgerSequence)}
+              {metrics.latestLedgerSequence.toLocaleString()}
             </p>
           </div>
         </div>

@@ -12,7 +12,12 @@ import {
   PaymentRecord,
   PaymentHistoryResponse,
 } from "@/lib/stellar";
-import { formatAsset, timeAgo, copyToClipboard } from "@/utils/format";
+import {
+  exportFilteredTransactionsToCSV,
+  formatAsset,
+  timeAgo,
+  copyToClipboard,
+} from "@/utils/format";
 import { loadAllPaymentNotes, savePaymentNote } from "@/lib/usePaymentNotes";
 import clsx from "clsx";
 

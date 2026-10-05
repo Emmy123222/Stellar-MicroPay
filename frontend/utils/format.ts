@@ -6,18 +6,20 @@
  * for better internationalization support. The API remains backward compatible.
  */
 
-import { PaymentRecord } from "@/lib/stellar";
+import type { PaymentRecord } from "@/lib/stellar";
 import { format } from "date-fns";
 import {
-  formatAsset as formatAssetIntl,
-  formatAssetPrecise as formatAssetPreciseIntl,
   formatStroopsToXLM as formatStroopsToXLMIntl,
-  formatUSD as formatUSDIntl,
   formatRelativeTime,
   formatDate as formatDateIntl,
   shortenAddress as shortenAddressIntl,
   getUserLocale,
+  __testing__ as intlTesting,
 } from "./intlFormatters";
+
+const DEFAULT_ASSET_CODE = "XLM";
+const normalizeAssetCode = intlTesting.normalizeAssetCode;
+const getAssetFormatRule = intlTesting.getAssetFormatRule;
 
 // Re-export from intlFormatters for better tree-shaking
 export {
@@ -62,7 +64,10 @@ export function formatAsset(
   assetCode = DEFAULT_ASSET_CODE
 ): string {
   const normalizedAssetCode = normalizeAssetCode(assetCode);
-  const rule = getAssetFormatRule(normalizedAssetCode);
+  const rule =
+    normalizedAssetCode === "USDC"
+      ? { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+      : getAssetFormatRule(normalizedAssetCode);
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
 
   if (amount == null || Number.isNaN(num)) {
@@ -288,22 +293,13 @@ export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
 /**
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
  */
-export function formatUSD(usdValue: number): string {
+export function formatUSD(usdValue: number, locale?: string): string {
   if (usdValue == null) return `≈ $0.00 USD`;
   if (isNaN(usdValue)) return `≈ $NaN USD`;
-  return `≈ $${usdValue.toLocaleString("en-US", {
+  return `≈ $${usdValue.toLocaleString(locale ?? "en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })} USD`;
-}
-
-/**
- * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
- * @param usdValue - The USD value to format
- * @param locale - The locale for formatting (defaults to user's locale)
- */
-export function formatUSD(usdValue: number, locale?: string): string {
-  return formatUSDIntl(usdValue, { locale: locale ?? getUserLocale() });
 }
 
 /**
