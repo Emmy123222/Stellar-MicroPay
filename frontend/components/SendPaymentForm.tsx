@@ -38,6 +38,7 @@ import {
 import { Asset, Federation } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { resolveSNSDomain } from "@/utils/snsResolver";
+import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
@@ -137,6 +138,8 @@ export default function SendPaymentForm({
   );
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
+  const isValidDest =
+    destination.length > 0 && isValidStellarAddress(destination);
   const [memo, setMemo] = useState("");
   const [memoType, setMemoType] = useState<StellarMemoType>("text");
   const [memoError, setMemoError] = useState<string | null>(null);
@@ -581,9 +584,6 @@ export default function SendPaymentForm({
   const amountNum = parseFloat(amount);
   const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
   const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
-  const isValidDest =
-    destination.length > 0 && isValidStellarAddress(destination);
-
   const isUsernameDestination =
     /^@?[a-zA-Z0-9]{3,20}$/.test(destination) &&
     !isValidStellarAddress(destination);
