@@ -217,7 +217,7 @@ export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
     firstRow.includes("amount");
 
   let dataRows = rows;
-  let headerMap: Record<string, number> = {};
+  const headerMap: Record<string, number> = {};
 
   if (hasHeader) {
     dataRows = rows.slice(1);

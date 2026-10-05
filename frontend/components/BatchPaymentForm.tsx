@@ -121,7 +121,7 @@ export default function BatchPaymentForm({
     setBatchMessage(null);
     setIsProcessing(true);
 
-    let nextRecipients = recipients.map((recipient) => ({ ...recipient }));
+    const nextRecipients = recipients.map((recipient) => ({ ...recipient }));
     setRecipients(nextRecipients);
 
     for (const recipient of nextRecipients) {

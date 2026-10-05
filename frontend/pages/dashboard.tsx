@@ -40,6 +40,7 @@ const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"),
 const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
 const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
 const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
+const LiveEventsFeed = dynamic(() => import("../components/LiveEventsFeed"), { ssr: false });
 
 // The assistant panel (and its dependencies) should not ship in the initial
 // bundle — it's only ever needed after the user opens the floating button,
@@ -1587,7 +1588,6 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
             <TransactionList key={refreshKey} publicKey={publicKey} limit={5} compact />
           </div>
         </div>
-      </div>
       </div>
 
       {activeTab === "events" && (

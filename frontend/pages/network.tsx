@@ -156,6 +156,7 @@ export default function Network() {
         </div>
       )}
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         {/* Average Transaction Count */}
         <div className="bg-cosmos-800/50 border border-stellar-500/20 rounded-xl p-6">
           <h3 className="text-sm font-medium text-slate-400 mb-2">Avg Transactions</h3>

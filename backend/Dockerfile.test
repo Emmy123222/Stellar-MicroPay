@@ -5,7 +5,7 @@
 #
 # Used by docker-compose.test.yml.
 
-FROM node:20.19.5-alpine
+FROM node:22.21.0-alpine
 
 WORKDIR /app
 
