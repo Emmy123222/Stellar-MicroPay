@@ -37,6 +37,7 @@ import {
 } from "@/lib/stellar";
 import { Asset, Federation } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { useTranslation } from "@/contexts/I18nContext";
 import { formatXLM, shortenAddress } from "@/utils/format";
@@ -134,6 +135,7 @@ export default function SendPaymentForm({
   const [networkFeeXlm, setNetworkFeeXlm] = useState(STELLAR_BASE_FEE_XLM);
   const [feeStatus, setFeeStatus] = useState<"loading" | "ready" | "error">("loading");
   const [destination, setDestination] = useState("");
+  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
   const [memoType, setMemoType] = useState<StellarMemoType>("text");
@@ -503,8 +505,6 @@ export default function SendPaymentForm({
   const amountNum = parseFloat(amount);
   const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
   const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
-  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
-
   const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
   const isSNSDestination = destination.toLowerCase().endsWith(".xlm");
 

@@ -743,6 +743,126 @@ export async function buildChangeTrustTransaction({
   return builder.build();
 }
 
+export const ASSET_CODE_MAX_LENGTH = 12;
+
+export function validateAssetCode(assetCode: string): string | null {
+  const code = assetCode.trim();
+  if (!code) return "Asset code is required.";
+  if (code.length > ASSET_CODE_MAX_LENGTH) {
+    return `Asset code must be ${ASSET_CODE_MAX_LENGTH} characters or fewer.`;
+  }
+  if (!/^[A-Z0-9]+$/.test(code)) {
+    return "Use uppercase letters and numbers only.";
+  }
+  if (code === "XLM") return "XLM is reserved and cannot be issued as a custom asset.";
+  return null;
+}
+
+export function validateHomeDomain(homeDomain: string): string | null {
+  const domain = homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  if (!domain) return "Home domain is required.";
+  if (domain.length > 253 || !/^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(?:\.(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))+$/.test(domain)) {
+    return "Enter a valid domain name.";
+  }
+  return null;
+}
+
+export function stellarTomlUrl(homeDomain: string): string {
+  const domain = homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  return `https://${domain}/.well-known/stellar.toml`;
+}
+
+export function assetExplorerUrl(assetCode: string, issuer: string): string {
+  const network = getNetwork() === "mainnet" ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${network}/asset/${encodeURIComponent(assetCode)}-${encodeURIComponent(issuer)}`;
+}
+
+export function buildStellarToml({
+  homeDomain,
+  assetCode,
+  issuerPublicKey,
+  network,
+}: {
+  homeDomain: string;
+  assetCode: string;
+  issuerPublicKey: string;
+  network: "testnet" | "mainnet";
+}): string {
+  const normalizedDomain = homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  const lines = [
+    `# Stellar TOML for ${normalizedDomain}`,
+    `NETWORK="${network === "mainnet" ? "PUBLIC" : "TESTNET"}`,
+    "",
+    "[DOCUMENTATION]",
+    `ORG_NAME="${normalizedDomain}"`,
+    "",
+    "[[CURRENCIES]]",
+    `code="${assetCode}"`,
+    `issuer="${issuerPublicKey}"`,
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export async function buildAssetIssueTransaction({
+  issuerPublicKey,
+  distributorPublicKey,
+  assetCode,
+  amount,
+}: {
+  issuerPublicKey: string;
+  distributorPublicKey: string;
+  assetCode: string;
+  amount: string;
+}): Promise<Transaction> {
+  const codeError = validateAssetCode(assetCode);
+  if (codeError) throw new Error(codeError);
+  if (!isValidStellarAddress(issuerPublicKey) || !isValidStellarAddress(distributorPublicKey)) {
+    throw new Error("Issuer and distributor must be valid Stellar public keys.");
+  }
+  if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+    throw new Error("Asset amount must be greater than zero.");
+  }
+
+  const sourceAccount = await server.loadAccount(issuerPublicKey);
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(
+      Operation.payment({
+        destination: distributorPublicKey,
+        asset: new Asset(assetCode, issuerPublicKey),
+        amount,
+      })
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+export async function buildHomeDomainTransaction({
+  publicKey,
+  homeDomain,
+}: {
+  publicKey: string;
+  homeDomain: string;
+}): Promise<Transaction> {
+  const domainError = validateHomeDomain(homeDomain);
+  if (domainError) throw new Error(domainError);
+  if (!isValidStellarAddress(publicKey)) {
+    throw new Error("The account must be a valid Stellar public key.");
+  }
+
+  const normalizedDomain = homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  const sourceAccount = await server.loadAccount(publicKey);
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(Operation.setOptions({ homeDomain: normalizedDomain }))
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
 /**
  * Build an unsigned XLM payment transaction ready for Freighter to sign.
  */
@@ -943,6 +1063,7 @@ export async function buildPathPaymentStrictSendTransaction({
   sendAmount,
   destAsset,
   minDestAmount,
+  destMin,
   path = [],
   memo,
 }: {
@@ -951,10 +1072,15 @@ export async function buildPathPaymentStrictSendTransaction({
   sendAsset: Asset;
   sendAmount: string;
   destAsset: Asset;
-  minDestAmount: string;
+  minDestAmount?: string;
+  destMin?: string;
   path?: Asset[];
   memo?: string;
 }): Promise<Transaction> {
+  const minimumDestinationAmount = minDestAmount ?? destMin;
+  if (!minimumDestinationAmount) {
+    throw new Error("A minimum destination amount is required for a strict-send payment.");
+  }
   const sourceAccount = await server.loadAccount(fromPublicKey);
 
   const builder = new TransactionBuilder(sourceAccount, {
@@ -967,7 +1093,7 @@ export async function buildPathPaymentStrictSendTransaction({
         sendAmount,
         destination: toPublicKey,
         destAsset,
-        destMin: minDestAmount,
+        destMin: minimumDestinationAmount,
         path,
       })
     )
@@ -2206,42 +2332,6 @@ export async function fetchStrictSendPaths({
 /**
  * Build a pathPaymentStrictSend transaction for DEX swaps.
  */
-export async function buildPathPaymentStrictSendTransaction({
-  fromPublicKey,
-  toPublicKey,
-  sendAsset,
-  sendAmount,
-  destAsset,
-  destMin,
-  path,
-}: {
-  fromPublicKey: string;
-  toPublicKey: string;
-  sendAsset: Asset;
-  sendAmount: string;
-  destAsset: Asset;
-  destMin: string;
-  path: Asset[];
-}): Promise<Transaction> {
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-  return new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: getNetworkPassphrase(),
-  })
-    .addOperation(
-      Operation.pathPaymentStrictSend({
-        sendAsset,
-        sendAmount,
-        destination: toPublicKey,
-        destAsset,
-        destMin,
-        path,
-      })
-    )
-    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
-    .build();
-}
-
 /**
  * Read the actual destination amount received from a path_payment_strict_send result.
  */
