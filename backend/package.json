@@ -11,7 +11,7 @@
     "lint": "eslint src/**/*.js"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^17.1.0",
+    "@stellar/stellar-sdk": "^17.2.1",
     "axios": "1.20.0",
     "cors": "^2.8.5",
     "dotenv": "^18.0.4",
