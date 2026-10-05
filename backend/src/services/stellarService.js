@@ -2,11 +2,16 @@
  * src/services/stellarService.js
  * Business logic for interacting with the Stellar Horizon API.
  * All blockchain reads happen here — this is the single source of truth.
+ *
+ * Horizon calls are wrapped with a circuit breaker (Issue #1203) that opens
+ * after 5 consecutive 5xx errors within 60 seconds and short-circuits with
+ * 503 until a probe detects recovery.
  */
 
 "use strict";
 
 const { Horizon } = require("@stellar/stellar-sdk");
+const { withCircuitBreaker } = require("../middleware/horizonCircuitBreaker");
 require("dotenv").config();
 
 const HORIZON_URL =
@@ -91,7 +96,7 @@ async function getAccount(publicKey) {
   validatePublicKey(publicKey);
 
   try {
-    const account = await server.loadAccount(publicKey);
+    const account = await withCircuitBreaker(() => server.loadAccount(publicKey));
 
     const balances = account.balances.map((b) => {
       if (b.asset_type === "native") {
@@ -179,7 +184,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
     query = query.cursor(cursor);
   }
 
-  const result = await query.call();
+  const result = await withCircuitBreaker(() => query.call());
 
   const payments = [];
 
@@ -191,7 +196,7 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 
     let memo;
     try {
-      const tx = await op.transaction();
+      const tx = await withCircuitBreaker(() => op.transaction());
       if (tx.memo_type === "text" && tx.memo) {
         memo = tx.memo;
       }

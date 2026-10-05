@@ -16,6 +16,8 @@ import {
   buildPaymentTransaction,
   buildReceiptMintTransaction,
   buildSorobanTipTransaction,
+  buildPathPaymentStrictSendTransaction,
+  findStrictSendPaths,
   explorerUrl,
   fetchNetworkFeeStats,
   isValidStellarAddress,
@@ -30,9 +32,10 @@ import {
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
+  USDC_ISSUER,
+  PathPaymentRoute,
 } from "@/lib/stellar";
-import { Federation } from "@stellar/stellar-sdk";
-import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
+import { Asset, Federation } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
@@ -189,6 +192,17 @@ export default function SendPaymentForm({
   const [federationError, setFederationError] = useState<string | null>(null);
   const federationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
+
+  // Convert & Send (path payment) mode — Issue #1190
+  const [isConvertAndSend, setIsConvertAndSend] = useState(false);
+  const [pathRoutes, setPathRoutes] = useState<PathPaymentRoute[]>([]);
+  const [selectedRoute, setSelectedRoute] = useState<PathPaymentRoute | null>(null);
+  const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  // Destination asset for Convert & Send (what the recipient receives)
+  const [convertDestAsset, setConvertDestAsset] = useState<"USDC" | "XLM">("USDC");
+  // Slippage tolerance (percentage, e.g. 1.0 = 1%)
+  const CONVERT_SLIPPAGE_PCT = 1.0;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -477,6 +491,51 @@ export default function SendPaymentForm({
       window.clearInterval(intervalId);
     };
   }, []);
+
+  // Fetch path payment routes when Convert & Send is enabled and amount/destination changes
+  useEffect(() => {
+    if (!isConvertAndSend || !hasAmount || !isValidDest) {
+      setPathRoutes([]);
+      setSelectedRoute(null);
+      setRouteError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchRoutes = async () => {
+      setIsLoadingRoutes(true);
+      setRouteError(null);
+      try {
+        const sendAsset = selectedAsset === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
+        const destAsset = convertDestAsset === "USDC" ? new Asset("USDC", USDC_ISSUER) : Asset.native();
+        const routes = await findStrictSendPaths({
+          sourceAsset: sendAsset,
+          sourceAmount: amountNum.toFixed(7),
+          destinationAsset: destAsset,
+        });
+        if (!cancelled) {
+          setPathRoutes(routes);
+          setSelectedRoute(routes[0] ?? null);
+          if (routes.length === 0) {
+            setRouteError("No conversion path found. Try a different amount or asset pair.");
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setRouteError(err?.message || "Failed to fetch conversion routes.");
+        }
+      } finally {
+        if (!cancelled) setIsLoadingRoutes(false);
+      }
+    };
+
+    const debounce = setTimeout(fetchRoutes, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConvertAndSend, amount, destination, selectedAsset, convertDestAsset, isValidDest]);
 
   useEffect(() => {
     if (!prefill) return;
@@ -793,19 +852,39 @@ export default function SendPaymentForm({
     try {
       markStepStarted("building");
       setStatus("building");
-      const tx = isTipOnChain
-        ? await buildSorobanTipTransaction({
-            fromPublicKey: publicKey,
-            toPublicKey: destination,
-            amount: amountNum.toFixed(7),
-          })
-        : await buildPaymentTransaction({
-            fromPublicKey: publicKey,
-            toPublicKey: destination,
-            amount: amountNum.toFixed(7),
-            memo: memo.trim() || undefined,
-            memoType,
-          });
+
+      let tx;
+      if (isConvertAndSend && selectedRoute) {
+        // Path payment strict send (Convert & Send mode)
+        const sendAsset = selectedAsset === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
+        const destAsset = convertDestAsset === "USDC" ? new Asset("USDC", USDC_ISSUER) : Asset.native();
+        // Apply slippage: minDestAmount = destinationAmount * (1 - slippage%/100)
+        const rawDestAmt = parseFloat(selectedRoute.destinationAmount);
+        const minDestAmount = (rawDestAmt * (1 - CONVERT_SLIPPAGE_PCT / 100)).toFixed(7);
+        tx = await buildPathPaymentStrictSendTransaction({
+          fromPublicKey: publicKey,
+          toPublicKey: destination,
+          sendAsset,
+          sendAmount: amountNum.toFixed(7),
+          destAsset,
+          minDestAmount,
+          path: selectedRoute.path,
+          memo: memo.trim() || undefined,
+        });
+      } else if (isTipOnChain) {
+        tx = await buildSorobanTipTransaction({
+          fromPublicKey: publicKey,
+          toPublicKey: destination,
+          amount: amountNum.toFixed(7),
+        });
+      } else {
+        tx = await buildPaymentTransaction({
+          fromPublicKey: publicKey,
+          toPublicKey: destination,
+          amount: amountNum.toFixed(7),
+          memo: memo.trim() || undefined,
+        });
+      }
       markStepCompleted("building");
 
       activeStep = "signing";
@@ -1251,9 +1330,176 @@ export default function SendPaymentForm({
           </div>
         )}
 
-          {/* Split Payment Mode Toggle */}
-          {!hideDestinationField && !hideAmountField && (
-            <div className="flex items-center gap-3">
+        {/* Convert & Send Toggle - Issue #1190 */}
+        {!hideAssetSelector && !hideDestinationField && !hideAmountField && (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setIsConvertAndSend(!isConvertAndSend);
+                setPathRoutes([]);
+                setSelectedRoute(null);
+                setRouteError(null);
+              }}
+              id="convert-send-toggle"
+              aria-pressed={isConvertAndSend}
+              className={clsx(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                isConvertAndSend ? "bg-stellar-500" : "bg-slate-600"
+              )}
+            >
+              <span
+                className={clsx(
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  isConvertAndSend ? "translate-x-6" : "translate-x-1"
+                )}
+              />
+            </button>
+            <span className="text-sm text-slate-300">Convert &amp; Send (via Stellar DEX)</span>
+          </div>
+        )}
+
+        {/* Convert & Send destination asset selector */}
+        {isConvertAndSend && (
+          <div className="rounded-xl border border-stellar-500/20 bg-stellar-500/5 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <SwitchIcon className="w-4 h-4 text-stellar-400" />
+              <span className="text-sm font-medium text-stellar-300">Recipient receives</span>
+            </div>
+            <div className="flex gap-2">
+              {(["USDC", "XLM"] as const)
+                .filter((a) => a !== selectedAsset)
+                .map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => setConvertDestAsset(a)}
+                    className={clsx(
+                      "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
+                      convertDestAsset === a
+                        ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
+                        : "text-slate-400 border-white/10 hover:border-white/20"
+                    )}
+                  >
+                    {a}
+                  </button>
+                ))}
+            </div>
+
+            {/* Route preview */}
+            {isLoadingRoutes && (
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                Finding best route...
+              </div>
+            )}
+
+            {routeError && !isLoadingRoutes && (
+              <p className="text-xs text-amber-400">{routeError}</p>
+            )}
+
+            {selectedRoute && !isLoadingRoutes && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Estimated received</span>
+                  <span className="text-emerald-400 font-medium font-mono">
+                    ~{parseFloat(selectedRoute.destinationAmount).toFixed(6)} {convertDestAsset}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Exchange rate</span>
+                  <span className="text-slate-300 font-mono">
+                    1 {selectedAsset} ≈ {selectedRoute.exchangeRate.toFixed(6)} {convertDestAsset}
+                  </span>
+                </div>
+                {selectedRoute.path.length > 0 && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Route</span>
+                    <span className="text-slate-400">
+                      {selectedAsset} →{" "}
+                      {selectedRoute.path.map((p) => (p.isNative() ? "XLM" : p.getCode())).join(" → ")}{" "}
+                      → {convertDestAsset}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Slippage tolerance</span>
+                  <span className="text-slate-400">{CONVERT_SLIPPAGE_PCT}%</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Split Payment Mode Toggle */}
+        {!hideDestinationField && !hideAmountField && (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
+              className={clsx(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                isSplitPaymentMode ? "bg-stellar-500" : "bg-slate-600"
+              )}
+            >
+              <span
+                className={clsx(
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  isSplitPaymentMode ? "translate-x-6" : "translate-x-1"
+                )}
+              />
+            </button>
+            <span className="text-sm text-slate-300">Split payment among multiple recipients</span>
+          </div>
+        )}
+
+        {/* Split Payment Recipients */}
+        {isSplitPaymentMode && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="label mb-0">Recipients ({splitRecipients.length}/10)</label>
+              <span className={clsx(
+                "text-xs font-medium",
+                totalSplitPercentage === 100 ? "text-emerald-400" : "text-amber-400"
+              )}>
+                {totalSplitPercentage}% allocated
+              </span>
+            </div>
+            {splitRecipients.map((recipient, index) => (
+              <div key={index} className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={recipient.address}
+                    onChange={(e) => handleUpdateSplitRecipient(index, "address", e.target.value)}
+                    placeholder="G..."
+                    className="input-field font-mono text-sm flex-1"
+                    disabled={status !== "idle"}
+                  />
+                  <input
+                    type="number"
+                    value={recipient.percentage}
+                    onChange={(e) => handleUpdateSplitRecipient(index, "percentage", e.target.value)}
+                    min="0"
+                    max="100"
+                    className="input-field w-20 text-sm"
+                    disabled={status !== "idle"}
+                  />
+                  <span className="text-slate-400 text-sm self-center">%</span>
+                  {splitRecipients.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSplitRecipient(index)}
+                      className="text-red-400 hover:text-red-300 px-2"
+                      disabled={status !== "idle"}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {splitRecipients.length < 10 && (
               <button
                 type="button"
                 onClick={() => setIsSplitPaymentMode(!isSplitPaymentMode)}
@@ -1598,6 +1844,14 @@ function ReceiptIcon({ className }: { className?: string }) {
         strokeLinejoin="round"
         d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
       />
+    </svg>
+  );
+}
+
+function SwitchIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
     </svg>
   );
 }

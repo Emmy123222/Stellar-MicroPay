@@ -10,6 +10,7 @@ const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
 const { validatePublicKey, sanitizeUsername } = require("../middleware/sanitization");
 const accountController = require("../controllers/accountController");
+const { horizonCircuitBreakerMiddleware } = require("../middleware/horizonCircuitBreaker");
 
 /**
  * GET /api/accounts/resolve/:username
@@ -34,13 +35,13 @@ router.get(
  * GET /api/accounts/:publicKey
  * Fetch account info and balances from Horizon.
  */
-router.get("/:publicKey", strictLimiter, validatePublicKey(), accountController.getAccount);
+router.get("/:publicKey", strictLimiter, validatePublicKey(), horizonCircuitBreakerMiddleware, accountController.getAccount);
 
 /**
  * GET /api/accounts/:publicKey/balance
  * Fetch just the XLM balance for an account.
  */
-router.get("/:publicKey/balance", strictLimiter, validatePublicKey(), accountController.getBalance);
+router.get("/:publicKey/balance", strictLimiter, validatePublicKey(), horizonCircuitBreakerMiddleware, accountController.getBalance);
 
 /**
  * GET /api/accounts/:publicKey/streaks
