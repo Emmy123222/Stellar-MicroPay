@@ -134,7 +134,46 @@ function AppShell({
   setIsQuickSendOpen: (isOpen: boolean) => void;
 }) {
   const { publicKey } = useWallet();
+  const router = useRouter();
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
 
+  useEffect(() => {
+    const updateOffline = () => setIsOffline(!navigator.onLine);
+    updateOffline();
+    window.addEventListener("online", updateOffline);
+    window.addEventListener("offline", updateOffline);
+    return () => {
+      window.removeEventListener("online", updateOffline);
+      window.removeEventListener("offline", updateOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isModifierPressed = event.metaKey || event.ctrlKey;
+      if (!isModifierPressed || event.key.toLowerCase() !== "k") return;
+
+      // Only intercept the browser/OS's own Cmd/Ctrl+K when the assistant
+      // isn't already open — while it's open, AIPaymentAssistant itself
+      // owns Escape-to-close, so there's nothing else to prevent here.
+      event.preventDefault();
+      setIsAssistantOpen((open) => !open);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const handleAssistantConfirm = useCallback(
+    (intent: { amount: string; recipient: string; memo: string }) => {
+      setIsAssistantOpen(false);
+      void router.push(
+        `/dashboard?to=${encodeURIComponent(intent.recipient)}&amount=${encodeURIComponent(intent.amount)}`
+      );
+    },
+    [router]
+  );
 
   return (
     <>

@@ -364,4 +364,5 @@ module.exports = {
   validateTipInput,
   getTopTippers,
   getGlobalLeaderboard,
+  _clearForTesting: () => tipsByCreator.clear(),
 };

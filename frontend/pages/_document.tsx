@@ -1,6 +1,12 @@
 /**
  * pages/_document.tsx
  * Custom document for adding manifest link and PWA meta tags
+ *
+ * SRI audit: no external <script> or <link rel="stylesheet"> tags are present.
+ * All resources reference same-origin paths (/manifest.json, /icon-192.png),
+ * which are served by this application and do not require Subresource Integrity
+ * attributes. If a CDN-hosted font, stylesheet, or script is ever added here,
+ * it must include integrity="sha256-..." and crossOrigin="anonymous".
  */
 
 import { Html, Head, Main, NextScript } from "next/document";

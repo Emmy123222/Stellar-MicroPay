@@ -8,6 +8,7 @@
 const express = require("express");
 const router = express.Router();
 const { strictLimiter } = require("../middleware/rateLimit");
+const { validatePublicKey } = require("../middleware/sanitization");
 
 const tipsController = require("../controllers/tipsController");
 
@@ -17,7 +18,7 @@ router.get("/leaderboard", strictLimiter, tipsController.getLeaderboard);
  * POST /api/tips
  * Record a new tip.
  */
-router.post("/", strictLimiter, validateBody(tipBodySchema), tipsController.recordTip);
+router.post("/", strictLimiter, tipsController.recordTip);
 
 /**
  * GET /api/tips/received/:creatorPublicKey

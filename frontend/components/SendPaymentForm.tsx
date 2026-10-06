@@ -19,6 +19,7 @@ import {
   buildPathPaymentStrictSendTransaction,
   findStrictSendPaths,
   explorerUrl,
+  fetchFeePercentiles,
   fetchNetworkFeeStats,
   isValidStellarAddress,
   memoTextByteLength,
@@ -34,12 +35,15 @@ import {
   truncateMemoText,
   USDC_ISSUER,
   PathPaymentRoute,
+  type FeeSpeed,
+  type FeeSpeedOptions,
 } from "@/lib/stellar";
 import { Asset, Federation } from "@stellar/stellar-sdk";
+import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
-import { AssetBadge } from "@/components/AssetBadge";
+import { useTranslation } from "@/contexts/I18nContext";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 
@@ -171,6 +175,20 @@ export default function SendPaymentForm({
   const [splitRecipients, setSplitRecipients] = useState<Array<{ address: string; percentage: number }>>([
     { address: "", percentage: 100 }
   ]);
+
+  // Transaction speed selection (#1191)
+  const [feeSpeed, setFeeSpeed] = useState<FeeSpeed>("normal");
+  const [feeOptions, setFeeOptions] = useState<FeeSpeedOptions>({
+    slow: { stroops: 100, xlm: "0.0000100" },
+    normal: { stroops: 200, xlm: "0.0000200" },
+    fast: { stroops: 500, xlm: "0.0000500" },
+  });
+
+  useEffect(() => {
+    fetchFeePercentiles()
+      .then((opts) => setFeeOptions(opts))
+      .catch(() => {});
+  }, []);
   
   // Federation address lookup
   const [isResolvingFederation, setIsResolvingFederation] = useState(false);
@@ -408,7 +426,7 @@ export default function SendPaymentForm({
 
   const memoPlaceholder =
     memoType === "text"
-      ? "Payment note..."
+      ? t("sendPayment.memoPlaceholder")
       : memoType === "id"
         ? "uint64 integer, e.g. 12345"
         : "64-character hex (32 bytes)";
@@ -438,6 +456,11 @@ export default function SendPaymentForm({
       window.clearInterval(intervalId);
     };
   }, []);
+
+  const amountNum = parseFloat(amount);
+  const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
+  const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
+  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
 
   // Fetch path payment routes when Convert & Send is enabled and amount/destination changes
   useEffect(() => {
@@ -482,7 +505,7 @@ export default function SendPaymentForm({
       clearTimeout(debounce);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConvertAndSend, amount, destination, selectedAsset, convertDestAsset, isValidDest]);
+  }, [isConvertAndSend, amount, destination, selectedAsset, convertDestAsset]);
 
   useEffect(() => {
     if (!prefill) return;
@@ -498,11 +521,6 @@ export default function SendPaymentForm({
     selectedAsset === "XLM"
       ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM)
       : usdcBal;
-
-  const amountNum = parseFloat(amount);
-  const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
-  const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
-  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
 
   const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
   const isSNSDestination = destination.toLowerCase().endsWith(".xlm");
@@ -799,6 +817,7 @@ export default function SendPaymentForm({
           toPublicKey: destination,
           amount: amountNum.toFixed(7),
           memo: memo.trim() || undefined,
+          baseFee: feeOptions[feeSpeed]?.stroops,
         });
       }
       markStepCompleted("building");
@@ -823,6 +842,22 @@ export default function SendPaymentForm({
       setStatus("confirming");
       await waitForTransactionConfirmation(result.hash);
       markStepCompleted("confirming");
+
+      // The payment is already final on Horizon at this point, so recording it
+      // is best-effort: a failure here must not surface as a failed payment.
+      // The request carries X-Timestamp/X-Signature so a captured copy cannot
+      // be replayed into a duplicate submission once the window closes.
+      try {
+        await submitSignedPayment({
+          senderPublicKey: publicKey,
+          recipientPublicKey: destination,
+          amount: amountNum.toFixed(7),
+          asset: selectedAsset,
+          txHash: result.hash,
+        });
+      } catch (err) {
+        console.error("Failed to record payment submission:", err);
+      }
 
       setStatus("success");
       saveRecipient(destination);
@@ -1148,12 +1183,40 @@ export default function SendPaymentForm({
               className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
               disabled={status !== "idle"}
             />
-            <p className="mt-2 text-xs text-slate-400" role="status">
-              {feeStatus === "loading" && "Fetching current network fee…"}
-              {feeStatus === "error" && `Network fee unavailable; using ${STELLAR_BASE_FEE_XLM} XLM fallback.`}
-              {feeStatus === "ready" && estimatedTotalDeducted != null &&
-                `Estimated fee: ~${networkFeeXlm.toFixed(7)} XLM (${Math.round(networkFeeXlm * 10_000_000)} stroops); total ~${estimatedTotalDeducted.toFixed(7)} XLM.`}
-            </p>
+            {/* Transaction Speed Selector (#1191) */}
+            <div className="mt-3">
+              <div className="mb-1.5 flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium">Transaction Speed</span>
+                <span className="text-slate-400">
+                  Est. Fee: {feeOptions[feeSpeed]?.stroops} stroops ({feeOptions[feeSpeed]?.xlm} XLM)
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(["slow", "normal", "fast"] as const).map((spd) => {
+                  const opt = feeOptions[spd];
+                  const isSelected = feeSpeed === spd;
+                  return (
+                    <button
+                      key={spd}
+                      type="button"
+                      onClick={() => setFeeSpeed(spd)}
+                      disabled={status !== "idle"}
+                      className={clsx(
+                        "flex flex-col items-center justify-center p-2 rounded-lg border text-xs transition-all",
+                        isSelected
+                          ? "bg-stellar-500/20 border-stellar-400 text-white font-medium shadow-sm shadow-stellar-500/20"
+                          : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]"
+                      )}
+                    >
+                      <span className="capitalize font-semibold">{spd}</span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">
+                        {opt?.stroops} stroops
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
@@ -1346,7 +1409,7 @@ export default function SendPaymentForm({
 
         {!hideMemoField && (
           <div>
-            <label className="label" htmlFor="memo-type">Memo (optional)</label>
+            <label className="label" htmlFor="memo-type">{t("sendPayment.memoOptional")}</label>
             <select
               id="memo-type"
               value={memoType}
@@ -1585,6 +1648,7 @@ interface SendConfirmationModalProps {
 }
 
 function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, estimatedFee, usdValue, onCancel, onConfirm }: SendConfirmationModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

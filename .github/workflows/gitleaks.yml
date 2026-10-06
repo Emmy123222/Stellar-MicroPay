@@ -1,24 +1,25 @@
-name: Secret Scanning
+name: Secret Scanning (scheduled)
 
-# Scans the repository for hardcoded secrets (API keys, tokens, private keys)
-# using Gitleaks. Runs on every push and pull request, plus a weekly schedule
-# so newly-published detection rules catch anything that slipped through.
+# Weekly full-history secret sweep.
+#
+# Per-push and per-PR scanning lives in the `gitleaks` job in ci.yml — this
+# workflow deliberately does not duplicate those runs. What it adds is a
+# scheduled re-scan: gitleaks ships new detection rules continuously, so a
+# commit that was clean when it landed can start failing weeks later. This job
+# re-reads the entire history against the current ruleset and surfaces that.
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
   schedule:
     # Every Monday at 06:00 UTC
     - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   gitleaks:
-    name: Gitleaks
+    name: Gitleaks (full history)
     runs-on: ubuntu-latest
 
     steps:

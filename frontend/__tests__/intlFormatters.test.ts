@@ -99,7 +99,7 @@ describe('intlFormatters', () => {
       const stroops = 1234567; // 0.1234567 XLM
       const result = formatStroopsToXLM(stroops, { locale: 'en-US' });
       expect(result).toBe('0.1234567 XLM');
-      expect(result.split('.')[1]).toHaveLength(7); // 7 decimal places before ' XLM'
+      expect(result.split(' ')[0].split('.')[1]).toHaveLength(7); // 7 decimal places before ' XLM'
     });
   });
 
@@ -277,7 +277,7 @@ describe('intlFormatters', () => {
     it('should shorten addresses correctly', () => {
       const addr = 'GABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
       expect(shortenAddress(addr, 4)).toBe('GABC...7890');
-      expect(shortenAddress(addr, 6)).toBe('GABCDE...234567890'.slice(0, 19)); // Adjusted for actual behavior
+      expect(shortenAddress(addr, 6)).toBe('GABCDE...567890');
     });
 
     it('should handle short addresses', () => {

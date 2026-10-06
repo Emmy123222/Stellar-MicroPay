@@ -11,7 +11,7 @@
     "lint": "eslint src/**/*.js"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^17.1.0",
+    "@stellar/stellar-sdk": "^17.2.1",
     "axios": "1.20.0",
     "cors": "^2.8.5",
     "dotenv": "^18.0.4",
@@ -29,7 +29,9 @@
     "eslint-plugin-rulesdir": "^0.2.2",
     "jest": "^30.5.1",
     "nodemon": "^3.1.2",
-    "supertest": "^7.2.2"
+    "supertest": "^7.3.0",
+    "ts-jest": "^29.4.12",
+    "typescript": "^5"
   },
   "overrides": {
     "toml": "^4.2.0"
@@ -42,6 +44,30 @@
       "<rootDir>/jest.setup.js"
     ],
     "testEnvironment": "node",
+    "transform": {
+      "^.+\\.js$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "allowJs": true,
+            "module": "commonjs",
+            "moduleResolution": "node",
+            "esModuleInterop": true,
+            "target": "ES2020",
+            "resolveJsonModule": true
+          },
+          "diagnostics": false,
+          "isolatedModules": true
+        }
+      ]
+    },
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(@stellar|@exodus|uint8array-extras|@noble|@scure)/)"
+    ],
+    "moduleNameMapper": {
+      "^uint8array-extras$": "<rootDir>/__mocks__/uint8array-extras.js",
+      "^@exodus/bytes/base32\\.js$": "<rootDir>/__mocks__/exodus-bytes-base32.js"
+    },
     "testPathIgnorePatterns": [
       "<rootDir>/__tests__/.*\\.ts$"
     ]

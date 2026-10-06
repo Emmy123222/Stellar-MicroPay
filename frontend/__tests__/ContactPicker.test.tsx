@@ -87,7 +87,7 @@ describe("ContactPickerModal", () => {
     expect(screen.getByText("Alice")).toBeInTheDocument();
     // Shortened address, not the full 56-char key
     expect(screen.queryByText(CONTACTS[0].address)).not.toBeInTheDocument();
-    expect(screen.getAllByText(/GAAAAA…WHF/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/GAAAAAAA…AAAAAWHF/).length).toBeGreaterThan(0);
   });
 
   it("searches by name (case-insensitive)", async () => {
@@ -186,7 +186,7 @@ describe("SendPaymentForm — address-book integration (Issue #1054)", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("contact-picker-modal")).not.toBeInTheDocument();
     });
-    const destinationInput = screen.getByPlaceholderText("G... or @username");
+    const destinationInput = screen.getByPlaceholderText("G... or alice.xlm");
     expect(destinationInput).toHaveValue(CONTACTS[0].address);
   });
 });

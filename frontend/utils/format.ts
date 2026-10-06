@@ -7,15 +7,9 @@
  */
 
 import { PaymentRecord } from "@/lib/stellar";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import {
-  formatAsset as formatAssetIntl,
-  formatAssetPrecise as formatAssetPreciseIntl,
   formatStroopsToXLM as formatStroopsToXLMIntl,
-  formatUSD as formatUSDIntl,
-  formatRelativeTime,
-  formatDate as formatDateIntl,
-  shortenAddress as shortenAddressIntl,
   getUserLocale,
 } from "./intlFormatters";
 
@@ -35,7 +29,10 @@ export {
  * Shorten a Stellar address for display (e.g. GABC...XYZ1)
  */
 export function shortenAddress(address: string, chars = 4): string {
-  return shortenAddressIntl(address, chars);
+  if (!address || address.length <= chars * 2 + 2) {
+    return address;
+  }
+  return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
 
 /**
@@ -57,6 +54,30 @@ export function formatXLMPrecise(amount: string | number): string {
 /**
  * Format a Stellar asset amount with asset-specific precision rules.
  */
+const DEFAULT_ASSET_CODE = "XLM";
+
+const ASSET_FORMAT_RULES: Record<
+  string,
+  { minimumFractionDigits: number; maximumFractionDigits: number }
+> = {
+  XLM: { minimumFractionDigits: 0, maximumFractionDigits: 7 },
+  USDC: { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+  AQUA: { minimumFractionDigits: 0, maximumFractionDigits: 7 },
+  DEFAULT: { minimumFractionDigits: 0, maximumFractionDigits: 7 },
+};
+
+function normalizeAssetCode(assetCode?: string): string {
+  return assetCode?.trim().toUpperCase() || DEFAULT_ASSET_CODE;
+}
+
+function getAssetFormatRule(assetCode?: string): {
+  minimumFractionDigits: number;
+  maximumFractionDigits: number;
+} {
+  const normalized = normalizeAssetCode(assetCode);
+  return ASSET_FORMAT_RULES[normalized] ?? ASSET_FORMAT_RULES.DEFAULT;
+}
+
 export function formatAsset(
   amount: string | number,
   assetCode = DEFAULT_ASSET_CODE
@@ -98,14 +119,18 @@ export function formatStroopsToXLM(stroops: bigint | string | number): string {
  * Format a date string as relative time (e.g., "3 minutes ago").
  */
 export function timeAgo(dateString: string): string {
-  return formatRelativeTime(dateString, { locale: getUserLocale() });
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+  return formatDistanceToNow(date, { addSuffix: true });
 }
 
 /**
  * Format a date string in a human-readable format.
  */
 export function formatDate(dateString: string): string {
-  return formatDateIntl(dateString, { locale: getUserLocale() });
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+  return format(date, "MMM d, yyyy · HH:mm");
 }
 
 
@@ -295,17 +320,6 @@ export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
   });
 }
 
-/**
- * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
- */
-export function formatUSD(usdValue: number): string {
-  if (usdValue == null) return `≈ $0.00 USD`;
-  if (isNaN(usdValue)) return `≈ $NaN USD`;
-  return `≈ $${usdValue.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} USD`;
-}
 
 /**
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
@@ -313,7 +327,13 @@ export function formatUSD(usdValue: number): string {
  * @param locale - The locale for formatting (defaults to user's locale)
  */
 export function formatUSD(usdValue: number, locale?: string): string {
-  return formatUSDIntl(usdValue, { locale: locale ?? getUserLocale() });
+  void locale;
+  if (usdValue == null) return `≈ $0.00 USD`;
+  if (isNaN(usdValue)) return `≈ $NaN USD`;
+  return `≈ $${usdValue.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} USD`;
 }
 
 /**

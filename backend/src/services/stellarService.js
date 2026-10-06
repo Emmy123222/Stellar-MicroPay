@@ -18,66 +18,6 @@ const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
 // ─── In-memory LRU cache for getAccountStreaks (1 hour TTL) ─────────────────
-const STREAKS_CACHE_TTL_MS = 60 * 60 * 1000;
-const STREAKS_CACHE_MAX = 1000;
-
-// ─── Timeout + retry ──────────────────────────────────────────────────────────
-
-const DEFAULT_TIMEOUT_MS = 10_000;
-const MAX_RETRIES = 3;
-const PAYMENT_TYPES = new Set([
-  "payment",
-  "path_payment_strict_send",
-  "path_payment_strict_receive",
-]);
-
-function isTransientError(err) {
-  if (!err) return false;
-  const status = err?.response?.status ?? err?.status;
-  if (status === 404) return false; // definitive — don't retry
-  if (status >= 500) return true;
-  const msg = err?.message || "";
-  return (
-    msg.includes("ECONNRESET") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ENOTFOUND") ||
-    msg.includes("network") ||
-    err.name === "AbortError"
-  );
-}
-
-/**
- * Run `fn` with a hard timeout and retry up to MAX_RETRIES times on
- * transient errors, using exponential back-off (100 ms × 2^attempt).
- */
-async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  let lastErr;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const result = await Promise.race([
-        fn(controller.signal),
-        new Promise((_, reject) =>
-          controller.signal.addEventListener("abort", () =>
-            reject(Object.assign(new Error("Horizon request timed out"), { name: "AbortError" }))
-          )
-        ),
-      ]);
-      clearTimeout(timer);
-      return result;
-    } catch (err) {
-      clearTimeout(timer);
-      lastErr = err;
-      if (!isTransientError(err) || attempt === MAX_RETRIES) throw err;
-      // Exponential back-off: 100 ms, 200 ms, 400 ms …
-      await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
-    }
-  }
-  throw lastErr;
-}
-
 const server = new Horizon.Server(HORIZON_URL);
 
 const USDC_ISSUERS = new Set(
@@ -276,10 +216,106 @@ function validatePublicKey(publicKey) {
   }
 }
 
+// ─── Streaks ──────────────────────────────────────────────────────────────────
+
+const streaksCache = new Map();
+const STREAKS_CACHE_TTL_MS = 60 * 60 * 1000;
+const STREAK_ACTIVITY_TYPES = new Set([
+  "payment",
+  "path_payment_strict_send",
+  "path_payment_strict_receive",
+  "create_account",
+]);
+
+/** Clear the in-memory streaks cache (used by tests and after writes). */
+function clearStreaksCache() {
+  streaksCache.clear();
+}
+
+/** UTC day key (YYYY-MM-DD) for a `created_at` timestamp or Date. */
+function utcDayKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toISOString().slice(0, 10);
+}
+
+/** UTC midnight `offset` days before today. */
+function utcDayOffset(offset) {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - offset)
+  );
+}
+
+/**
+ * Compute the current and longest daily transaction streak for an account.
+ *
+ * A "day" is a UTC calendar day with at least one payment-like operation. The
+ * current streak counts back from today (or yesterday, so an empty today does
+ * not break a streak that is still in progress).
+ */
+async function getAccountStreaks(publicKey) {
+  validatePublicKey(publicKey);
+
+  const cacheKey = publicKey;
+  const cached = streaksCache.get(cacheKey);
+  if (cached && Date.now() - cached.savedAt < STREAKS_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const result = await withCircuitBreaker(() =>
+    server.payments().forAccount(publicKey).limit(200).order("desc").call()
+  );
+
+  const days = new Set();
+  let lastTransactionDate = null;
+
+  for (const op of result.records || []) {
+    if (!STREAK_ACTIVITY_TYPES.has(op.type)) continue;
+    const key = utcDayKey(op.created_at);
+    days.add(key);
+    if (!lastTransactionDate || key > lastTransactionDate) {
+      lastTransactionDate = key;
+    }
+  }
+
+  const todayKey = utcDayKey(new Date());
+  const yesterdayKey = utcDayKey(utcDayOffset(1));
+
+  let currentStreak = 0;
+  let startOffset;
+  if (days.has(todayKey)) startOffset = 0;
+  else if (days.has(yesterdayKey)) startOffset = 1;
+  else startOffset = null;
+
+  if (startOffset !== null) {
+    for (let offset = startOffset; ; offset += 1) {
+      if (!days.has(utcDayKey(utcDayOffset(offset)))) break;
+      currentStreak += 1;
+    }
+  }
+
+  let longestStreak = 0;
+  const sortedDays = [...days].sort();
+  let run = 0;
+  let previousTime = null;
+  for (const key of sortedDays) {
+    const time = Date.parse(`${key}T00:00:00Z`);
+    run = previousTime !== null && time - previousTime === 86_400_000 ? run + 1 : 1;
+    if (run > longestStreak) longestStreak = run;
+    previousTime = time;
+  }
+
+  const value = { currentStreak, longestStreak, lastTransactionDate };
+  streaksCache.set(cacheKey, { savedAt: Date.now(), value });
+  return value;
+}
+
 module.exports = {
   getAccount,
   getXLMBalance,
   getPayments,
+  getAccountStreaks,
+  clearStreaksCache,
   hasUSDCTrustline,
   submitTransaction,
   validatePublicKey,

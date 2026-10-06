@@ -5,7 +5,6 @@
 
 "use strict";
 
-const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -36,24 +35,10 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
 const { sanitizeRequest } = require("./middleware/sanitization");
+const { csrfProtection } = require("./middleware/csrf");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-
-/**
- * Attach a correlation id to every request: echo the caller's X-Request-ID
- * when supplied, otherwise generate one. The id is echoed back on the
- * response and available to morgan and the error handler.
- */
-function requestId(req, res, next) {
-  const supplied = req.headers["x-request-id"];
-  req.requestId =
-    typeof supplied === "string" && supplied.trim()
-      ? supplied.trim()
-      : crypto.randomUUID();
-  res.setHeader("X-Request-ID", req.requestId);
-  next();
-}
 
 // ─── Middleware ─────────────────────────────────────────────────────────────────
 
@@ -111,13 +96,6 @@ app.use((req, res, next) => {
   return csrfProtection(req, res, next);
 });
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
-
-app.use("/api/auth",     authRoutes);
-app.use("/api/accounts", accountRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/health",       healthRoutes);
-
 // Global rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -138,7 +116,8 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/turrets", turretsRoutes);
 app.use("/api/tips", tipsRoutes);
-app.use("/api/webhooks", webhookRoutes);
+app.use("/api/contacts", contactsRoutes);
+app.use("/api/webhooks", webhooksRoutes);
 app.use("/api/network", networkRoutes);
 app.use("/api/price-alerts", priceAlertsRoutes);
 app.use("/federation", federationRoutes);
@@ -189,6 +168,10 @@ SERVER = "https://${domain}/federation"
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
+  // Refuse to start on an insecure configuration rather than serving traffic
+  // with a publicly-known signing key.
+  validateEnv();
+
   const server = app.listen(PORT, () => {
     console.log(`
   ✨ Stellar MicroPay API

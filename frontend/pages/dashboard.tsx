@@ -12,7 +12,7 @@
  *  4. The service worker's push event handler calls showNotification().
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -40,6 +40,7 @@ const BatchPaymentForm = dynamic(() => import("../components/BatchPaymentForm"),
 const QRCodeModal = dynamic(() => import("../components/QRCodeModal"), { ssr: false });
 const CreatorTipsDashboard = dynamic(() => import("../components/CreatorTipsDashboard"), { ssr: false });
 const RecurringPayments = dynamic(() => import("../components/RecurringPayments"), { ssr: false });
+const LiveEventsFeed = dynamic(() => import("../components/LiveEventsFeed"), { ssr: false });
 
 // The assistant panel (and its dependencies) should not ship in the initial
 // bundle — it's only ever needed after the user opens the floating button,
@@ -60,13 +61,15 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
 } from "recharts";
 
-
+import Toast from "@/components/Toast";
 import ExternalPaymentBanner from "@/components/ExternalPaymentBanner";
 import PaymentRequestGenerator from "@/pages/PaymentRequestGenerator";
 
@@ -80,7 +83,6 @@ import {
   waitForAccountFunding,
   ACCOUNT_NOT_FOUND_ERROR,
   streamPayments,
-  shortenAddress,
   getRecentPaymentsForStats,
   getRecentPaymentsForSparkline,
   fetchAllPayments,
@@ -88,6 +90,7 @@ import {
 } from "@/lib/stellar";
 import { formatAsset, formatUSD, copyToClipboard, exportToCSV, shortenAddress } from "@/utils/format";
 import { useToastContext } from "@/lib/ToastContext";
+import { useTranslation } from "@/contexts/I18nContext";
 import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
@@ -202,6 +205,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const { publicKey } = useWallet();
   const { t } = useTranslation();
   const AUTO_REFRESH_SECONDS = 30;
+  const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   // Move focus to the dashboard heading once a wallet is connected, so keyboard
   // and screen-reader focus follows the content instead of staying on the
   // now-hidden Connect control (#252).
@@ -299,8 +303,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
 
   // Build prefill object from query parameters.
   // Supports legacy ?prefillDestination= (contacts page) and
-  // new ?to=&amount= (Send Again from transaction history).
-  const { prefillDestination, to, amount: queryAmount } = router.query;
+  // new ?to=&amount=&memo= (Send Again / Repeat Payment from transaction history).
+  const { prefillDestination, to, amount: queryAmount, memo: queryMemo } = router.query;
   const prefill =
     prefillDestination
       ? { destination: prefillDestination as string, amount: "", memo: "" }
@@ -308,7 +312,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
       ? {
           destination: to as string,
           amount: typeof queryAmount === "string" ? queryAmount : "",
-          memo: "",
+          memo: typeof queryMemo === "string" ? queryMemo : "",
           fromHistory: true,
         }
       : null;
@@ -360,9 +364,11 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   // Creator username for tips dashboard
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
 
-  // Stats and charts state
+  // Stats and charts state (#1188)
+  const [activeChartTab, setActiveChartTab] = useState<"spending" | "balance_history">("spending");
   const [spendingData, setSpendingData] = useState<any[]>([]);
   const [spendingLoading, setSpendingLoading] = useState(false);
+  const [recentPaymentsForStats, setRecentPaymentsForStats] = useState<PaymentRecord[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<any | null>(null);
   const [sparklineData, setSparklineData] = useState<any[]>([]);
   const [sparklineLoading, setSparklineLoading] = useState(false);
@@ -373,6 +379,54 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
   const [topRecipients, setTopRecipients] = useState<Array<{ address: string; totalXLMSent: string }>>([]);
   const [topRecipientsLoading, setTopRecipientsLoading] = useState(false);
   const [csvExporting, setCsvExporting] = useState(false);
+
+  // Balance history calculation over past 30 days (#1188)
+  const balanceHistoryData = useMemo(() => {
+    if (!recentPaymentsForStats.length || !xlmBalance) return [];
+
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const thirtyDaysAgo = now - THIRTY_DAYS_MS;
+
+    const payments30d = recentPaymentsForStats
+      .filter((p) => new Date(p.createdAt).getTime() >= thirtyDaysAgo)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    if (payments30d.length < 2) {
+      return [];
+    }
+
+    const currentBalance = parseFloat(xlmBalance);
+    let netChange = 0;
+    for (const p of payments30d) {
+      const amt = parseFloat(p.amount) || 0;
+      if (p.type === "received") {
+        netChange += amt;
+      } else if (p.type === "sent") {
+        netChange -= amt;
+      }
+    }
+
+    let runningBal = Math.max(0, currentBalance - netChange);
+    const points: Array<{ date: string; balance: number; timestamp: number }> = [];
+
+    for (const p of payments30d) {
+      const amt = parseFloat(p.amount) || 0;
+      if (p.type === "received") {
+        runningBal += amt;
+      } else if (p.type === "sent") {
+        runningBal = Math.max(0, runningBal - amt);
+      }
+      const d = new Date(p.createdAt);
+      points.push({
+        date: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        balance: parseFloat(runningBal.toFixed(4)),
+        timestamp: d.getTime(),
+      });
+    }
+
+    return points;
+  }, [recentPaymentsForStats, xlmBalance]);
 
   // Notification state
   const [notificationEnabled, setNotificationEnabled] = useState(false);
@@ -633,6 +687,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
     setSpendingLoading(true);
     try {
       const payments = await getRecentPaymentsForStats(publicKey, 200);
+      setRecentPaymentsForStats(payments);
 
       // Group by calendar month (last 6 months)
       const now = new Date();
@@ -1113,9 +1168,9 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
           tabIndex={-1}
           className="font-display text-3xl font-bold text-white mb-1 outline-none"
         >
-          Dashboard
+          {t("dashboard.title")}
         </h1>
-        <p className="text-slate-400 text-sm">Send and receive XLM globally</p>
+        <p className="text-slate-400 text-sm">{t("dashboard.tagline")}</p>
         <div className="mt-4">
           <button
             onClick={handleToggleNotifications}
@@ -1146,6 +1201,39 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         </div>
       </div>
 
+      {/* Tab strip: switches the dashboard body between the overview and the
+          live Soroban event stream. */}
+      <div
+        role="tablist"
+        aria-label={t("dashboard.tabsLabel")}
+        className="mb-6 flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1"
+      >
+        {DASHBOARD_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            id={`dashboard-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`dashboard-panel-${tab.id}`}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+              activeTab === tab.id
+                ? "bg-stellar-500/20 text-stellar-200"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            }`}
+          >
+            {t(tab.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <div
+        id="dashboard-panel-overview"
+        role="tabpanel"
+        aria-labelledby="dashboard-tab-overview"
+        hidden={activeTab !== "overview"}
+      >
       {(() => {
         const widgetContent: Record<DashboardWidgetId, { label: string; node: React.ReactNode }> = {
           stats: {
@@ -1189,7 +1277,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                     <button
                       onClick={() => setSelectedMonth(null)}
                       aria-label="Close month details"
-                      className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+                      className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/5 cursor-pointer"
                     >
                       <CloseIcon className="w-5 h-5" />
                     </button>
@@ -1215,7 +1303,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                   <button
                     onClick={handleExportCSV}
                     disabled={csvExporting}
-                    className="mt-4 btn-secondary flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="mt-4 btn-secondary flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                   >
                     {csvExporting ? (
                       <>
@@ -1260,7 +1348,7 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
         <div className="absolute top-0 right-0 w-48 h-48 bg-stellar-500/5 rounded-full blur-2xl pointer-events-none" />
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <p className="label mb-1">Wallet Address</p>
+            <p className="label mb-1">{t("dashboard.walletAddress")}</p>
             <button
               onClick={() => setAddressExpanded((x) => !x)}
               className="font-mono text-sm text-slate-300 select-text cursor-pointer hover:text-white transition-colors text-left break-all"
@@ -1544,6 +1632,8 @@ export default function Dashboard({ stellarURI }: DashboardProps) {
                   ? aiPrefillData
                   : recurringPrefill
                   ? recurringPrefill
+                  : prefill
+                  ? prefill
                   : stellarURI && stellarURI.success
                   ? uriToPrefillData(stellarURI.data!)
                   : null
@@ -1763,7 +1853,7 @@ function PaymentStatsWidget({
     <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
       <StatsCard
         label="Total Sent"
-        value={formatStatsXLM(stats.totalSentXLM)}
+        value={formatStatsXLM(stats.totalSentXLM, t("dashboard.suffixSent"))}
         helper={`${stats.sentCount} outgoing payment${stats.sentCount === 1 ? "" : "s"}`}
         delta={volumeDelta}
         deltaType={typeof volumeDelta === "number" ? (volumeDelta > 0 ? "positive" : volumeDelta < 0 ? "negative" : "neutral") : undefined}
@@ -1891,6 +1981,84 @@ function ThirtyDayVolumeChart({ data, loading }: { data: any[]; loading: boolean
   );
 }
 
+function BalanceHistoryChart({
+  data,
+  loading,
+}: {
+  data: Array<{ date: string; balance: number; timestamp: number }>;
+  loading: boolean;
+}) {
+  if (loading && data.length === 0) {
+    return (
+      <div className="card mb-6 h-[350px] animate-pulse bg-white/[0.03] border-white/10" />
+    );
+  }
+
+  if (data.length < 2) {
+    return (
+      <div className="card mb-6 overflow-hidden">
+        <h2 className="font-display text-lg font-semibold text-white mb-4">
+          Balance History (Past 30 Days)
+        </h2>
+        <div className="flex flex-col items-center justify-center h-[200px] text-center border border-dashed border-white/10 rounded-xl bg-white/[0.02] p-4">
+          <p className="text-slate-300 font-medium text-sm">Insufficient history</p>
+          <p className="text-slate-500 text-xs mt-1">
+            At least 2 payment events in the last 30 days are required to render the balance chart.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card mb-6 overflow-hidden">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="font-display text-lg font-semibold text-white">
+          Balance History (Past 30 Days)
+        </h2>
+        <span className="text-xs text-stellar-400 font-medium">
+          {data.length} payment events
+        </span>
+      </div>
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <XAxis
+              dataKey="date"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tickFormatter={(value: any) => `${value}`}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "#0f172a",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+              }}
+              formatter={(val: any) => [`${val} XLM`, "Balance"]}
+            />
+            <Line
+              type="monotone"
+              dataKey="balance"
+              stroke="#38bdf8"
+              strokeWidth={2}
+              dot={{ fill: "#38bdf8", r: 3 }}
+              activeDot={{ r: 5, fill: "#0284c7" }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 function TopRecipientsWidget({
   recipients,
   loading,
@@ -1933,7 +2101,6 @@ function DownloadIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-
 function StatsCard({
   label,
   value,
@@ -1969,15 +2136,15 @@ function StatsCard({
   );
 }
 
-function formatStatsXLM(amount: string, suffix: string) {
+function formatStatsXLM(amount: string, suffix = "") {
   const value = parseFloat(amount);
 
-  if (Number.isNaN(value)) return `0.00 XLM ${suffix}`;
+  if (Number.isNaN(value)) return `0.00 XLM ${suffix}`.trim();
 
   return `${value.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 7,
-  })} XLM ${suffix}`;
+  })} XLM ${suffix}`.trim();
 }
 
 // ─── Sparkline chart ─────────────────────────────────────────────────────────

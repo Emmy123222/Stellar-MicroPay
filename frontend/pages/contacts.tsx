@@ -43,8 +43,21 @@ export default function Contacts() {
   const [address, setAddress] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [contactFilter, setContactFilter] = useState<ContactFilter>("all");
-  useEffect(() => { setContactFilter(localStorage.getItem(FAV_TAB_KEY) === "1" ? "favourites" : "all"); }, []);
-  const setFilter = (filter: ContactFilter) => { setContactFilter(filter); localStorage.setItem(FAV_TAB_KEY, filter === "favourites" ? "1" : "0"); };
+  useEffect(() => {
+    try {
+      setContactFilter(localStorage.getItem(FAV_TAB_KEY) === "1" ? "favourites" : "all");
+    } catch {
+      setStorageAvailable(false);
+    }
+  }, []);
+  const setFilter = (filter: ContactFilter) => {
+    setContactFilter(filter);
+    try {
+      localStorage.setItem(FAV_TAB_KEY, filter === "favourites" ? "1" : "0");
+    } catch {
+      setStorageAvailable(false);
+    }
+  };
   const toggleFavourite = (id: string) => setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, favourite: !c.favourite } : c)));
   const visibleContacts = contactFilter === "favourites" ? contacts.filter((c) => c.favourite) : contacts;
 
