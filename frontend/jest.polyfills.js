@@ -6,6 +6,7 @@
  * the test framework loads.
  */
 const { TextEncoder, TextDecoder } = require("node:util");
+const { webcrypto } = require("node:crypto");
 
 if (typeof global.TextEncoder === "undefined") {
   global.TextEncoder = TextEncoder;
@@ -13,4 +14,12 @@ if (typeof global.TextEncoder === "undefined") {
 
 if (typeof global.TextDecoder === "undefined") {
   global.TextDecoder = TextDecoder;
+}
+
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, "crypto", {
+    value: webcrypto,
+    configurable: true,
+    writable: true,
+  });
 }

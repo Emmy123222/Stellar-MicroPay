@@ -50,6 +50,22 @@ function SparkleIcon({ className }: { className?: string }) {
   );
 }
 
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function HamburgerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+
 export default function Navbar({ onOpenAssistant }: NavbarProps) {
   const router = useRouter();
   const { publicKey, connectWallet, disconnectWallet } = useWallet();
@@ -238,7 +254,7 @@ export default function Navbar({ onOpenAssistant }: NavbarProps) {
                     : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-200"
                 )}
               >
-                {link.label}
+                {t(link.labelKey)}
               </Link>
             ))}
           </div>

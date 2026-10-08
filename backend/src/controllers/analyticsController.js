@@ -49,8 +49,24 @@ async function getActivityByDay(req, res, next) {
   }
 }
 
+/**
+ * DELETE /api/analytics/cache/:publicKey
+ * Admin: force-invalidates all cached analytics for a public key.
+ */
+function invalidateCache(req, res, next) {
+  try {
+    const { publicKey } = req.params;
+    const invalidated = analyticsService.clearCache(publicKey);
+    res.json({ success: true, data: { publicKey, invalidated } });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getSummary,
   getTopRecipients,
   getActivityByDay,
+  invalidateCache,
 };
+

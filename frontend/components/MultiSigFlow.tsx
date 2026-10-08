@@ -14,7 +14,7 @@ function getSignerHints(unsignedXDR: string, signedXDRs: string[]): string[] {
     for (const sxdr of signedXDRs) {
       const tx = new Transaction(sxdr, NETWORK_PASSPHRASE);
       for (const sig of tx.signatures) {
-        hints.push(sig.hint.toString());
+        hints.push(Buffer.from(sig.hint.toBytes()).toString("hex"));
       }
     }
     return hints;

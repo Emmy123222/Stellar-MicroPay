@@ -42,7 +42,7 @@ function startTurretsServer() {
   startRunner();
 
   return app.listen(TURRETS_PORT, () => {
-    console.log(`🛡️ Turrets txFunctions server running at http://localhost:${TURRETS_PORT}`);
+    require("./logger").info(`🛡️ Turrets txFunctions server running at http://localhost:${TURRETS_PORT}`);
   });
 }
 

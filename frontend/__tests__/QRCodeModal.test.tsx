@@ -1,5 +1,5 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import QRCodeModal from '../components/QRCodeModal';
 
@@ -47,8 +47,6 @@ describe('QRCodeModal snapshot tests', () => {
     expect(container.firstChild).toMatchSnapshot();
   });
 });
-import { fireEvent, render, screen } from "@testing-library/react";
-import QRCodeModal from "@/components/QRCodeModal";
 
 describe("QRCodeModal", () => {
   it("renders the QR canvas and downloads a PNG object URL", () => {

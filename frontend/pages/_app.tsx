@@ -137,7 +137,6 @@ function AppShell({
   const router = useRouter();
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
-
   useEffect(() => {
     const updateOffline = () => setIsOffline(!navigator.onLine);
     updateOffline();

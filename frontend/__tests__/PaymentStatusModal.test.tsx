@@ -14,8 +14,21 @@ const createStepTimings = (overrides: Partial<Record<PaymentStepId, PaymentStepT
 
 // Fixed timestamp for consistent snapshots
 const FIXED_NOW = 1700000000000;
+const ORIGINAL_TIME_ZONE = process.env.TZ;
 
 describe('PaymentStatusModal snapshot tests', () => {
+  beforeAll(() => {
+    process.env.TZ = 'UTC';
+  });
+
+  afterAll(() => {
+    if (ORIGINAL_TIME_ZONE === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = ORIGINAL_TIME_ZONE;
+    }
+  });
+
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(FIXED_NOW);

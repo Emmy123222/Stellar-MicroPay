@@ -16,6 +16,11 @@ jest.mock("@/lib/stellar", () => ({
   buildSorobanTipTransaction: jest.fn(),
   CONTRACT_ID: null,
   explorerUrl: jest.fn((hash: string) => `https://expert.stellar.org/tx/${hash}`),
+  fetchFeePercentiles: jest.fn().mockResolvedValue({
+    slow: { stroops: 100, xlm: "0.0000100" },
+    normal: { stroops: 200, xlm: "0.0000200" },
+    fast: { stroops: 500, xlm: "0.0000500" },
+  }),
   fetchNetworkFeeStats: jest.fn().mockResolvedValue({ baseFeeXlm: 0.00001 }),
   isValidStellarAddress: jest.fn(
     (addr: string) => addr.startsWith("G") && addr.length === 56

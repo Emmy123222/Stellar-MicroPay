@@ -23,7 +23,7 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Add Soroban WASM target
+# Add WASM target
 rustup target add wasm32v1-none
 
 # Install Stellar CLI
@@ -33,67 +33,72 @@ cargo install --locked stellar-cli
 ## Build
 
 ```bash
-stellar contract build --package stellar-micropay-contract --optimize=false
+stellar contract build
 ```
 
-The Soroban SDK 28 build uses the `wasm32v1-none` target. The raw release
-artifact is written to
-`target/wasm32v1-none/release/stellar_micropay_contract.wasm`.
-
-## WASM Size Optimization
-
-Keep the deployed contract WASM below **50 KB**. The release profile in the
-workspace root already enables size-oriented optimization, LTO, one codegen
-unit, and symbol stripping. Soroban contracts should use `#![no_std]`; avoid
-enabling `std` features on guest dependencies unless they are required. Prefer
-small dependencies and avoid pulling in unused features. The `testutils` SDK
-feature belongs in dev-dependencies only, as it is for this contract.
-
-Install Binaryen to use `wasm-opt`, then build the unoptimized Soroban artifact
-and run the size optimizer:
-
-```bash
-# Build with Cargo's release profile, without the CLI's wasm-opt pass
-stellar contract build --package stellar-micropay-contract --optimize=false
-
-# Apply Binaryen's most aggressive size optimization
-wasm-opt -Oz \
-  target/wasm32v1-none/release/stellar_micropay_contract.wasm \
-  -o target/wasm32v1-none/release/stellar_micropay_contract.opt.wasm
-
-# Print exact byte counts
-stat -c '%n: %s bytes' \
-  target/wasm32v1-none/release/stellar_micropay_contract.wasm \
-  target/wasm32v1-none/release/stellar_micropay_contract.opt.wasm
-```
-
-The Stellar CLI build summary also reports the WASM size. To inspect the
-contract interface and exported functions, run:
-
-```bash
-stellar contract inspect --wasm \
-  target/wasm32v1-none/release/stellar_micropay_contract.opt.wasm
-```
-
-`contract inspect` prints contract specification details, not the file's byte
-size; use `stat` above for the exact size.
-
-Measured using Soroban SDK 28.0.0, Rust 1.93.1, Stellar CLI 28.1.0, and the
-workspace release profile:
-
-| Artifact | Size |
-| --- | ---: |
-| Cargo release WASM, before `wasm-opt` | 9,160 bytes (8.95 KiB) |
-| WASM after `wasm-opt -Oz` | 8,006 bytes (7.82 KiB) |
-
-Both are under the 50 KB budget. Re-measure after changing contract code,
-dependencies, or compiler/SDK versions; WASM sizes can vary between toolchains.
+Output: `target/wasm32v1-none/release/stellar_micropay_contract.wasm`
+(relative to the workspace root, not this directory)
 
 ## Test
 
 ```bash
 cargo test
 ```
+
+## Security review (#1121)
+
+Every entry point in `src/lib.rs` was reviewed for authorization correctness,
+and the outcome is documented as a doc comment above each function.
+
+| Entry point | Authorization | Review note |
+| --- | --- | --- |
+| `initialize` | `admin` | Was missing — see finding 1 |
+| `send_tip` | `from` | Auth covers `(token_address, from, to, amount)`; amount validated first |
+| `mint_receipt` | `from` | Auth covers `(from, to, amount, memo)`; records keyed by the authenticated payer |
+| `get_tip_total`, `get_tip_count`, `get_admin`, `get_tip_record`, `get_receipt_count`, `get_receipt` | none (read-only) | No state is written and the values are public |
+| `create_escrow`, `batch_send` | none (stubs) | Always panic before touching state |
+
+### Findings fixed
+
+1. **`initialize` stored an admin without authorization (critical).** It wrote
+   `DataKey::Admin` without any auth check, so any account could install an
+   arbitrary admin. Fixed by calling `admin.require_auth()` before the write.
+2. **`require_auth` ran before argument validation (low)** in `send_tip` and
+   `mint_receipt`. A panicking sub-call does not roll back sibling effects in
+   the same transaction when the contract is invoked by another contract, so a
+   rejected call could leave a satisfied auth entry behind for the payer.
+   Fixed by validating `amount` before requesting authorization.
+
+### Residual risk (documented, not changed)
+
+- `initialize` is a separate invocation from the deploy, so the first caller
+  can still install *themselves* as admin: `require_auth` proves the stored
+  admin consented to the role, it cannot prove that address is the deployer.
+  Deploy through a `__constructor` (deploy-time initialization) or invoke
+  `initialize` in the same transaction as the deploy to remove that window.
+- Confirmed already correct: the nested SAC `transfer` in `send_tip` sits under
+  the sender's authorization; auth arguments match invocation arguments, so
+  argument swapping is rejected by the host; `mint_receipt` writes are keyed by
+  the authenticated payer; the getters are read-only; the escrow and batch
+  stubs always panic.
+
+### Auth test coverage
+
+`cargo test` exercises every `require_auth` call site, including the negative
+cases that must fail:
+
+- `test_initialize_requires_admin_auth` — the admin is the sole authorizer.
+- `test_initialize_rejects_unauthorized_admin` — no authorization at all fails,
+  and the contract stays uninitialized.
+- `test_initialize_rejects_authorization_of_another_address` — authorizing a
+  different address cannot install another account as admin.
+- `test_send_tip_moves_funds_and_requires_from_auth` / `test_send_tip_rejects_unauthorized_caller`
+  — funds move under the sender's authorization, and an unauthorized caller
+  moves nothing.
+- `test_mint_receipt_requires_from_auth` / `test_mint_receipt_rejects_unauthorized_caller`
+  — receipts are minted only under the payer's authorization.
+- `test_failed_mint_does_not_consume_auth` — a rejected call consumes no
+  authorization and leaves no state behind.
 
 ## Deploy to Testnet
 

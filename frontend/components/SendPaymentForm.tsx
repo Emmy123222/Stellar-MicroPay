@@ -43,9 +43,11 @@ import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
+import { submitSignedPayment } from "@/lib/paymentApi";
 import { useTranslation } from "@/contexts/I18nContext";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/contexts/I18nContext";
 
 interface SendPaymentFormProps {
   publicKey?: string;
@@ -1093,7 +1095,7 @@ export default function SendPaymentForm({
                     key={address}
                     type="button"
                     role="option"
-                    aria-selected={false}
+                    aria-selected={destination === address}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => { setDestination(address); setIsRecentDropdownOpen(false); }}
                     className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-sm text-slate-200 hover:bg-white/5"

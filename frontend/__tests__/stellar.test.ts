@@ -87,7 +87,9 @@ describe("Stellar helper", () => {
       expect(combinedTx.signatures.length).toBe(2);
 
       // Verify that the signatures match the expected signers
-      const hints = combinedTx.signatures.map((sig) => sig.hint.toString());
+      const hints = combinedTx.signatures.map((sig) =>
+        Buffer.from(sig.hint.toBytes()).toString("hex")
+      );
 
       // Get expected hints from the signers' public keys (last 4 bytes)
       const expectedHint1 = Buffer.from(

@@ -12,7 +12,7 @@ const config: Config = {
     extend: {
       colors: {
         stellar: {
-          50:  "#f0f9ff",
+          50: "#f0f9ff",
           100: "#e0f2fe",
           200: "#bae6fd",
           300: "#7dd3fc",
@@ -55,14 +55,15 @@ const config: Config = {
         slideDown: {
           "0%": { opacity: "0", transform: "translateY(-8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
+        },
         slideIn: {
           "0%": { opacity: "0", transform: "translateX(-12px)" },
           "100%": { opacity: "1", transform: "translateX(0)" },
         },
       },
     },
+    plugins: [],
   },
-  plugins: [],
 };
 
 export default config;

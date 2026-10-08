@@ -45,18 +45,21 @@ export default function StreamsPage() {
     deposit: "",
   });
 
+  // Keep the XLM balance in sync with the connected wallet.
   useEffect(() => {
-    let isActive = true;
     if (!publicKey) {
       setXlmBalance("0");
-      return () => { isActive = false; };
+      return;
     }
-
+    let active = true;
     getXLMBalance(publicKey)
-      .then((balance) => { if (isActive) setXlmBalance(balance); })
-      .catch(() => { if (isActive) setXlmBalance("0"); });
-
-    return () => { isActive = false; };
+      .then((balance) => {
+        if (active) setXlmBalance(balance);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
   }, [publicKey]);
 
   const loadStreams = useCallback(async () => {
