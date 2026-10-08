@@ -7,15 +7,9 @@
  */
 
 import { PaymentRecord } from "@/lib/stellar";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import {
-  formatAsset as formatAssetIntl,
-  formatAssetPrecise as formatAssetPreciseIntl,
   formatStroopsToXLM as formatStroopsToXLMIntl,
-  formatUSD as formatUSDIntl,
-  formatRelativeTime,
-  formatDate as formatDateIntl,
-  shortenAddress as shortenAddressIntl,
   getUserLocale,
 } from "./intlFormatters";
 
@@ -35,7 +29,10 @@ export {
  * Shorten a Stellar address for display (e.g. GABC...XYZ1)
  */
 export function shortenAddress(address: string, chars = 4): string {
-  return shortenAddressIntl(address, chars);
+  if (!address || address.length <= chars * 2 + 2) {
+    return address;
+  }
+  return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
 
 /**
@@ -57,23 +54,35 @@ export function formatXLMPrecise(amount: string | number): string {
 /**
  * Format a Stellar asset amount with asset-specific precision rules.
  */
+const DEFAULT_ASSET_CODE = "XLM";
+
+const ASSET_FORMAT_RULES: Record<
+  string,
+  { minimumFractionDigits: number; maximumFractionDigits: number }
+> = {
+  XLM: { minimumFractionDigits: 0, maximumFractionDigits: 7 },
+  USDC: { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+  AQUA: { minimumFractionDigits: 0, maximumFractionDigits: 7 },
+  DEFAULT: { minimumFractionDigits: 0, maximumFractionDigits: 7 },
+};
+
+function normalizeAssetCode(assetCode?: string): string {
+  return assetCode?.trim().toUpperCase() || DEFAULT_ASSET_CODE;
+}
+
+function getAssetFormatRule(assetCode?: string): {
+  minimumFractionDigits: number;
+  maximumFractionDigits: number;
+} {
+  const normalized = normalizeAssetCode(assetCode);
+  return ASSET_FORMAT_RULES[normalized] ?? ASSET_FORMAT_RULES.DEFAULT;
+}
+
 export function formatAsset(
   amount: string | number,
-  assetCode = DEFAULT_ASSET_CODE
+  assetCode = "XLM"
 ): string {
-  const normalizedAssetCode = normalizeAssetCode(assetCode);
-  const rule = getAssetFormatRule(normalizedAssetCode);
-  const num = typeof amount === "string" ? parseFloat(amount) : amount;
-
-  if (amount == null || Number.isNaN(num)) {
-    const zeroValue =
-      rule.minimumFractionDigits > 0
-        ? (0).toFixed(rule.minimumFractionDigits)
-        : "0";
-    return `${zeroValue} ${normalizedAssetCode}`;
-  }
-
-  return `${num.toLocaleString("en-US", rule)} ${normalizedAssetCode}`;
+  return formatAssetIntl(amount, assetCode);
 }
 
 /**
@@ -88,14 +97,18 @@ export function formatStroopsToXLM(stroops: bigint | string | number): string {
  * Format a date string as relative time (e.g., "3 minutes ago").
  */
 export function timeAgo(dateString: string): string {
-  return formatRelativeTime(dateString, { locale: getUserLocale() });
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+  return formatDistanceToNow(date, { addSuffix: true });
 }
 
 /**
  * Format a date string in a human-readable format.
  */
 export function formatDate(dateString: string): string {
-  return formatDateIntl(dateString, { locale: getUserLocale() });
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+  return format(date, "MMM d, yyyy · HH:mm");
 }
 
 
@@ -287,23 +300,17 @@ export function parseBatchRecipientsCSV(csv: string): BatchRecipientCSVRow[] {
 
 /**
  * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
+ * @param usdValue - The USD value to format
+ * @param locale - The locale for formatting (defaults to user's locale)
  */
-export function formatUSD(usdValue: number): string {
+export function formatUSD(usdValue: number, locale?: string): string {
+  void locale;
   if (usdValue == null) return `≈ $0.00 USD`;
   if (isNaN(usdValue)) return `≈ $NaN USD`;
   return `≈ $${usdValue.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })} USD`;
-}
-
-/**
- * Format a USD value with 2 decimal places (e.g. "≈ $142.50 USD").
- * @param usdValue - The USD value to format
- * @param locale - The locale for formatting (defaults to user's locale)
- */
-export function formatUSD(usdValue: number, locale?: string): string {
-  return formatUSDIntl(usdValue, { locale: locale ?? getUserLocale() });
 }
 
 /**
@@ -342,9 +349,15 @@ function triggerDownload(contents: string, filename: string, type: string): void
  * Convert an array of PaymentRecords to a CSV string and trigger a browser
  * file download. No server required — uses a Blob URL.
  *
- * Columns: Date, Type, Amount, Asset, From, To, Memo, Transaction Hash
+ * Columns: Date, Type, Amount, Asset, From, To, Memo, Transaction Hash, Private Note
+ *
+ * @param payments - Array of payment records to export.
+ * @param notes - Optional map of transactionHash → private note (Issue #1189).
  */
-export function exportToCSV(payments: PaymentRecord[]): void {
+export function exportToCSV(
+  payments: PaymentRecord[],
+  notes?: Record<string, string>
+): void {
   const HEADERS = [
     "Date",
     "Type",
@@ -354,69 +367,19 @@ export function exportToCSV(payments: PaymentRecord[]): void {
     "To",
     "Memo",
     "Transaction Hash",
-    "Note",
+    "Private Note",
   ];
 
-  const rows = payments.map((tx) => {
-    // Fetch note from localStorage by txhash
-    let note = "";
-    if (typeof window !== "undefined" && tx.transactionHash) {
-      try {
-        const notes = localStorage.getItem("paymentNotes");
-        if (notes) {
-          const notesMap = JSON.parse(notes);
-          note = notesMap[tx.transactionHash] || "";
-        }
-      } catch (err) {
-        console.error("Failed to read payment notes from localStorage:", err);
-      }
-    }
-
-    return [
-      csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
-      csvCell(tx.type === "sent" ? "Sent" : "Received"),
-      csvCell(parseFloat(tx.amount).toFixed(7)),
-      csvCell(tx.asset ?? "XLM"),
-      csvCell(tx.from),
-      csvCell(tx.to),
-      csvCell(tx.memo ?? ""),
-      csvCell(tx.transactionHash),
-      csvCell(note),
-    ];
-  });
-
-  const csv = [
-    HEADERS.map(csvCell).join(","),
-    ...rows.map((r) => r.join(",")),
-  ].join("\r\n");
-
-  const dateStamp = format(new Date(), "yyyy-MM-dd");
-  const filename = `stellar-micropay-transactions-${dateStamp}.csv`;
-  triggerDownload(csv, filename, "text/csv;charset=utf-8;");
-}
-
-interface TipCSVRecord {
-  timestamp: string;
-  senderPublicKey: string;
-  amount: string;
-  asset: string;
-  memo?: string;
-}
-
-/**
- * Convert an array of received tips to a CSV string and trigger a browser
- * file download, for creator bookkeeping (#612).
- *
- * Columns: Date, Sender, Amount, Memo
- */
-export function exportTipsToCSV(tips: TipCSVRecord[]): void {
-  const HEADERS = ["Date", "Sender", "Amount", "Memo"];
-
-  const rows = tips.map((tip) => [
-    csvCell(format(new Date(tip.timestamp), "yyyy-MM-dd HH:mm:ss")),
-    csvCell(tip.senderPublicKey),
-    csvCell(`${tip.amount} ${tip.asset}`),
-    csvCell(tip.memo ?? ""),
+  const rows = payments.map((tx) => [
+    csvCell(format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm:ss")),
+    csvCell(tx.type === "sent" ? "Sent" : "Received"),
+    csvCell(parseFloat(tx.amount).toFixed(7)),
+    csvCell(tx.asset ?? "XLM"),
+    csvCell(tx.from),
+    csvCell(tx.to),
+    csvCell(tx.memo ?? ""),
+    csvCell(tx.transactionHash),
+    csvCell(notes?.[tx.transactionHash] ?? ""),
   ]);
 
   const csv = [

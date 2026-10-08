@@ -27,17 +27,6 @@ services:
     networks:
       - backend
 
-  backend:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: always
-    networks:
-      - proxy
-
   frontend:
     build:
       context: ./frontend
@@ -74,12 +63,12 @@ services:
       - ANALYTICS_CACHE_TTL_MS=300000
     depends_on:
       redis:
-        condition: service_started
+        condition: service_healthy
     secrets:
       - jwt_secret
       - server_private_key
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3

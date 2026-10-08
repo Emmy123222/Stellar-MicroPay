@@ -21,7 +21,8 @@ import {
   nativeToScVal,
   scValToNative,
   xdr,
-  SorobanRpc,
+  rpc as SorobanRpc,
+  rpc,
   Federation,
 } from "@stellar/stellar-sdk";
 
@@ -200,6 +201,18 @@ export function truncateMemoText(memo: string): string {
 }
 
 /**
+ * Encode memo text as UTF-8 bytes in the local Uint8Array realm.
+ *
+ * `TextEncoder` may return a Uint8Array from a different realm (e.g. Node's
+ * while running under jsdom), which fails the SDK's `instanceof Uint8Array`
+ * check. Rebuilding through the local constructor keeps the bytes identical
+ * while satisfying the type guard.
+ */
+function encodeMemoText(value: string): Uint8Array {
+  return Uint8Array.from(new TextEncoder().encode(value));
+}
+
+/**
  * Memo types the Stellar protocol defines, and the ones the payment form offers.
  */
 export type StellarMemoType = "text" | "id" | "hash" | "return";
@@ -267,7 +280,9 @@ export function buildMemo(type: StellarMemoType, value: string): Memo {
   // Text is the one type the protocol lets you trim to fit, so it is shortened
   // rather than refused. The other three have fixed shapes: a 31-byte hash or a
   // uint64 overflow is a different value than the sender meant, so it throws.
-  if (type === "text") return Memo.text(truncateMemoText(trimmed));
+  if (type === "text") {
+    return Memo.text(encodeMemoText(truncateMemoText(trimmed)));
+  }
 
   const problem = memoValueError(type, trimmed);
   if (problem) throw new Error(problem);
@@ -280,7 +295,7 @@ export function buildMemo(type: StellarMemoType, value: string): Memo {
     case "return":
       return Memo.return(trimmed);
     default:
-      return Memo.text(truncateMemoText(trimmed));
+      return Memo.text(encodeMemoText(truncateMemoText(trimmed)));
   }
 }
 
@@ -334,19 +349,19 @@ export function getSorobanRpcUrl(): string {
 export const SOROBAN_RPC_URL = getSorobanRpcUrl();
 
 /** Pre-configured Soroban RPC server instance. */
-let _sorobanServer: SorobanRpc.Server | null = null;
-export function getSorobanServer(): SorobanRpc.Server {
+let _sorobanServer: rpc.Server | null = null;
+export function getSorobanServer(): rpc.Server {
   const currentUrl = getSorobanRpcUrl();
   if (!_sorobanServer || _sorobanServer.serverURL.toString() !== currentUrl) {
-    _sorobanServer = new SorobanRpc.Server(currentUrl);
+    _sorobanServer = new rpc.Server(currentUrl);
   }
   return _sorobanServer;
 }
 
 // For backwards compatibility
-export const sorobanServer = new Proxy({} as SorobanRpc.Server, {
+export const sorobanServer = new Proxy({} as rpc.Server, {
   get(target, prop) {
-    return getSorobanServer()[prop as keyof SorobanRpc.Server];
+    return getSorobanServer()[prop as keyof rpc.Server];
   },
 });
 
@@ -744,18 +759,6 @@ export async function buildChangeTrustTransaction({
 }
 
 /**
- * Build an unsigned XLM payment transaction ready for Freighter to sign.
- */
-/** Supported Stellar memo types for payment construction. */
-export type StellarMemoType = "text" | "id" | "hash" | "return";
-
-/** Maximum uint64 value accepted by MEMO_ID. */
-export const STELLAR_MEMO_ID_MAX = "18446744073709551615";
-
-/** MEMO_HASH / MEMO_RETURN must be exactly 32 bytes (64 hex characters). */
-export const STELLAR_MEMO_HASH_HEX_LENGTH = 64;
-
-/**
  * Validate and build a Stellar Memo for the given type and value.
  * @throws {Error} When the memo value is invalid for the selected type.
  */
@@ -767,7 +770,7 @@ export function createStellarMemo(type: StellarMemoType, value: string): Memo {
 
   switch (type) {
     case "text":
-      return Memo.text(truncateMemoText(trimmed));
+      return Memo.text(encodeMemoText(truncateMemoText(trimmed)));
     case "id": {
       if (!/^\d+$/.test(trimmed)) {
         throw new Error("MEMO_ID must be a non-negative uint64 integer");
@@ -803,6 +806,7 @@ export async function buildPaymentTransaction({
   memo,
   memoType = "text",
   asset = "XLM",
+  baseFee,
 }: {
   fromPublicKey: string;
   toPublicKey: string;
@@ -811,6 +815,7 @@ export async function buildPaymentTransaction({
   /** What the memo value is: `text` (default), `id`, `hash` or `return`. */
   memoType?: StellarMemoType;
   asset?: "XLM" | "USDC";
+  baseFee?: string | number;
 }): Promise<Transaction> {
   const sourceAccount = await server.loadAccount(fromPublicKey);
 
@@ -833,8 +838,10 @@ export async function buildPaymentTransaction({
     }
   }
 
+  const feeValue = baseFee ? String(baseFee) : STELLAR_BASE_FEE_STROOPS_STRING;
+
   const builder = new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    fee: feeValue,
     networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
@@ -880,6 +887,145 @@ export async function buildAccountMergeTransaction({
       })
     )
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
+
+  return builder.build();
+}
+
+// ─── Path Payments (#1190) ──────────────────────────────────────────────────
+
+/**
+ * Represents a single path payment route returned by Horizon strictSendPaths.
+ */
+export interface PathPaymentRoute {
+  /** The asset sent by the source account. */
+  sourceAsset: Asset;
+  /** Amount the source account sends. */
+  sourceAmount: string;
+  /** The asset received by the destination account. */
+  destinationAsset: Asset;
+  /** Amount the destination account receives. */
+  destinationAmount: string;
+  /** Intermediate assets in the conversion path. */
+  path: Asset[];
+  /** Human-readable exchange rate: destAmount / sourceAmount */
+  exchangeRate: number;
+}
+
+/**
+ * Query Horizon for the best strict-send paths converting one asset to another via the DEX.
+ *
+ * @param sourceAsset - Asset to send (e.g. XLM native).
+ * @param sourceAmount - Amount to send in string form, e.g. "10.0000000".
+ * @param destinationAsset - Asset the recipient should receive.
+ * @returns Array of available path payment routes, sorted by best destination amount.
+ */
+export async function findStrictSendPaths({
+  sourceAsset,
+  sourceAmount,
+  destinationAsset,
+}: {
+  sourceAsset: Asset;
+  sourceAmount: string;
+  destinationAsset: Asset;
+}): Promise<PathPaymentRoute[]> {
+  try {
+    const result = await server
+      .strictSendPaths(sourceAsset, sourceAmount, [destinationAsset])
+      .call();
+
+    return result.records.map((record: any) => {
+      const srcAsset =
+        record.source_asset_type === "native"
+          ? Asset.native()
+          : new Asset(record.source_asset_code, record.source_asset_issuer);
+
+      const destAsset =
+        record.destination_asset_type === "native"
+          ? Asset.native()
+          : new Asset(record.destination_asset_code, record.destination_asset_issuer);
+
+      const intermediaryPath: Asset[] = (record.path || []).map((p: any) =>
+        p.asset_type === "native"
+          ? Asset.native()
+          : new Asset(p.asset_code, p.asset_issuer)
+      );
+
+      const srcAmt = parseFloat(record.source_amount || sourceAmount);
+      const destAmt = parseFloat(record.destination_amount || "0");
+      const exchangeRate = srcAmt > 0 ? destAmt / srcAmt : 0;
+
+      return {
+        sourceAsset: srcAsset,
+        sourceAmount: record.source_amount || sourceAmount,
+        destinationAsset: destAsset,
+        destinationAmount: record.destination_amount || "0",
+        path: intermediaryPath,
+        exchangeRate,
+      };
+    });
+  } catch (err) {
+    console.error("Failed to find strict send paths:", err);
+    return [];
+  }
+}
+
+/**
+ * Build an unsigned pathPaymentStrictSend transaction ready for Freighter to sign.
+ *
+ * Sends an exact `sendAmount` of `sendAsset` and delivers at least `minDestAmount`
+ * of `destAsset` to the recipient. Any DEX conversion happens automatically.
+ *
+ * @param params.fromPublicKey - Sender's Stellar public key.
+ * @param params.toPublicKey - Recipient's Stellar public key.
+ * @param params.sendAsset - Asset being sent (e.g. XLM native).
+ * @param params.sendAmount - Exact amount to send.
+ * @param params.destAsset - Asset to be received by the recipient.
+ * @param params.minDestAmount - Minimum amount recipient should receive (slippage protection).
+ * @param params.path - Intermediate conversion assets found via {@link findStrictSendPaths}.
+ * @param params.memo - Optional memo text.
+ */
+export async function buildPathPaymentStrictSendTransaction({
+  fromPublicKey,
+  toPublicKey,
+  sendAsset,
+  sendAmount,
+  destAsset,
+  destMin,
+  minDestAmount,
+  path = [],
+  memo,
+}: {
+  fromPublicKey: string;
+  toPublicKey: string;
+  sendAsset: Asset;
+  sendAmount: string;
+  destAsset: Asset;
+  destMin?: string;
+  minDestAmount?: string;
+  path?: Asset[];
+  memo?: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const builder = new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(
+      Operation.pathPaymentStrictSend({
+        sendAsset,
+        sendAmount,
+        destination: toPublicKey,
+        destAsset,
+        destMin: minDestAmount ?? destMin ?? "0",
+        path,
+      })
+    )
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS);
+
+  if (memo) {
+    builder.addMemo(Memo.text(encodeMemoText(truncateMemoText(memo))));
+  }
 
   return builder.build();
 }
@@ -972,7 +1118,7 @@ export async function buildAssetIssueTransaction({
 
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.payment({
@@ -1002,7 +1148,7 @@ export async function buildHomeDomainTransaction({
 
   return new TransactionBuilder(sourceAccount, {
     fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(Operation.setOptions({ homeDomain }))
     .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
@@ -1011,7 +1157,7 @@ export async function buildHomeDomainTransaction({
 
 /** Stellar Expert URL for an issued asset, e.g. `.../asset/COOL-GABC...`. */
 export function assetExplorerUrl(assetCode: string, issuer: string): string {
-  const net = NETWORK === "mainnet" ? "public" : "testnet";
+  const net = getNetwork() === "mainnet" ? "public" : "testnet";
   return `https://stellar.expert/explorer/${net}/asset/${assetCode}-${issuer}`;
 }
 
@@ -1041,7 +1187,97 @@ export function buildStellarToml({
   issuerPublicKey: string;
   network?: "testnet" | "mainnet";
 }): string {
-  const activeNetwork = network ?? NETWORK;
+  const activeNetwork = network ?? getNetwork();
+  const accounts = [issuerPublicKey];
+
+  if (activeNetwork === "mainnet") {
+    accounts.push("GCO2IP3MCPLXT4GMQ5H7UQRCLHH3QDEM7SY6DNNJDAW6DGRITQKHXVV");
+  }
+
+  const domain =
+    homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "") ||
+    "yourdomain.com";
+
+  return [
+    "# Stellar MicroPay — generated asset metadata (SEP-0001)",
+    `VERSION = "1.0.0"`,
+    `NETWORK_PASSPHRASE = "${
+      activeNetwork === "mainnet" ? Networks.PUBLIC : Networks.TESTNET
+    }"`,
+    "",
+    "[[CURRENCIES]]",
+    `code = "${assetCode}"`,
+    `issuer = "${issuerPublicKey}"`,
+    "is_asset_anchored = false",
+    `desc = "${assetCode} issued via Stellar MicroPay"`,
+    "",
+    "# Liquidity/explorer accounts that must be trusted for mainnet listings.",
+    "ACCOUNTS = [",
+    ...accounts.map((account) => `  "${account}",`),
+    "]",
+    "",
+    `# Publish this file at: ${stellarTomlUrl(domain)}`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Build an unsigned `setOptions` transaction that sets an account's home domain.
+ *
+ * The domain must serve a `stellar.toml` under `/.well-known/` for wallets and
+ * explorers to discover the issuer's asset metadata (SEP-0001).
+ */
+export async function buildHomeDomainTransaction({
+  publicKey,
+  homeDomain,
+}: {
+  publicKey: string;
+  homeDomain: string;
+}): Promise<Transaction> {
+  const sourceAccount = await server.loadAccount(publicKey);
+
+  return new TransactionBuilder(sourceAccount, {
+    fee: STELLAR_BASE_FEE_STROOPS_STRING,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(Operation.setOptions({ homeDomain }))
+    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
+    .build();
+}
+
+/** Stellar Expert URL for an issued asset, e.g. `.../asset/COOL-GABC...`. */
+export function assetExplorerUrl(assetCode: string, issuer: string): string {
+  const net = getNetwork() === "mainnet" ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${net}/asset/${assetCode}-${issuer}`;
+}
+
+/** SEP-0001 `stellar.toml` location for a home domain. */
+export function stellarTomlUrl(homeDomain: string): string {
+  const hostname = homeDomain
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "");
+  return `https://${hostname}/.well-known/stellar.toml`;
+}
+
+/**
+ * Render the `stellar.toml` an issuer should publish for a custom asset.
+ *
+ * Returning it as a string lets the wizard offer a preview, a copy button and a
+ * download without the user hand-writing TOML.
+ */
+export function buildStellarToml({
+  homeDomain,
+  assetCode,
+  issuerPublicKey,
+  network,
+}: {
+  homeDomain: string;
+  assetCode: string;
+  issuerPublicKey: string;
+  network?: "testnet" | "mainnet";
+}): string {
+  const activeNetwork = network ?? getNetwork();
   const accounts = [issuerPublicKey];
 
   if (activeNetwork === "mainnet") {
@@ -1130,8 +1366,8 @@ export async function collectSignatures(unsignedXDR: string, signedXDRs: string[
       for (const sig of signedTx.signatures) {
         // Check if signature already exists to avoid duplicates
         const exists = transaction.signatures.some(existing =>
-          existing.hint().equals(sig.hint()) &&
-          existing.signature().equals(sig.signature())
+          existing.hint.equals(sig.hint) &&
+          existing.signature.equals(sig.signature)
         );
         if (!exists) {
           transaction.signatures.push(sig);
@@ -1452,7 +1688,7 @@ export async function buildSorobanTipTransaction({
   // Preflight: Simulate the transaction to get resources and fees
   const simulated = await sorobanServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(simulated)) {
+  if (rpc.Api.isSimulationError(simulated)) {
     throw new Error(`Simulation failed: ${simulated.error}`);
   }
 
@@ -1487,7 +1723,7 @@ export async function getContractTipTotal(recipient: string): Promise<string> {
 
     const sim = await sorobanServer.simulateTransaction(tx);
 
-    if (SorobanRpc.Api.isSimulationSuccess(sim) && sim.result) {
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
       const value = scValToNative(sim.result.retval);
       return value.toString();
     }
@@ -1545,7 +1781,7 @@ export async function buildReceiptMintTransaction({
 
   const simulated = await sorobanServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(simulated)) {
+  if (rpc.Api.isSimulationError(simulated)) {
     throw new Error(`Receipt simulation failed: ${simulated.error}`);
   }
 
@@ -1570,7 +1806,7 @@ export async function getReceiptCount(payer: string): Promise<number> {
       .build();
 
     const sim = await sorobanServer.simulateTransaction(tx);
-    if (SorobanRpc.Api.isSimulationSuccess(sim) && sim.result) {
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
       const value = scValToNative(sim.result.retval);
       return Number(value);
     }
@@ -1995,6 +2231,53 @@ export function feeLevelFromStroops(modeStroops: number): FeeLevel {
   return "high";
 }
 
+export type FeeSpeed = "slow" | "normal" | "fast";
+
+export interface FeeSpeedDetail {
+  stroops: number;
+  xlm: string;
+}
+
+export interface FeeSpeedOptions {
+  slow: FeeSpeedDetail;
+  normal: FeeSpeedDetail;
+  fast: FeeSpeedDetail;
+}
+
+/**
+ * Fetches fee percentiles (p10, p50, p90) from Horizon /fee_stats
+ * for slow/normal/fast transaction speed options.
+ */
+export async function fetchFeePercentiles(): Promise<FeeSpeedOptions> {
+  try {
+    const config = getNetworkConfig();
+    const url = `${config.horizonUrl}/fee_stats`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Horizon fee_stats returned ${res.status}`);
+    }
+    const data = (await res.json()) as {
+      fee_charged?: { p10?: string; p50?: string; p90?: string; mode?: string };
+    };
+
+    const p10 = Math.max(100, parseInt(data.fee_charged?.p10 ?? "100", 10) || 100);
+    const p50 = Math.max(p10, parseInt(data.fee_charged?.p50 ?? "200", 10) || 200);
+    const p90 = Math.max(p50, parseInt(data.fee_charged?.p90 ?? "500", 10) || 500);
+
+    return {
+      slow: { stroops: p10, xlm: (p10 / STELLAR_STROOPS_PER_XLM).toFixed(7) },
+      normal: { stroops: p50, xlm: (p50 / STELLAR_STROOPS_PER_XLM).toFixed(7) },
+      fast: { stroops: p90, xlm: (p90 / STELLAR_STROOPS_PER_XLM).toFixed(7) },
+    };
+  } catch {
+    return {
+      slow: { stroops: 100, xlm: "0.0000100" },
+      normal: { stroops: 200, xlm: "0.0000200" },
+      fast: { stroops: 500, xlm: "0.0000500" },
+    };
+  }
+}
+
 // ── DEX Trading Helpers ───────────────────────────────────────────────────
 
 /**
@@ -2296,45 +2579,6 @@ export async function fetchStrictSendPaths({
     path,
     exchangeRate,
   };
-}
-
-/**
- * Build a pathPaymentStrictSend transaction for DEX swaps.
- */
-export async function buildPathPaymentStrictSendTransaction({
-  fromPublicKey,
-  toPublicKey,
-  sendAsset,
-  sendAmount,
-  destAsset,
-  destMin,
-  path,
-}: {
-  fromPublicKey: string;
-  toPublicKey: string;
-  sendAsset: Asset;
-  sendAmount: string;
-  destAsset: Asset;
-  destMin: string;
-  path: Asset[];
-}): Promise<Transaction> {
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-  return new TransactionBuilder(sourceAccount, {
-    fee: STELLAR_BASE_FEE_STROOPS_STRING,
-    networkPassphrase: getNetworkPassphrase(),
-  })
-    .addOperation(
-      Operation.pathPaymentStrictSend({
-        sendAsset,
-        sendAmount,
-        destination: toPublicKey,
-        destAsset,
-        destMin,
-        path,
-      })
-    )
-    .setTimeout(STELLAR_TRANSACTION_TIMEOUT_SECONDS)
-    .build();
 }
 
 /**

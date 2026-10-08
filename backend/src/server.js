@@ -8,7 +8,8 @@
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const morgan = require("morgan");
+const pinoHttp = require("pino-http");
+const crypto = require("node:crypto");
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 const { csrfProtection } = require("./middleware/csrf");
@@ -31,22 +32,40 @@ const contactsRoutes = require("./routes/contacts");
 const webhooksRoutes = require("./routes/webhooks");
 const networkRoutes = require("./routes/network");
 const priceAlertsRoutes = require("./routes/priceAlerts");
-const requestId = require("./middleware/requestId");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const { startTurretsServer } = require("./turretsServer");
+const logger = require("./logger");
 const { sanitizeRequest } = require("./middleware/sanitization");
+const { csrfProtection } = require("./middleware/csrf");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-
+/**
+ * Attach a correlation id to every request: echo the caller's X-Request-ID
+ * when supplied, otherwise generate one. The id is echoed back on the
+ * response and available to pino-http and the error handler.
+ */
+function requestId(req, res, next) {
+  const supplied = req.headers["x-request-id"];
+  req.requestId =
+    typeof supplied === "string" && supplied.trim()
+      ? supplied.trim()
+      : crypto.randomUUID();
+  res.setHeader("X-Request-ID", req.requestId);
+  next();
+}
 // ─── Middleware ─────────────────────────────────────────────────────────────────
 
 app.use(requestId);
 app.use(helmet());
-morgan.token("request-id", (req) => req.requestId);
-app.use(morgan(":method :url :status :response-time ms requestId=:request-id"));
+app.use(
+  pinoHttp({
+    logger,
+    customProps: (req) => ({ requestId: req.requestId }),
+  })
+);
 app.use(express.json({ limit: "10kb" }));
 
 // JSON parsing error handler
@@ -149,7 +168,7 @@ app.use((err, req, res, next) => {
   const status = err.status || 500;
   const message = err.message || "Internal Server Error";
 
-  console.error({ requestId: req.requestId, status, message });
+  req.log.error({ err, requestId: req.requestId, status }, "Request failed");
 
   res.status(status).json({ error: message });
 });
@@ -169,8 +188,12 @@ SERVER = "https://${domain}/federation"
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
+  // Refuse to start on an insecure configuration rather than serving traffic
+  // with a publicly-known signing key.
+  validateEnv();
+
   const server = app.listen(PORT, () => {
-    console.log(`
+    logger.info(`
   ✨ Stellar MicroPay API
   🚀 Server running at http://localhost:${PORT}
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
@@ -180,7 +203,7 @@ if (require.main === module) {
   startTurretsServer();
 
   const shutdown = () => {
-    console.log("Shutting down... clearing timers.");
+    logger.info("Shutting down... clearing timers.");
     const { stopRunner } = require("./services/turretsService");
     stopRunner();
     server.close(() => {

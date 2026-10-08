@@ -275,4 +275,82 @@ describe("stellarService", () => {
       expect(result.longestStreak).toBe(3);
     });
   });
+
+  describe("getMemoHistory", () => {
+    it("returns the 10 most recent distinct MEMO_TEXT memos from a fixture of 20 payments", async () => {
+      const records = [
+        // 1. Text memo: "Memo 1 (newest)"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 1 (newest)" }) },
+        // 2. Hash memo (should be ignored)
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "hash", memo: "0x1234567890abcdef" }) },
+        // 3. Text memo: "Memo 2"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 2" }) },
+        // 4. No memo (should be ignored)
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "none" }) },
+        // 5. Text memo duplicate: "Memo 1 (newest)" (should be ignored)
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 1 (newest)" }) },
+        // 6. ID memo (should be ignored)
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "id", memo: "123456" }) },
+        // 7. Text memo: "Memo 3"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 3" }) },
+        // 8. Text memo: "Memo 4"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 4" }) },
+        // 9. Text memo: "Memo 5"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 5" }) },
+        // 10. Return memo (should be ignored)
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "return", memo: "0xabcdef" }) },
+        // 11. Text memo: "Memo 6"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 6" }) },
+        // 12. Text memo: "Memo 7"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 7" }) },
+        // 13. Text memo duplicate: "Memo 2" (should be ignored)
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 2" }) },
+        // 14. Text memo: "Memo 8"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 8" }) },
+        // 15. Text memo: "Memo 9"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 9" }) },
+        // 16. Text memo: "Memo 10"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 10" }) },
+        // 17. Text memo: "Memo 11" (11th distinct memo - capped by limit 10)
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 11" }) },
+        // 18. Text memo: "Memo 12"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 12" }) },
+        // 19. Text memo: "Memo 13"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 13" }) },
+        // 20. Text memo: "Memo 14"
+        { type: "payment", transaction: jest.fn().mockResolvedValue({ memo_type: "text", memo: "Memo 14" }) },
+      ];
+
+      mockPaymentsCall.mockResolvedValue({ records });
+
+      const result = await stellarService.getMemoHistory(validPublicKey);
+
+      expect(result).toHaveLength(10);
+      expect(result).toEqual([
+        "Memo 1 (newest)",
+        "Memo 2",
+        "Memo 3",
+        "Memo 4",
+        "Memo 5",
+        "Memo 6",
+        "Memo 7",
+        "Memo 8",
+        "Memo 9",
+        "Memo 10",
+      ]);
+    });
+
+    it("returns empty array when account has no payments or text memos", async () => {
+      mockPaymentsCall.mockResolvedValue({ records: [] });
+      const result = await stellarService.getMemoHistory(validPublicKey);
+      expect(result).toEqual([]);
+    });
+
+    it("throws error on invalid public key", async () => {
+      await expect(stellarService.getMemoHistory("invalid-key")).rejects.toThrow(
+        "Invalid Stellar public key format"
+      );
+    });
+  });
 });
+

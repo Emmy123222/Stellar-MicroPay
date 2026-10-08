@@ -31,6 +31,17 @@ const authChallengeLimiter = rateLimit({
 });
 
 /**
+ * Legacy `GET /api/auth` challenge endpoint — 10 requests per minute per IP.
+ */
+const authLegacyChallengeLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication challenge requests, please wait 1 minute." },
+});
+
+/**
  * Authentication verification requests — 5 requests per minute per IP.
  */
 const authVerifyLimiter = rateLimit({
@@ -41,4 +52,4 @@ const authVerifyLimiter = rateLimit({
   message: { error: "Too many authentication verification requests, please wait 1 minute." },
 });
 
-module.exports = { strictLimiter, authChallengeLimiter, authVerifyLimiter };
+module.exports = { strictLimiter, authChallengeLimiter, authLegacyChallengeLimiter, authVerifyLimiter };

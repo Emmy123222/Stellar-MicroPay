@@ -11,8 +11,33 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint & typecheck
+  # ─── Secret scanning ───────────────────────────────────────────────────────
+  # Scans the *full* commit history, not just the diff introduced by this branch:
+  # a secret can sit unnoticed in a commit that landed weeks ago, and a
+  # diff-only scan is exactly what lets it stay unnoticed.
+  gitleaks:
+    name: Gitleaks (secret scan)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Unshallow the clone so the scanner sees every commit, not just HEAD.
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only needed for organisation-owned repos; harmless on a personal one.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          # Project rules, including the Stellar secret-seed (S...) detector.
+          GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
+
+  # ─── Repository integrity ─────────────────────────────────────────────────
+  repository:
+    name: Repository integrity
     runs-on: ubuntu-latest
     needs: []
     steps:
@@ -26,10 +51,20 @@ jobs:
           cache-dependency-path: |
             frontend/package-lock.json
             backend/package-lock.json
+      - name: Cache Node.js dependencies
+        id: node-modules-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            frontend/node_modules
+            backend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
         run: npm ci
         working-directory: frontend
       - name: Install backend dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
         run: npm ci
         working-directory: backend
       - name: ESLint (frontend)
@@ -41,8 +76,6 @@ jobs:
       - name: TypeScript type check (tsc --noEmit)
         run: npm run type-check
         working-directory: frontend
-        with:
-          fetch-depth: 0
       - name: Reject whitespace errors and unresolved conflicts
         run: |
           # Only diff the last commit when it actually has a parent; a
@@ -54,8 +87,9 @@ jobs:
           fi
           ! git grep -n -E '^(<<<<<<<|=======|>>>>>>>)'
 
-  test-frontend:
-    name: Test (frontend)
+
+  frontend:
+    name: Frontend (typecheck, lint, test, build)
     runs-on: ubuntu-latest
     needs: []
     defaults:

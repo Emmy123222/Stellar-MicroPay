@@ -6,13 +6,22 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { getNetworkConfig, setNetworkConfig, NetworkConfig } from "@/lib/stellar";
 import { disconnectWallet } from "@/lib/wallet";
 import { shortenAddress } from "@/lib/stellar";
 import { useWallet } from "@/lib/useWallet";
 import { resetOnboardingTour } from "@/hooks/useOnboarding";
+import { useTranslation } from "@/contexts/I18nContext";
+import {
+  LOCALE_LABELS,
+  SUPPORTED_LOCALES,
+  type Locale,
+} from "@/lib/i18n";
+import WalletHealthPanel from "@/components/WalletHealthPanel";
 
 export default function SettingsPage() {
+  const router = useRouter();
   const { publicKey, disconnectWallet: disconnectCurrentWallet } = useWallet();
   const { t, locale, setLocale } = useTranslation();
   const [config, setConfig] = useState<NetworkConfig>({
@@ -273,7 +282,7 @@ export default function SettingsPage() {
     if (!window.confirm("Are you sure? This will delete your contacts and settings.")) return;
     Object.keys(localStorage).filter((k) => k.startsWith("stellar-micropay:")).forEach((k) => localStorage.removeItem(k));
     disconnectCurrentWallet();
-    window.location.href = "/";
+    void router.push("/");
   };
 
   const confirmMainnetSwitch = () => {
@@ -617,14 +626,9 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
-            {/* Danger Zone */}
-            <div className="border border-red-500/30 rounded-xl p-6">
-              <h2 className="text-lg font-semibold text-red-500 mb-2">Danger Zone</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Removes contacts, settings and cached data stored by Stellar MicroPay.</p>
-              <button onClick={handleClearAllData} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors">
-                Clear all Stellar MicroPay data
-              </button>
-            </div>
+
+            {/* Wallet Health Check Section - Issue #1192 */}
+            {publicKey && <WalletHealthPanel publicKey={publicKey} />}
           </div>
         </main>
       </div>

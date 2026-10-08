@@ -1,30 +1,123 @@
 # Gitleaks configuration for Stellar MicroPay.
 # Extends the bundled default ruleset and adds project-specific detections.
+#
+# Design rule: every allowance below is scoped to a specific *value shape*, never
+# to a whole directory. A blanket `__tests__/` or `docs/` entry is how a real key
+# ends up living in the repo for years while the scanner reports green — test
+# files and fixtures are exactly where credentials get hardcoded by accident.
 
 [extend]
 # Inherit Gitleaks' built-in rules (AWS keys, generic API tokens, private keys, …)
 useDefault = true
 
+# ─── Detection: Stellar secret seeds ──────────────────────────────────────────
+# A Stellar *secret seed* is 'S' followed by 55 base32 characters (56 total).
+# This is the only string in a Stellar codebase that must never be committed.
 [[rules]]
 id = "stellar-secret-seed"
 description = "Stellar secret seed (S... 56-char base32)"
-# Stellar secret keys: 'S' followed by 55 base32 chars [A-Z2-7].
 regex = '''S[A-Z2-7]{55}'''
 keywords = ["S"]
 tags = ["stellar", "private-key"]
 
-[allowlist]
-description = "Files and paths that legitimately contain example/test values"
+# ─── Allowance: Stellar *public* keys ─────────────────────────────────────────
+# Account IDs are 'G' + 55 base32 chars. They are public by construction — the
+# e2e fixtures pin testnet accounts that appear in every test report. Gitleaks'
+# `generic-api-key` rule flags any high-entropy 56-char token, so in a Stellar
+# repo it fires on every account ID. Matched against `match` rather than `line`
+# so the allowance applies only when the flagged value *itself* is a public key:
+# a real secret seed sitting on the same line is still reported.
+[[allowlists]]
+description = "Stellar account IDs (G... 56-char base32) are public keys, not secrets"
+rules = ["generic-api-key"]
+regexTarget = "match"
+regexes = ['''(^|[^A-Za-z0-9_-])G[A-Z2-7]{55}([^A-Za-z0-9_-]|$)''']
+
+# ─── Allowance: malformed Stellar-shaped placeholders ────────────────────────
+# Test fixtures also contain strings that *look* like account IDs but cannot be
+# one. Two ways that happens, both matched narrowly:
+#
+#  1. They carry a digit outside the base32 alphabet (0, 1, 8, 9) — the
+#     readably-named `GOWN…` / `GABC…` / `GXYZ…` placeholders. A real account ID
+#     is base32 by definition, so it can never contain those digits. This is a
+#     provable exclusion, not a heuristic.
+#  2. They are the right alphabet but the wrong length — 55 characters rather
+#     than 56, one short of a real ID. Scoped to that exact length so a genuine
+#     56-character account ID is still matched by the rule above and remains
+#     explicitly accounted for.
+#
+# Every pattern here is bounded by non-alphanumeric delimiters on both sides,
+# and that is load-bearing rather than cosmetic. Without them a leading `G` and
+# a later digit match by chance *inside* unrelated high-entropy strings — a
+# base64 JWT such as `eyJhbGciOiJIUzI1NiI…` contains both — and the allowance
+# would quietly mask a real token. Anchoring to token boundaries means a match
+# requires the whole token to be a G-prefixed run of capitals and digits.
+#
+# None of these can match a secret seed, which is 'S'-prefixed and is caught by
+# `stellar-secret-seed` regardless.
+[[allowlists]]
+description = "Stellar-shaped placeholders that cannot be a real account ID"
+rules = ["generic-api-key"]
+regexTarget = "match"
+regexes = [
+  '''(^|[^A-Za-z0-9_-])G[A-Z0-9]*[0189][A-Z0-9]*([^A-Za-z0-9_-]|$)''',
+  '''(^|[^A-Za-z0-9_-])G[A-Z2-7]{54}([^A-Za-z0-9_-]|$)''',
+]
+
+# ─── Allowance: synthetic negative-test vectors ───────────────────────────────
+# Unit tests assert that malformed keys are *rejected*, which means embedding
+# deliberately-invalid ones — the repo uses degenerate bodies such as
+# 'S' + 52×'A' + 'WHF' and 'S' + 55×'A'.
+#
+# Matched structurally rather than as literal strings, so a future test vector
+# is covered without a config edit. A uniform run of 48+ base32 characters has
+# probability 32^-47 of arising in real key material, so this cannot mask a
+# genuine secret: any real seed has a high-entropy body and matches nothing here.
+[[allowlists]]
+description = "Degenerate (uniform-run) negative-test vectors"
+rules = ["stellar-secret-seed"]
+regexTarget = "match"
+regexes = ['''S[A-Z2-7]*(A{48,}|B{48,}|C{48,}|D{48,}|E{48,}|F{48,}|G{48,}|H{48,}|I{48,}|J{48,}|K{48,}|L{48,}|M{48,}|N{48,}|O{48,}|P{48,}|Q{48,}|R{48,}|S{48,}|T{48,}|U{48,}|V{48,}|W{48,}|X{48,}|Y{48,}|Z{48,}|2{48,}|3{48,}|4{48,}|5{48,}|6{48,}|7{48,})[A-Z2-7]*''']
+
+# ─── Allowance: truncated JWT placeholders ───────────────────────────────────
+# Documentation and test fixtures use a JWT *header* with a word label in place
+# of a payload and signature — `eyJ….test`, `eyJ….old`, `eyJ….new`, or a header
+# followed by a literal `...`.
+#
+# Both ends matter, and for different reasons. The leading delimiter stops the
+# pattern from starting at a *payload* rather than a header — a real JWT's
+# payload also begins `eyJ`, and without this the pattern happily matches from
+# there straight through the signature. The trailing class rejects another `.`,
+# which is what a real token has after its second segment and a placeholder does
+# not (a placeholder is closed by a quote, comma, or end of line).
+#
+# Because gitleaks matches an allowlist rule against the whole *line* rather
+# than the isolated secret, those delimiters have to be part of the pattern.
+[[allowlists]]
+description = "Two-segment JWT placeholders (redacted samples, truncated docs)"
+rules = ["generic-api-key"]
+regexTarget = "match"
+regexes = [
+  '''(^|[^A-Za-z0-9_.-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+([^-A-Za-z0-9_.]|$)''',
+  '''(^|[^A-Za-z0-9_.-])eyJ[A-Za-z0-9_-]{10,}\.\.\.''',
+]
+
+# ─── Global allowances ────────────────────────────────────────────────────────
+# No `rules` key => applies to every rule.
+[[allowlists]]
+description = "Dependency lockfiles and the env-var documentation template"
 paths = [
-  '''(^|/)\.env\.example$''',
-  '''(^|/)ENV\.md$''',
+  # Lockfiles pin a resolved dependency tree: large, high-entropy, and
+  # regenerated constantly. Gitleaks' defaults already ignore integrity hashes;
+  # these paths suppress the remaining churn.
   '''(^|/)package-lock\.json$''',
   '''(^|/)Cargo\.lock$''',
-  '''(^|/)__tests__/''',
-  '''\.test\.js$''',
+  # ENV.md is this repo's .env.example — placeholders only, committed on purpose
+  # so new deployments know which variables to set.
+  '''(^|/)ENV\.md$''',
 ]
-# Well-known Stellar test/documentation account addresses (public G-keys) and
-# common placeholder secrets should not trip the scanner.
+# Placeholder *values*, matched anywhere. Kept as value-level regexes rather
+# than path allowlists so a real key committed alongside them is still caught.
 regexes = [
   '''EXAMPLE''',
   '''your[-_]?secret''',

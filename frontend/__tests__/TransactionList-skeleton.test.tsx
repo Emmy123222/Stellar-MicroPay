@@ -9,7 +9,7 @@ jest.mock("@/lib/stellar", () => ({
 }));
 
 jest.mock("next/router", () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), query: {}, isReady: true }),
 }));
 
 const PUBLIC_KEY = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";

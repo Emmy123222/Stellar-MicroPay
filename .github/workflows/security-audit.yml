@@ -45,7 +45,11 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies (fails on high/critical)
-        run: npm audit --omit=dev --audit-level=high
+        # `--omit=dev`: the only outstanding advisories (GHSA-vfj7-8cjw-p6xm,
+        # the `braces` stack-exhaustion DoS) have no patched release and are
+        # only reachable through dev-only tooling (eslint-config-next, nodemon).
+        # Shipped dependencies are still audited.
+        run: npm audit --audit-level=high --omit=dev
 
   cargo-audit:
     name: cargo audit (contracts)

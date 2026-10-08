@@ -1,102 +1,140 @@
 #!/usr/bin/env bash
-# scripts/deploy-contract.sh
-# Build and deploy the Soroban smart contract to Stellar testnet or mainnet.
+# Build and deploy the Soroban contract to Stellar testnet or mainnet.
 #
 # Prerequisites:
-#   - Rust + wasm32v1-none target (Rust 1.84+)
-#   - Stellar CLI >= 25.2 (cargo install --locked stellar-cli) — performs the build
-#   - A funded Stellar identity (stellar keys generate alice --network testnet)
+#   - Rust + wasm32-unknown-unknown target
+#   - Stellar CLI (cargo install --locked stellar-cli)
+#   - A funded Stellar identity
 #
 # Usage:
-#   chmod +x scripts/deploy-contract.sh
-#   ./scripts/deploy-contract.sh [testnet|mainnet] [identity-name]
+#   ./scripts/deploy-contract.sh [testnet|mainnet] [identity] [--confirm]
 #
-# Example:
-#   ./scripts/deploy-contract.sh testnet alice
+# STELLAR_NETWORK and STELLAR_IDENTITY can be used as defaults.
 
 set -euo pipefail
 
-NETWORK=${1:-testnet}
-IDENTITY=${2:-alice}
-CONTRACT_DIR="$(dirname "$0")/../contracts/stellar-micropay-contract"
-# Artifact lands in the workspace-root target/ (stellar contract build
-# targets wasm32v1-none and applies the spec shaking soroban-sdk 28 requires).
-WASM="$CONTRACT_DIR/../../target/wasm32v1-none/release/stellar_micropay_contract.wasm"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+CONTRACT_DIR="$ROOT_DIR/contracts/stellar-micropay-contract"
+WASM="$CONTRACT_DIR/target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm"
+NETWORK="${STELLAR_NETWORK:-testnet}"
+IDENTITY="${STELLAR_IDENTITY:-alice}"
+CONFIRM_MAINNET=false
+NETWORK_SET=false
 
-echo "🌟 Stellar MicroPay — Contract Deployment"
-echo "   Network:  $NETWORK"
-echo "   Identity: $IDENTITY"
-echo ""
+while (($#)); do
+  case "$1" in
+    testnet|mainnet)
+      if [[ "$NETWORK_SET" == true ]]; then
+        echo "Error: specify the network only once." >&2
+        exit 2
+      fi
+      NETWORK="$1"
+      NETWORK_SET=true
+      shift
+      ;;
+    --confirm)
+      CONFIRM_MAINNET=true
+      shift
+      ;;
+    --identity)
+      if (($# < 2)); then
+        echo "Error: --identity requires a value." >&2
+        exit 2
+      fi
+      IDENTITY="$2"
+      shift 2
+      ;;
+    *)
+      if [[ "$IDENTITY" != "${STELLAR_IDENTITY:-alice}" ]]; then
+        echo "Error: unexpected argument: $1" >&2
+        exit 2
+      fi
+      IDENTITY="$1"
+      shift
+      ;;
+  esac
+done
 
-# ─── Validate prerequisites ──────────────────────────────────────────────────
+if [[ "$NETWORK" != testnet && "$NETWORK" != mainnet ]]; then
+  echo "Error: network must be testnet or mainnet (got '$NETWORK')." >&2
+  exit 2
+fi
 
-if ! command -v stellar &> /dev/null; then
-  echo "❌ Stellar CLI not found."
-  echo "   soroban-sdk 28 requires 'stellar contract build' (v25.2+); a plain"
-  echo "   'cargo build --target wasm32v1-none' now fails."
-  echo "   Install: cargo install --locked stellar-cli"
+if [[ "$NETWORK" == mainnet && "$CONFIRM_MAINNET" != true ]]; then
+  echo "Error: mainnet deployment requires --confirm." >&2
+  exit 2
+fi
+
+if ! command -v stellar >/dev/null 2>&1; then
+  echo "Error: Stellar CLI not found. Install with: cargo install --locked stellar-cli" >&2
   exit 1
 fi
 
-if ! command -v cargo &> /dev/null; then
-  echo "❌ Rust/Cargo not found."
-  echo "   Install: https://rustup.rs"
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "Error: Rust/Cargo not found. Install from https://rustup.rs" >&2
   exit 1
 fi
 
-# ─── Build ────────────────────────────────────────────────────────────────────
+echo "Stellar MicroPay contract deployment"
+echo "  Network:  $NETWORK"
+echo "  Identity: $IDENTITY"
 
-echo "🔨 Building WASM contract..."
-cd "$CONTRACT_DIR"
-stellar contract build --profile release
+echo "Building release WASM..."
+cargo build --manifest-path "$CONTRACT_DIR/Cargo.toml" --target wasm32-unknown-unknown --release
 
 if [[ ! -f "$WASM" ]]; then
-  echo "❌ WASM file not found after build: $WASM"
+  echo "Error: WASM file not found after build: $WASM" >&2
   exit 1
 fi
 
-WASM_SIZE=$(du -sh "$WASM" | cut -f1)
-echo "   ✅ Built: $WASM ($WASM_SIZE)"
-echo ""
+ID_FILE="$ROOT_DIR/.contract-id.$NETWORK"
+DEPLOYED=false
 
-# ─── Deploy ───────────────────────────────────────────────────────────────────
-
-echo "🚀 Deploying to $NETWORK..."
-CONTRACT_ID=$(stellar contract deploy \
-  --wasm "$WASM" \
-  --source "$IDENTITY" \
-  --network "$NETWORK" \
-  2>&1)
-
-echo ""
-echo "✅ Contract deployed!"
-echo ""
-echo "   Contract ID: $CONTRACT_ID"
-echo ""
-
-# ─── Initialize ───────────────────────────────────────────────────────────────
-
-ADMIN_KEY=$(stellar keys address "$IDENTITY" 2>/dev/null || echo "")
-
-if [[ -n "$ADMIN_KEY" ]]; then
-  echo "🔧 Initializing contract with admin: $ADMIN_KEY"
-
-  stellar contract invoke \
-    --id "$CONTRACT_ID" \
-    --source "$IDENTITY" \
-    --network "$NETWORK" \
-    -- initialize \
-    --admin "$ADMIN_KEY"
-
-  echo "   ✅ Initialized"
+if [[ -s "$ID_FILE" ]]; then
+  CONTRACT_ID="$(tr -d '\r\n' < "$ID_FILE")"
+  echo "Reusing contract ID from $ID_FILE"
 else
-  echo "⚠️  Could not resolve admin key for identity '$IDENTITY'"
-  echo "   Initialize manually:"
-  echo "   stellar contract invoke --id $CONTRACT_ID --source $IDENTITY --network $NETWORK -- initialize --admin <YOUR_PUBLIC_KEY>"
+  echo "Deploying contract to $NETWORK..."
+  CONTRACT_ID="$(stellar contract deploy \
+    --wasm "$WASM" \
+    --source "$IDENTITY" \
+    --network "$NETWORK")"
+
+  if [[ -z "$CONTRACT_ID" ]]; then
+    echo "Error: Stellar CLI returned an empty contract ID." >&2
+    exit 1
+  fi
+
+  TEMP_ID_FILE="$ID_FILE.tmp.$$"
+  trap 'rm -f "$TEMP_ID_FILE"' EXIT
+  printf '%s\n' "$CONTRACT_ID" > "$TEMP_ID_FILE"
+  mv "$TEMP_ID_FILE" "$ID_FILE"
+  trap - EXIT
+  DEPLOYED=true
 fi
 
-echo ""
-echo "─────────────────────────────────────────"
-echo "  Add to your .env:"
-echo "  NEXT_PUBLIC_CONTRACT_ID=$CONTRACT_ID"
-echo "─────────────────────────────────────────"
+if [[ "$DEPLOYED" == true ]]; then
+  ADMIN_ADDRESS="$(stellar keys address "$IDENTITY" 2>/dev/null || true)"
+  if [[ -n "$ADMIN_ADDRESS" ]]; then
+    echo "Initializing contract..."
+    stellar contract invoke \
+      --id "$CONTRACT_ID" \
+      --source "$IDENTITY" \
+      --network "$NETWORK" \
+      -- initialize \
+      --admin "$ADMIN_ADDRESS"
+  else
+    echo "Warning: could not resolve identity '$IDENTITY'; initialize the contract manually." >&2
+  fi
+fi
+
+echo "Verifying deployment with get_stream..."
+stellar contract invoke \
+  --id "$CONTRACT_ID" \
+  --network "$NETWORK" \
+  -- get_stream \
+  --stream_id 0
+
+echo "Deployment verified."
+echo "Contract ID: $CONTRACT_ID"

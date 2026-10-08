@@ -16,9 +16,13 @@
 const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CACHE_TTL_MS = parseInt(
   process.env.ANALYTICS_CACHE_TTL_MS || String(DEFAULT_CACHE_TTL_MS),
-  10
+  10,
 );
 const REDIS_URL = process.env.REDIS_URL || null;
+const MAX_MEMORY_ENTRIES = parseInt(
+  process.env.ANALYTICS_CACHE_MAX_ENTRIES || "500",
+  10,
+);
 
 class AnalyticsCache {
   constructor() {
@@ -48,7 +52,7 @@ class AnalyticsCache {
       this.redisClient.on("error", (err) => {
         console.error(
           "[analytics-cache] Redis error — falling back to memory cache:",
-          err.message
+          err.message,
         );
         this.usingRedis = false;
       });
@@ -62,14 +66,14 @@ class AnalyticsCache {
         .catch((err) => {
           console.error(
             "[analytics-cache] Redis connection failed — falling back to memory cache:",
-            err.message
+            err.message,
           );
           this.usingRedis = false;
         });
     } catch (err) {
       console.error(
         "[analytics-cache] Failed to initialise Redis — falling back to memory cache:",
-        err.message
+        err.message,
       );
       this.usingRedis = false;
     }
@@ -91,7 +95,7 @@ class AnalyticsCache {
       } catch (err) {
         console.error(
           "[analytics-cache] Redis GET failed — falling back to memory:",
-          err.message
+          err.message,
         );
         this.usingRedis = false;
         return this._getMemory(key);
@@ -110,14 +114,24 @@ class AnalyticsCache {
     const entry = this.memoryCache.get(key);
 
     if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+      // Refresh recency (LRU): move to the end of the Map.
+      this.memoryCache.delete(key);
+      this.memoryCache.set(key, entry);
       return entry.data;
     }
 
-    // Expired or absent — remove if present and return null.
     if (entry) {
       this.memoryCache.delete(key);
     }
     return null;
+  }
+
+  _setMemory(key, value) {
+    this.memoryCache.delete(key);
+    this.memoryCache.set(key, { data: value, timestamp: Date.now() });
+    while (this.memoryCache.size > MAX_MEMORY_ENTRIES) {
+      this.memoryCache.delete(this.memoryCache.keys().next().value);
+    }
   }
 
   /**
@@ -135,13 +149,13 @@ class AnalyticsCache {
       } catch (err) {
         console.error(
           "[analytics-cache] Redis SET failed — falling back to memory:",
-          err.message
+          err.message,
         );
         this.usingRedis = false;
       }
     }
 
-    this.memoryCache.set(key, { data: value, timestamp: Date.now() });
+    this._setMemory(key, value);
   }
 
   /**
@@ -166,11 +180,14 @@ class AnalyticsCache {
    * @returns {Promise<void>}
    */
   async clearByPrefix(prefix) {
+    const removed = new Set();
+
     if (this.usingRedis && this.redisClient) {
       try {
         const keys = await this.redisClient.keys(`${prefix}*`);
         if (keys.length > 0) {
           await this.redisClient.del(keys);
+          keys.forEach((k) => removed.add(k));
         }
       } catch {
         // Fall through to memory cleanup.
@@ -180,8 +197,11 @@ class AnalyticsCache {
     for (const key of [...this.memoryCache.keys()]) {
       if (key.startsWith(prefix)) {
         this.memoryCache.delete(key);
+        removed.add(key);
       }
     }
+
+    return removed.size;
   }
 
   /**
@@ -200,7 +220,7 @@ class AnalyticsCache {
    * @param {*} value
    */
   setSync(key, value) {
-    this.memoryCache.set(key, { data: value, timestamp: Date.now() });
+    this._setMemory(key, value);
   }
 
   /**

@@ -1,11 +1,13 @@
 import {
   buildAccountMergeTransaction,
+  buildMemo,
   buildPaymentTransaction,
   collectSignatures,
   createStellarMemo,
   getNetworkPassphrase,
   isValidStellarAddress,
   memoTextByteLength,
+  memoValueError,
   server,
   TransactionCategory,
   truncateMemoText,
@@ -86,18 +88,16 @@ describe("Stellar helper", () => {
 
       // Verify that the signatures match the expected signers
       const hints = combinedTx.signatures.map((sig) =>
-        Buffer.from(sig.hint()).toString("hex")
+        Buffer.from(sig.hint.toBytes()).toString("hex")
       );
 
       // Get expected hints from the signers' public keys (last 4 bytes)
-      const expectedHint1 = Keypair.fromPublicKey(signer1.publicKey())
-        .rawPublicKey()
-        .slice(-4)
-        .toString("hex");
-      const expectedHint2 = Keypair.fromPublicKey(signer2.publicKey())
-        .rawPublicKey()
-        .slice(-4)
-        .toString("hex");
+      const expectedHint1 = Buffer.from(
+        Keypair.fromPublicKey(signer1.publicKey()).rawPublicKey().slice(-4)
+      ).toString("hex");
+      const expectedHint2 = Buffer.from(
+        Keypair.fromPublicKey(signer2.publicKey()).rawPublicKey().slice(-4)
+      ).toString("hex");
 
       expect(hints).toContain(expectedHint1);
       expect(hints).toContain(expectedHint2);
@@ -200,7 +200,7 @@ describe("Stellar helper", () => {
         memoType: "text",
       });
       expect(tx.memo.type).toBe("text");
-      expect(tx.memo.value).toBe("Invoice");
+      expect(Buffer.from(tx.memo.value as Uint8Array).toString("utf8")).toBe("Invoice");
       expect(createStellarMemo("text", "Invoice").type).toBe("text");
     });
 
@@ -306,7 +306,7 @@ describe("memo types", () => {
       const memo = buildMemo("text", "a".repeat(40));
 
       expect(memo.type).toBe("text");
-      expect(memo.value).toBe("a".repeat(28));
+      expect(Buffer.from(memo.value as Uint8Array).toString("utf8")).toBe("a".repeat(28));
     });
 
     it("builds MEMO_ID from a uint64 string", () => {
@@ -320,14 +320,14 @@ describe("memo types", () => {
       const memo = buildMemo("hash", "ab".repeat(32));
 
       expect(memo.type).toBe("hash");
-      expect((memo.value as Buffer).toString("hex")).toBe("ab".repeat(32));
+      expect(Buffer.from(memo.value as Uint8Array).toString("hex")).toBe("ab".repeat(32));
     });
 
     it("builds MEMO_RETURN from 32 bytes of hex", () => {
       const memo = buildMemo("return", "cd".repeat(32));
 
       expect(memo.type).toBe("return");
-      expect((memo.value as Buffer).toString("hex")).toBe("cd".repeat(32));
+      expect(Buffer.from(memo.value as Uint8Array).toString("hex")).toBe("cd".repeat(32));
     });
 
     it("rejects a MEMO_ID above the uint64 range instead of rounding it", () => {
@@ -380,7 +380,9 @@ describe("memo types", () => {
 
       expect(transaction.memo.type).toBe(expectedType);
       if (expectedType === "hash" || expectedType === "return") {
-        expect((transaction.memo.value as Buffer).toString("hex")).toBe(value);
+        expect(Buffer.from(transaction.memo.value as Uint8Array).toString("hex")).toBe(value);
+      } else if (expectedType === "text") {
+        expect(Buffer.from(transaction.memo.value as Uint8Array).toString("utf8")).toBe(value);
       } else {
         expect(transaction.memo.value).toBe(value);
       }
@@ -397,7 +399,7 @@ describe("memo types", () => {
       });
 
       expect(transaction.memo.type).toBe("text");
-      expect(transaction.memo.value).toBe("invoice 42");
+      expect(Buffer.from(transaction.memo.value as Uint8Array).toString("utf8")).toBe("invoice 42");
     });
   });
 });

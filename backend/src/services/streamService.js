@@ -162,16 +162,9 @@ async function getStreamStatus(streamId) {
   }
 
   // An archived/deleted entry surfaces as a void ScVal — treat it as absent.
-  if (!entry?.val || entry.val.switch?.() === undefined) {
+  // Decoding a void ScVal yields null, which the payer check below rejects.
+  if (!entry?.val) {
     throw new StreamNotFoundError(id);
-  }
-  try {
-    if (entry.val.switch().name === "scvVoid") {
-      throw new StreamNotFoundError(id);
-    }
-  } catch (err) {
-    if (err instanceof StreamNotFoundError) throw err;
-    // Non-XDR mock shapes in tests fall through to scValToNative below.
   }
 
   const stream = scValToNative(entry.val);

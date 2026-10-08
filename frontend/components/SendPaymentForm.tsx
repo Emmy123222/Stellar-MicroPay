@@ -16,7 +16,10 @@ import {
   buildPaymentTransaction,
   buildReceiptMintTransaction,
   buildSorobanTipTransaction,
+  buildPathPaymentStrictSendTransaction,
+  findStrictSendPaths,
   explorerUrl,
+  fetchFeePercentiles,
   fetchNetworkFeeStats,
   isValidStellarAddress,
   memoTextByteLength,
@@ -30,15 +33,21 @@ import {
   STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM,
   submitTransaction,
   truncateMemoText,
-  type StellarMemoType,
+  USDC_ISSUER,
+  PathPaymentRoute,
+  type FeeSpeed,
+  type FeeSpeedOptions,
 } from "@/lib/stellar";
-import { Federation } from "@stellar/stellar-sdk";
+import { Asset, Federation } from "@stellar/stellar-sdk";
 import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
+import { submitSignedPayment } from "@/lib/paymentApi";
+import { useTranslation } from "@/contexts/I18nContext";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/contexts/I18nContext";
 
 interface SendPaymentFormProps {
   publicKey?: string;
@@ -169,6 +178,20 @@ export default function SendPaymentForm({
   const [splitRecipients, setSplitRecipients] = useState<Array<{ address: string; percentage: number }>>([
     { address: "", percentage: 100 }
   ]);
+
+  // Transaction speed selection (#1191)
+  const [feeSpeed, setFeeSpeed] = useState<FeeSpeed>("normal");
+  const [feeOptions, setFeeOptions] = useState<FeeSpeedOptions>({
+    slow: { stroops: 100, xlm: "0.0000100" },
+    normal: { stroops: 200, xlm: "0.0000200" },
+    fast: { stroops: 500, xlm: "0.0000500" },
+  });
+
+  useEffect(() => {
+    fetchFeePercentiles()
+      .then((opts) => setFeeOptions(opts))
+      .catch(() => {});
+  }, []);
   
   // Federation address lookup
   const [isResolvingFederation, setIsResolvingFederation] = useState(false);
@@ -176,6 +199,17 @@ export default function SendPaymentForm({
   const [federationError, setFederationError] = useState<string | null>(null);
   const federationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isContactPickerOpen, setIsContactPickerOpen] = useState(false);
+
+  // Convert & Send (path payment) mode — Issue #1190
+  const [isConvertAndSend, setIsConvertAndSend] = useState(false);
+  const [pathRoutes, setPathRoutes] = useState<PathPaymentRoute[]>([]);
+  const [selectedRoute, setSelectedRoute] = useState<PathPaymentRoute | null>(null);
+  const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  // Destination asset for Convert & Send (what the recipient receives)
+  const [convertDestAsset, setConvertDestAsset] = useState<"USDC" | "XLM">("USDC");
+  // Slippage tolerance (percentage, e.g. 1.0 = 1%)
+  const CONVERT_SLIPPAGE_PCT = 1.0;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -395,7 +429,7 @@ export default function SendPaymentForm({
 
   const memoPlaceholder =
     memoType === "text"
-      ? "Payment note..."
+      ? t("sendPayment.memoPlaceholder")
       : memoType === "id"
         ? "uint64 integer, e.g. 12345"
         : "64-character hex (32 bytes)";
@@ -426,6 +460,56 @@ export default function SendPaymentForm({
     };
   }, []);
 
+  const amountNum = parseFloat(amount);
+  const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
+  const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
+  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
+
+  // Fetch path payment routes when Convert & Send is enabled and amount/destination changes
+  useEffect(() => {
+    if (!isConvertAndSend || !hasAmount || !isValidDest) {
+      setPathRoutes([]);
+      setSelectedRoute(null);
+      setRouteError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchRoutes = async () => {
+      setIsLoadingRoutes(true);
+      setRouteError(null);
+      try {
+        const sendAsset = selectedAsset === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
+        const destAsset = convertDestAsset === "USDC" ? new Asset("USDC", USDC_ISSUER) : Asset.native();
+        const routes = await findStrictSendPaths({
+          sourceAsset: sendAsset,
+          sourceAmount: amountNum.toFixed(7),
+          destinationAsset: destAsset,
+        });
+        if (!cancelled) {
+          setPathRoutes(routes);
+          setSelectedRoute(routes[0] ?? null);
+          if (routes.length === 0) {
+            setRouteError("No conversion path found. Try a different amount or asset pair.");
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setRouteError(err?.message || "Failed to fetch conversion routes.");
+        }
+      } finally {
+        if (!cancelled) setIsLoadingRoutes(false);
+      }
+    };
+
+    const debounce = setTimeout(fetchRoutes, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConvertAndSend, amount, destination, selectedAsset, convertDestAsset]);
+
   useEffect(() => {
     if (!prefill) return;
     if (prefill.destination) setDestination(prefill.destination);
@@ -440,11 +524,6 @@ export default function SendPaymentForm({
     selectedAsset === "XLM"
       ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM - networkFeeXlm)
       : usdcBal;
-
-  const amountNum = parseFloat(amount);
-  const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
-  const estimatedTotalDeducted = hasAmount ? amountNum + networkFeeXlm : null;
-  const isValidDest = destination.length > 0 && isValidStellarAddress(destination);
 
   const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
   const isSNSDestination = destination.toLowerCase().endsWith(".xlm");
@@ -710,19 +789,40 @@ export default function SendPaymentForm({
     try {
       markStepStarted("building");
       setStatus("building");
-      const tx = isTipOnChain
-        ? await buildSorobanTipTransaction({
+
+      let tx;
+      if (isConvertAndSend && selectedRoute) {
+        // Path payment strict send (Convert & Send mode)
+        const sendAsset = selectedAsset === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
+        const destAsset = convertDestAsset === "USDC" ? new Asset("USDC", USDC_ISSUER) : Asset.native();
+        // Apply slippage: minDestAmount = destinationAmount * (1 - slippage%/100)
+        const rawDestAmt = parseFloat(selectedRoute.destinationAmount);
+        const minDestAmount = (rawDestAmt * (1 - CONVERT_SLIPPAGE_PCT / 100)).toFixed(7);
+        tx = await buildPathPaymentStrictSendTransaction({
+          fromPublicKey: publicKey,
+          toPublicKey: destination,
+          sendAsset,
+          sendAmount: amountNum.toFixed(7),
+          destAsset,
+          minDestAmount,
+          path: selectedRoute.path,
+          memo: memo.trim() || undefined,
+        });
+      } else if (isTipOnChain) {
+        tx = await buildSorobanTipTransaction({
           fromPublicKey: publicKey,
           toPublicKey: destination,
           amount: amountNum.toFixed(7),
-        })
-        : await buildPaymentTransaction({
-            fromPublicKey: publicKey,
-            toPublicKey: destination,
-            amount: amountNum.toFixed(7),
-            memo: memo.trim() || undefined,
-            memoType,
-          });
+        });
+      } else {
+        tx = await buildPaymentTransaction({
+          fromPublicKey: publicKey,
+          toPublicKey: destination,
+          amount: amountNum.toFixed(7),
+          memo: memo.trim() || undefined,
+          baseFee: feeOptions[feeSpeed]?.stroops,
+        });
+      }
       markStepCompleted("building");
 
       activeStep = "signing";
@@ -745,6 +845,22 @@ export default function SendPaymentForm({
       setStatus("confirming");
       await waitForTransactionConfirmation(result.hash);
       markStepCompleted("confirming");
+
+      // The payment is already final on Horizon at this point, so recording it
+      // is best-effort: a failure here must not surface as a failed payment.
+      // The request carries X-Timestamp/X-Signature so a captured copy cannot
+      // be replayed into a duplicate submission once the window closes.
+      try {
+        await submitSignedPayment({
+          senderPublicKey: publicKey,
+          recipientPublicKey: destination,
+          amount: amountNum.toFixed(7),
+          asset: selectedAsset,
+          txHash: result.hash,
+        });
+      } catch (err) {
+        console.error("Failed to record payment submission:", err);
+      }
 
       setStatus("success");
       saveRecipient(destination);
@@ -980,7 +1096,7 @@ export default function SendPaymentForm({
                     key={address}
                     type="button"
                     role="option"
-                    aria-selected={false}
+                    aria-selected={destination === address}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => { setDestination(address); setIsRecentDropdownOpen(false); }}
                     className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-sm text-slate-200 hover:bg-white/5"
@@ -1070,12 +1186,141 @@ export default function SendPaymentForm({
               className={clsx("input-field", amount && !isValidAmt && "border-red-500/50")}
               disabled={status !== "idle"}
             />
-            <p className="mt-2 text-xs text-slate-400" role="status">
-              {feeStatus === "loading" && "Fetching current network fee…"}
-              {feeStatus === "error" && `Network fee unavailable; using ${STELLAR_BASE_FEE_XLM} XLM fallback.`}
-              {feeStatus === "ready" && estimatedTotalDeducted != null &&
-                `Estimated fee: ~${networkFeeXlm.toFixed(7)} XLM (${Math.round(networkFeeXlm * 10_000_000)} stroops); total ~${estimatedTotalDeducted.toFixed(7)} XLM.`}
-            </p>
+            {/* Transaction Speed Selector (#1191) */}
+            <div className="mt-3">
+              <div className="mb-1.5 flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium">Transaction Speed</span>
+                <span className="text-slate-400">
+                  Est. Fee: {feeOptions[feeSpeed]?.stroops} stroops ({feeOptions[feeSpeed]?.xlm} XLM)
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(["slow", "normal", "fast"] as const).map((spd) => {
+                  const opt = feeOptions[spd];
+                  const isSelected = feeSpeed === spd;
+                  return (
+                    <button
+                      key={spd}
+                      type="button"
+                      onClick={() => setFeeSpeed(spd)}
+                      disabled={status !== "idle"}
+                      className={clsx(
+                        "flex flex-col items-center justify-center p-2 rounded-lg border text-xs transition-all",
+                        isSelected
+                          ? "bg-stellar-500/20 border-stellar-400 text-white font-medium shadow-sm shadow-stellar-500/20"
+                          : "bg-white/[0.03] border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]"
+                      )}
+                    >
+                      <span className="capitalize font-semibold">{spd}</span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">
+                        {opt?.stroops} stroops
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Convert & Send Toggle - Issue #1190 */}
+        {!hideAssetSelector && !hideDestinationField && !hideAmountField && (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setIsConvertAndSend(!isConvertAndSend);
+                setPathRoutes([]);
+                setSelectedRoute(null);
+                setRouteError(null);
+              }}
+              id="convert-send-toggle"
+              aria-pressed={isConvertAndSend}
+              className={clsx(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                isConvertAndSend ? "bg-stellar-500" : "bg-slate-600"
+              )}
+            >
+              <span
+                className={clsx(
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  isConvertAndSend ? "translate-x-6" : "translate-x-1"
+                )}
+              />
+            </button>
+            <span className="text-sm text-slate-300">Convert &amp; Send (via Stellar DEX)</span>
+          </div>
+        )}
+
+        {/* Convert & Send destination asset selector */}
+        {isConvertAndSend && (
+          <div className="rounded-xl border border-stellar-500/20 bg-stellar-500/5 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <SwitchIcon className="w-4 h-4 text-stellar-400" />
+              <span className="text-sm font-medium text-stellar-300">Recipient receives</span>
+            </div>
+            <div className="flex gap-2">
+              {(["USDC", "XLM"] as const)
+                .filter((a) => a !== selectedAsset)
+                .map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => setConvertDestAsset(a)}
+                    className={clsx(
+                      "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
+                      convertDestAsset === a
+                        ? "bg-stellar-500/15 text-stellar-300 border-stellar-500/30"
+                        : "text-slate-400 border-white/10 hover:border-white/20"
+                    )}
+                  >
+                    {a}
+                  </button>
+                ))}
+            </div>
+
+            {/* Route preview */}
+            {isLoadingRoutes && (
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <div className="w-3.5 h-3.5 border-2 border-stellar-400 border-t-transparent rounded-full animate-spin" />
+                Finding best route...
+              </div>
+            )}
+
+            {routeError && !isLoadingRoutes && (
+              <p className="text-xs text-amber-400">{routeError}</p>
+            )}
+
+            {selectedRoute && !isLoadingRoutes && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Estimated received</span>
+                  <span className="text-emerald-400 font-medium font-mono">
+                    ~{parseFloat(selectedRoute.destinationAmount).toFixed(6)} {convertDestAsset}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Exchange rate</span>
+                  <span className="text-slate-300 font-mono">
+                    1 {selectedAsset} ≈ {selectedRoute.exchangeRate.toFixed(6)} {convertDestAsset}
+                  </span>
+                </div>
+                {selectedRoute.path.length > 0 && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Route</span>
+                    <span className="text-slate-400">
+                      {selectedAsset} →{" "}
+                      {selectedRoute.path.map((p) => (p.isNative() ? "XLM" : p.getCode())).join(" → ")}{" "}
+                      → {convertDestAsset}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Slippage tolerance</span>
+                  <span className="text-slate-400">{CONVERT_SLIPPAGE_PCT}%</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1167,7 +1412,7 @@ export default function SendPaymentForm({
 
         {!hideMemoField && (
           <div>
-            <label className="label" htmlFor="memo-type">Memo (optional)</label>
+            <label className="label" htmlFor="memo-type">{t("sendPayment.memoOptional")}</label>
             <select
               id="memo-type"
               value={memoType}
@@ -1383,6 +1628,14 @@ function ReceiptIcon({ className }: { className?: string }) {
   );
 }
 
+function SwitchIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+    </svg>
+  );
+}
+
 interface SendConfirmationModalProps {
   isOpen: boolean;
   destination: string;
@@ -1397,6 +1650,7 @@ interface SendConfirmationModalProps {
 }
 
 function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, estimatedFee, usdValue, onCancel, onConfirm }: SendConfirmationModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

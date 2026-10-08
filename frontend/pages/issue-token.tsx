@@ -18,13 +18,13 @@ import type { Transaction } from "@stellar/stellar-sdk";
 import WalletConnect from "@/components/WalletConnect";
 import {
   ASSET_CODE_MAX_LENGTH,
-  NETWORK,
   assetExplorerUrl,
   buildAssetIssueTransaction,
   buildChangeTrustTransaction,
   buildHomeDomainTransaction,
   buildStellarToml,
   explorerUrl,
+  getNetwork,
   isValidStellarAddress,
   shortenAddress,
   stellarTomlUrl,
@@ -58,6 +58,7 @@ function errorMessage(error: unknown): string {
 
 export default function IssueTokenPage() {
   const { publicKey } = useWallet();
+  const network = getNetwork();
 
   const [step, setStep] = useState<StepId>(1);
   const [assetCode, setAssetCode] = useState("");
@@ -127,9 +128,9 @@ export default function IssueTokenPage() {
         homeDomain,
         assetCode: assetCode || "ASSET",
         issuerPublicKey: issuer || "G…",
-        network: NETWORK === "mainnet" ? "mainnet" : "testnet",
+        network,
       }),
-    [homeDomain, assetCode, issuer]
+    [homeDomain, assetCode, issuer, network]
   );
 
   /** Sign with Freighter (verifying the active account) and submit. */
@@ -254,7 +255,7 @@ export default function IssueTokenPage() {
           </h1>
           <p className="text-slate-400 text-sm">
             Create your own Stellar asset in five steps on{" "}
-            <span className="font-mono text-slate-300">{NETWORK}</span>.
+            <span className="font-mono text-slate-300">{network}</span>.
           </p>
         </div>
 
@@ -591,7 +592,7 @@ export default function IssueTokenPage() {
                     <dt className="text-xs uppercase tracking-wide text-slate-500">
                       Network
                     </dt>
-                    <dd className="font-mono text-white">{NETWORK}</dd>
+                    <dd className="font-mono text-white">{network}</dd>
                   </div>
                   <div>
                     <dt className="text-xs uppercase tracking-wide text-slate-500">
