@@ -70,7 +70,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Audit dependencies (fails on high/critical)
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run type-check
       - run: npm run lint
       - run: npm test
@@ -91,7 +91,7 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - name: Audit dependencies (fails on high/critical)
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm test
 

@@ -54,12 +54,14 @@
     "typescript": "^5"
   },
   "overrides": {
-    "toml": "^4.2.0"
+    "braces": "^3.0.3",
+    "compression": "^1.8.2",
+    "micromatch": "^4.0.8",
+    "@next/eslint-plugin-next": {
+      "fast-glob": "3.3.3"
+    }
   },
   "engines": {
     "node": "20.19.5"
-  },
-  "overrides": {
-    "toml": "npm:@iarna/toml@^2.2.5"
   }
 }
