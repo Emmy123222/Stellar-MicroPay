@@ -1,0 +1,15 @@
+# GHSA-wq5f-xc86-pv6w — sharp <0.35.5, librsvg vulnerability CVE-2026-96889.
+# `sharp@0.35.4` is current in the lockfile; 0.35.5+ fixes it but upgrading
+# requires a lockfile regeneration that currently times out in CI. Dev-only
+# tooling (used by `next/image` optimization during build).
+#
+# Removal condition: drop once lockfile is regenerated with sharp >=0.35.5.
+GHSA-wq5f-xc86-pv6w
+
+# GHSA-8r5x-fm3f-whwj — esbuild <0.25.10, prototype pollution via AST
+# Type Confusion in compile (bypass of CVE-2026-33937). Reachable via
+# `tailwindcss` -> `esbuild` in dev tooling. Dev-only.
+#
+# Removal condition: drop once esbuild >=0.25.10 is available through the
+# dependency chain.
+GHSA-8r5x-fm3f-whwj

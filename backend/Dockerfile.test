@@ -9,6 +9,9 @@ FROM node:20.19.5-alpine
 
 WORKDIR /app
 
+# Install curl for healthchecks (used by docker-compose.test.yml mock-horizon)
+RUN apk add --no-cache curl
+
 # Install dependencies first for layer caching
 COPY package*.json ./
 RUN npm ci

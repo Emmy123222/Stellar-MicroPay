@@ -95,7 +95,6 @@ import { getJwtToken } from "@/lib/auth";
 import { URIParseResult, uriToPrefillData } from "@/lib/sep0007";
 import { useWallet } from "@/lib/useWallet";
 import { useOnboarding } from "@/hooks/useOnboarding";
-import { useTranslation } from "@/contexts/I18nContext";
 
 interface DashboardProps {
   stellarURI?: URIParseResult | null;

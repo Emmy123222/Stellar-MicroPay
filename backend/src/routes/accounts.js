@@ -75,5 +75,4 @@ router.get("/:publicKey", strictLimiter, sanitizePublicKey, accountController.ge
  */
 router.post("/register", strictLimiter, accountController.registerUsername);
 
-module.exports = router;
-
+module.exports = router;`n

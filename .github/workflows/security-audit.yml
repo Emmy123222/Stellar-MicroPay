@@ -44,12 +44,64 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit dependencies (fails on high/critical)
-        # `--omit=dev`: the only outstanding advisories (GHSA-vfj7-8cjw-p6xm,
-        # the `braces` stack-exhaustion DoS) have no patched release and are
-        # only reachable through dev-only tooling (eslint-config-next, nodemon).
-        # Shipped dependencies are still audited.
-        run: npm audit --audit-level=high --omit=dev
+      - name: Audit dependencies (raw report)
+        # Reported for visibility only; the gate is the allowlist check below so
+        # that unpatched-but-accepted advisories do not mask new findings.
+        run: npm audit --audit-level=high || true
+
+      # Advisories with no patched release available are listed in
+      # .github/audit-allowlist.txt. Fail if any high/critical advisory is
+      # reported that is NOT on that list, so the allowlist can never mask a
+      # newly published finding.
+      - name: Check audit against allowlist
+        env:
+          # The job's default working-directory is the workspace, so resolve the
+          # allowlist from the repo root rather than a relative path.
+          ALLOWLIST: ${{ github.workspace }}/.github/audit-allowlist.txt
+        run: |
+          set -euo pipefail
+          # Strip comments and blank lines from the allowlist. Guard against an
+          # empty result so the `grep -f` below cannot read a missing file.
+          grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | tr -d ' \r' > /tmp/allowlist.txt || true
+          test -s /tmp/allowlist.txt || { echo "::error::Allowlist is empty or unreadable: $ALLOWLIST"; exit 1; }
+
+          # npm audit exits non-zero when anything is found, so capture the
+          # report rather than letting the step abort.
+          npm audit --json --audit-level=high > /tmp/audit.json || true
+
+          # `vulnerabilities` is keyed by package name and is also transitive:
+          # an entry's `via` holds either the advisory objects themselves or the
+          # names of the packages it is reachable through. Only the advisory
+          # objects carry a `url`, and the GHSA id is the last URL segment.
+          jq -r '
+            (.vulnerabilities // {})
+            | to_entries[]
+            | select(.value.severity == "high" or .value.severity == "critical")
+            | .value.via[]
+            | select(type == "object" and (.url // null) != null)
+            | .url
+            | select(startswith("https://github.com/advisories/"))
+            | split("/")
+            | last
+          ' /tmp/audit.json | sort -u > /tmp/all-ghsas.txt
+
+          if [ ! -s /tmp/all-ghsas.txt ]; then
+            echo "No high/critical advisories reported."
+            exit 0
+          fi
+
+          echo "Reported high/critical advisories:"
+          cat /tmp/all-ghsas.txt
+
+          # Anything reported but not allowlisted is a real failure. grep exits 1
+          # when there are no non-matching lines, hence the `|| true`.
+          UNEXPECTED=$(grep -vxF -f /tmp/allowlist.txt /tmp/all-ghsas.txt || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Unexpected high/critical advisories: $UNEXPECTED"
+            exit 1
+          fi
+
+          echo "All high/critical advisories are allowlisted in $ALLOWLIST."
 
   cargo-audit:
     name: cargo audit (contracts)

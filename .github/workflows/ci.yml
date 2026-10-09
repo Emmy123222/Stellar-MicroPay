@@ -103,8 +103,47 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Audit dependencies (fails on high/critical)
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit dependencies (raw report)
+        run: npm audit --omit=dev --audit-level=high || true
+
+      # Advisories with no patched release available are listed in
+      # .github/audit-allowlist.txt. Fail if any high/critical advisory is
+      # reported that is NOT on that list.
+      - name: Check audit against allowlist
+        env:
+          ALLOWLIST: ${{ github.workspace }}/.github/audit-allowlist.txt
+        run: |
+          set -euo pipefail
+          grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | tr -d ' \r' > /tmp/allowlist.txt || true
+          test -s /tmp/allowlist.txt || { echo "::error::Allowlist is empty or unreadable: $ALLOWLIST"; exit 1; }
+          npm audit --json --omit=dev --audit-level=high > /tmp/audit.json || true
+          jq -r '
+            (.vulnerabilities // {})
+            | to_entries[]
+            | select(.value.severity == "high" or .value.severity == "critical")
+            | .value.via[]
+            | select(type == "object" and (.url // null) != null)
+            | .url
+            | select(startswith("https://github.com/advisories/"))
+            | split("/")
+            | last
+          ' /tmp/audit.json | sort -u > /tmp/all-ghsas.txt
+
+          if [ ! -s /tmp/all-ghsas.txt ]; then
+            echo "No high/critical advisories reported."
+            exit 0
+          fi
+
+          echo "Reported high/critical advisories:"
+          cat /tmp/all-ghsas.txt
+
+          UNEXPECTED=$(grep -vxF -f /tmp/allowlist.txt /tmp/all-ghsas.txt || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Unexpected high/critical advisories: $UNEXPECTED"
+            exit 1
+          fi
+
+          echo "All high/critical advisories are allowlisted in $ALLOWLIST."
       - run: npm run type-check
       - run: npm run lint
       - run: npm test
@@ -124,8 +163,47 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - name: Audit dependencies (fails on high/critical)
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit dependencies (raw report)
+        run: npm audit --omit=dev --audit-level=high || true
+
+      # Advisories with no patched release available are listed in
+      # .github/audit-allowlist.txt. Fail if any high/critical advisory is
+      # reported that is NOT on that list.
+      - name: Check audit against allowlist
+        env:
+          ALLOWLIST: ${{ github.workspace }}/.github/audit-allowlist.txt
+        run: |
+          set -euo pipefail
+          grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | tr -d ' \r' > /tmp/allowlist.txt || true
+          test -s /tmp/allowlist.txt || { echo "::error::Allowlist is empty or unreadable: $ALLOWLIST"; exit 1; }
+          npm audit --json --omit=dev --audit-level=high > /tmp/audit.json || true
+          jq -r '
+            (.vulnerabilities // {})
+            | to_entries[]
+            | select(.value.severity == "high" or .value.severity == "critical")
+            | .value.via[]
+            | select(type == "object" and (.url // null) != null)
+            | .url
+            | select(startswith("https://github.com/advisories/"))
+            | split("/")
+            | last
+          ' /tmp/audit.json | sort -u > /tmp/all-ghsas.txt
+
+          if [ ! -s /tmp/all-ghsas.txt ]; then
+            echo "No high/critical advisories reported."
+            exit 0
+          fi
+
+          echo "Reported high/critical advisories:"
+          cat /tmp/all-ghsas.txt
+
+          UNEXPECTED=$(grep -vxF -f /tmp/allowlist.txt /tmp/all-ghsas.txt || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Unexpected high/critical advisories: $UNEXPECTED"
+            exit 1
+          fi
+
+          echo "All high/critical advisories are allowlisted in $ALLOWLIST."
       - run: npm run lint
       - run: npm test
 

@@ -41,6 +41,7 @@ import {
 import { Asset, Federation } from "@stellar/stellar-sdk";
 import { parseHorizonSubmissionError } from "@/lib/horizonErrors";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { submitSignedPayment } from "@/lib/paymentApi";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
 import { submitSignedPayment } from "@/lib/paymentApi";

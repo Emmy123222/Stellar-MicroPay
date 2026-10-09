@@ -810,5 +810,4 @@ const options = {
   apis: [routesGlob],
 };
 
-module.exports = swaggerJsdoc(options);
-
+module.exports = swaggerJsdoc(options);`n

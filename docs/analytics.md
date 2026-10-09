@@ -4,10 +4,7 @@
 
 Three analytics endpoints are available for transaction volume insights:
 
-✅ **GET /api/analytics/:publicKey/summary** — Transaction overview  
-✅ **GET /api/analytics/:publicKey/top-recipients** — Top 5 recipients by volume  
-✅ **GET /api/analytics/:publicKey/activity** — Transaction counts by day of week  
-
+✅ **GET /api/analytics/:publicKey/summary** — Transaction overview`n✅ **GET /api/analytics/:publicKey/top-recipients** — Top 5 recipients by volume`n✅ **GET /api/analytics/:publicKey/activity** — Transaction counts by day of week`n
 An admin endpoint is also available:
 
 ✅ **DELETE /api/analytics/cache/:publicKey** — Force-invalidate cached analytics for an account (JWT + admin only)
@@ -103,5 +100,4 @@ Coverage includes:
 - `backend/src/services/analyticsService.js` is the canonical cache owner.
 - `backend/src/routes/analytics.js` enforces admin access before invalidation.
 - `backend/src/server.js` allows the `DELETE` verb in CORS.
-- `backend/src/swagger.js` documents the admin endpoint and `bearerAuth` security scheme.
-
+- `backend/src/swagger.js` documents the admin endpoint and `bearerAuth` security scheme.`n

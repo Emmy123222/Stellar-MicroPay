@@ -270,5 +270,4 @@ router.delete(
   analyticsController.invalidateCache
 );
 
-module.exports = router;
-
+module.exports = router;`n

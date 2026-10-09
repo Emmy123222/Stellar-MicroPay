@@ -68,5 +68,4 @@ module.exports = {
   getTopRecipients,
   getActivityByDay,
   invalidateCache,
-};
-
+};`n

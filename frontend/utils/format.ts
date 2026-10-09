@@ -10,6 +10,7 @@ import { PaymentRecord } from "@/lib/stellar";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   formatStroopsToXLM as formatStroopsToXLMIntl,
+  formatAsset as formatAssetIntl,
   getUserLocale,
 } from "./intlFormatters";
 

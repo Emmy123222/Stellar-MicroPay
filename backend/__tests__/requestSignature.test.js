@@ -28,7 +28,7 @@ const RECIPIENT = "GB2JLUHNVHL64FKADLJVH5TMUWTS6P5BS4Y3WJT6KU7FRXBFQM5PGGVV";
 
 const TX_HASH = "a".repeat(64);
 
-/** Body as it is serialised on the wire — the signature covers these exact bytes. */
+/** Body as it is serialised on the wire Ã¢â‚¬" the signature covers these exact bytes. */
 const BODY = {
   senderPublicKey: SENDER,
   recipientPublicKey: RECIPIENT,
@@ -123,7 +123,7 @@ describe("timestamp window", () => {
     ["hex", "0x1"],
     ["empty", ""],
   ])("rejects a %s timestamp", (_label, value) => {
-    // parseInt would accept "…abc"; Number would accept "1e12". Neither may pass.
+    // parseInt would accept "...abc"; Number would accept "1e12". Neither may pass.
     expect(checkTimestamp(value, NOW).ok).toBe(false);
   });
 });
@@ -295,12 +295,12 @@ describe("POST /api/payments/submit", () => {
       const realNow = Date.now();
       const stale = realNow - 20_000;
       const signature = generateRequestSignature(
-        // Signed over `stale`…
+        // Signed over `stale`...
         { timestamp: stale, method: "POST", path: "/api/payments/submit", body: BODY_STRING },
         SECRET
       );
 
-      // …but sent with a fresh timestamp, trying to keep the request alive.
+      // ...but sent with a fresh timestamp, trying to keep the request alive.
       const res = await post({ "X-Timestamp": realNow, "X-Signature": signature });
       expect(res.status).toBe(401);
       expect(res.body.code).toBe("invalid_signature");

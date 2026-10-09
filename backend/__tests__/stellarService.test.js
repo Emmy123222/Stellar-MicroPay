@@ -247,8 +247,7 @@ describe("stellarService", () => {
       expect(result.currentStreak).toBe(30);
       expect(result.longestStreak).toBe(30);
     });
-    
-    it("handles broken streak", async () => {
+`n    it("handles broken streak", async () => {
       const today = new Date();
       const d1 = new Date(today);
       d1.setDate(d1.getDate() - 1); // yesterday
@@ -260,15 +259,13 @@ describe("stellarService", () => {
       d5.setDate(d5.getDate() - 5);
       const d6 = new Date(today);
       d6.setDate(d6.getDate() - 6);
-      
-      mockPaymentsCall.mockResolvedValue({
+`n      mockPaymentsCall.mockResolvedValue({
         records: [
           { type: "payment", created_at: d1.toISOString() }, // active streak = 2
           { type: "payment", created_at: d2.toISOString() },
           { type: "payment", created_at: d4.toISOString() }, // older 3-day streak
           { type: "payment", created_at: d5.toISOString() },
-          { type: "payment", created_at: d6.toISOString() }, 
-        ]
+          { type: "payment", created_at: d6.toISOString() },`n        ]
       });
       const result = await stellarService.getAccountStreaks(validPublicKey);
       expect(result.currentStreak).toBe(2);
@@ -352,5 +349,4 @@ describe("stellarService", () => {
       );
     });
   });
-});
-
+});`n
