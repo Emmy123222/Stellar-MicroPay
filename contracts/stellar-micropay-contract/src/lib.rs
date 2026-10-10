@@ -1137,7 +1137,7 @@ impl MicroPayContract {
                 payer,
                 stream_id,
             ),
-            refundable,
+            refund,
         );
 
         refund
