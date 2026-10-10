@@ -8,6 +8,7 @@ import {
   truncateMemoText,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { AssetBadge } from "@/components/AssetBadge";
 
 const MAX_RECIPIENTS = 100;
 
@@ -209,8 +210,8 @@ export default function BatchPaymentForm({
           <h2 className="font-display text-lg font-semibold text-white">
             Batch Send
           </h2>
-          <p className="text-sm text-slate-400">
-            Send XLM to up to {MAX_RECIPIENTS} recipients sequentially.
+          <p className="text-sm text-slate-400 flex items-center gap-1 flex-wrap">
+            Send <AssetBadge assetCode="XLM" /> to up to {MAX_RECIPIENTS} recipients sequentially.
           </p>
         </div>
         <div className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-300">
@@ -242,7 +243,7 @@ export default function BatchPaymentForm({
                   />
                 </label>
                 <label className="block">
-                  <span className="label">Amount (XLM)</span>
+                  <span className="label flex items-center gap-1">Amount (<AssetBadge assetCode="XLM" />)</span>
                   <input
                     type="number"
                     step="0.0000001"
@@ -323,8 +324,8 @@ export default function BatchPaymentForm({
           >
             Add recipient
           </button>
-          <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-            Total: <span className="font-semibold text-white">{totalXLM.toFixed(7)} XLM</span>
+          <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 flex items-center gap-2">
+            Total: <span className="font-semibold text-white">{totalXLM.toFixed(7)}</span> <AssetBadge assetCode="XLM" />
           </div>
         </div>
 

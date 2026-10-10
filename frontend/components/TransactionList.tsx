@@ -17,6 +17,7 @@ import { loadAllPaymentNotes, savePaymentNote } from "@/lib/usePaymentNotes";
 import { useToast } from "@/lib/useToast";
 import Toast from "@/components/Toast";
 import clsx from "clsx";
+import { AssetBadge } from "@/components/AssetBadge";
 
 export type TransactionDirectionFilter = "all" | "sent" | "received";
 
