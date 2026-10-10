@@ -254,7 +254,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: stellar-micropay-contract-wasm
-          path: target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
+          path: target/*/release/stellar_micropay_contract.wasm
           if-no-files-found: error
 
   integration-test:
