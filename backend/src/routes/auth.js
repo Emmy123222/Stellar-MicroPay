@@ -12,6 +12,7 @@ const express = require("express");
 const jwt     = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
 const { JWT_SECRET } = require("../middleware/auth");
+const { setCsrfCookie } = require("../middleware/csrf");
 const {
   authChallengeLimiter,
   authLegacyChallengeLimiter,

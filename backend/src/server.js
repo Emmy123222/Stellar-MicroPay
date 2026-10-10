@@ -12,6 +12,7 @@ const pinoHttp = require("pino-http");
 const crypto = require("node:crypto");
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
+const { csrfProtection } = require("./middleware/csrf");
 
 // ─── Env Validation ───────────────────────────────────────────────────────────
 // Must run immediately after dotenv so missing vars are caught before any

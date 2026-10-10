@@ -59,8 +59,5 @@
   },
   "engines": {
     "node": "20.19.5"
-  },
-  "overrides": {
-    "toml": "npm:@iarna/toml@^2.2.5"
   }
 }
