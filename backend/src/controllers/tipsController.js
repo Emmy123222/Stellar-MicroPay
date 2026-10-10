@@ -46,7 +46,16 @@ async function recordTip(req, res, next) {
 
 function getLeaderboard(req, res, next) {
   try {
-    res.json({ success: true, data: tipsService.getLeaderboard() });
+    const data = tipsService.getLeaderboard();
+    res.json({
+      success: true,
+      data: {
+        ...data,
+        topRecipients: data.recipients,
+        topSenders: data.senders,
+        totalTipped: data.totalXLM,
+      },
+    });
   } catch (err) { next(err); }
 }
 

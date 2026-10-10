@@ -17,66 +17,6 @@ require("dotenv").config();
 const HORIZON_URL =
   process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 
-// ─── In-memory LRU cache for getAccountStreaks (1 hour TTL) ─────────────────
-const STREAKS_CACHE_TTL_MS = 60 * 60 * 1000;
-const STREAKS_CACHE_MAX = 1000;
-
-// ─── Timeout + retry ──────────────────────────────────────────────────────────
-
-const DEFAULT_TIMEOUT_MS = 10_000;
-const MAX_RETRIES = 3;
-const PAYMENT_TYPES = new Set([
-  "payment",
-  "path_payment_strict_send",
-  "path_payment_strict_receive",
-]);
-
-function isTransientError(err) {
-  if (!err) return false;
-  const status = err?.response?.status ?? err?.status;
-  if (status === 404) return false; // definitive — don't retry
-  if (status >= 500) return true;
-  const msg = err?.message || "";
-  return (
-    msg.includes("ECONNRESET") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ENOTFOUND") ||
-    msg.includes("network") ||
-    err.name === "AbortError"
-  );
-}
-
-/**
- * Run `fn` with a hard timeout and retry up to MAX_RETRIES times on
- * transient errors, using exponential back-off (100 ms × 2^attempt).
- */
-async function withTimeoutAndRetry(fn, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  let lastErr;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const result = await Promise.race([
-        fn(controller.signal),
-        new Promise((_, reject) =>
-          controller.signal.addEventListener("abort", () =>
-            reject(Object.assign(new Error("Horizon request timed out"), { name: "AbortError" }))
-          )
-        ),
-      ]);
-      clearTimeout(timer);
-      return result;
-    } catch (err) {
-      clearTimeout(timer);
-      lastErr = err;
-      if (!isTransientError(err) || attempt === MAX_RETRIES) throw err;
-      // Exponential back-off: 100 ms, 200 ms, 400 ms …
-      await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
-    }
-  }
-  throw lastErr;
-}
 
 const server = new Horizon.Server(HORIZON_URL);
 
@@ -248,6 +188,52 @@ async function getPayments(publicKey, { limit = 20, cursor } = {}) {
 }
 
 /**
+ * Get N most-recently used distinct MEMO_TEXT memos for an account.
+ *
+ * @param {string} publicKey - Stellar public key (G...)
+ * @param {object} [options]
+ * @param {number} [options.limit=10] - Maximum number of distinct memos to return
+ * @returns {Promise<string[]>} List of distinct memo strings
+ */
+async function getMemoHistory(publicKey, { limit = 10 } = {}) {
+  validatePublicKey(publicKey);
+
+  const query = server.payments().forAccount(publicKey).limit(200).order("desc");
+  const result = await withCircuitBreaker(() => query.call());
+
+  const distinctMemos = [];
+  const seen = new Set();
+
+  for (const op of result.records) {
+    if (op.type !== "payment") continue;
+
+    let memoText;
+    try {
+      const tx = typeof op.transaction === "function" ? await op.transaction() : op.transaction;
+      if (tx && (tx.memo_type === "text" || tx.memo_type === "MEMO_TEXT") && tx.memo) {
+        memoText = tx.memo;
+      }
+    } catch {
+      // memo is optional
+    }
+
+    if (!memoText && (op.memo_type === "text" || op.memo_type === "MEMO_TEXT") && op.memo) {
+      memoText = op.memo;
+    }
+
+    if (memoText && !seen.has(memoText)) {
+      seen.add(memoText);
+      distinctMemos.push(memoText);
+      if (distinctMemos.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  return distinctMemos;
+}
+
+/**
  * Submit a signed transaction envelope to Horizon.
  *
  * @param {string} signedXDR - Base64 signed transaction XDR.
@@ -401,6 +387,7 @@ module.exports = {
   getAccountAssets,
   getXLMBalance,
   getPayments,
+  getMemoHistory,
   getAccountStreaks,
   clearStreaksCache,
   hasUSDCTrustline,

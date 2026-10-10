@@ -11,35 +11,6 @@ const { strictLimiter } = require("../middleware/rateLimit");
 const { verifyJWT } = require("../middleware/auth");
 const { validatePublicKey, sanitizePublicKey } = require("../middleware/sanitization");
 const analyticsController = require("../controllers/analyticsController");
-const { verifyJWT } = require("../middleware/auth");
-const analyticsService = require("../services/analyticsService");
-
-function requireAdmin(req, res, next) {
-  const admins = (process.env.ADMIN_PUBLIC_KEYS || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (admins.length === 0 || !admins.includes(req.user && req.user.publicKey)) {
-    return res.status(403).json({ error: "Forbidden: admin access required" });
-  }
-  next();
-}
-
-const { verifyJWT } = require("../middleware/auth");
-const analyticsService = require("../services/analyticsService");
-
-function requireAdmin(req, res, next) {
-  const admins = (process.env.ADMIN_PUBLIC_KEYS || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (admins.length === 0 || !admins.includes(req.user && req.user.publicKey)) {
-    return res.status(403).json({ error: "Forbidden: admin access required" });
-  }
-  next();
-}
 
 function getAdminPublicKeys() {
   return (process.env.ADMIN_PUBLIC_KEYS || "")
@@ -240,34 +211,52 @@ router.get(
 );
 
 /**
- * DELETE /api/analytics/cache/:publicKey
- * Admin-only: force-invalidate all cached analytics for a public key.
- */
-router.delete(
-  "/cache/:publicKey",
-  verifyJWT,
-  requireAdmin,
-  async (req, res, next) => {
-    try {
-      const { publicKey } = req.params;
-      const invalidated = await analyticsService.clearCache(publicKey);
-      res.json({ success: true, data: { publicKey, invalidated } });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-/**
- * DELETE /api/analytics/cache/:publicKey
- * JWT-protected admin endpoint: force-invalidates cached analytics.
+ * @swagger
+ * /api/analytics/cache/{publicKey}:
+ *   delete:
+ *     tags: [Analytics]
+ *     summary: Force-invalidate cached analytics for an account (admin only)
+ *     description: >-
+ *       Requires a valid SEP-0010 JWT. The JWT public key must be listed in
+ *       ADMIN_PUBLIC_KEYS. Removes all cached analytics entries for the target
+ *       account so the next request fetches fresh data from Horizon.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: publicKey
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: ^G[A-Z0-9]{55}$
+ *     responses:
+ *       "200":
+ *         description: Cache entries invalidated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     publicKey:
+ *                       type: string
+ *                     invalidated:
+ *                       type: integer
+ *       "401":
+ *         description: Missing or invalid JWT
+ *       "403":
+ *         description: Caller is not an admin account
  */
 router.delete(
   "/cache/:publicKey",
   verifyJWT,
   requireAdmin,
   sanitizePublicKey,
-  analyticsController.invalidateCache
+  analyticsController.invalidateCache,
 );
 
-module.exports = router;`n
+module.exports = router;

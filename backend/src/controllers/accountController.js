@@ -130,4 +130,27 @@ async function hasUSDCTrustline(req, res, next) {
   }
 }
 
-module.exports = { getAccount, getBalance, getAccountAssets, getStreaks, registerUsername, resolveUsername, hasUSDCTrustline };
+/**
+ * GET /api/accounts/:publicKey/memo-history
+ * Fetch recently used distinct memo texts for an account.
+ */
+async function getMemoHistory(req, res, next) {
+  try {
+    const { publicKey } = req.params;
+    const memos = await stellarService.getMemoHistory(publicKey);
+    res.json({ success: true, data: memos });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  getAccount,
+  getBalance,
+  getAccountAssets,
+  getStreaks,
+  registerUsername,
+  resolveUsername,
+  hasUSDCTrustline,
+  getMemoHistory,
+};

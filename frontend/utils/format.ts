@@ -83,6 +83,15 @@ export function formatAsset(
   amount: string | number,
   assetCode = "XLM"
 ): string {
+  const normalized = normalizeAssetCode(assetCode);
+  const rule = getAssetFormatRule(normalized);
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (amount == null || !Number.isFinite(num)) {
+    return `${(0).toFixed(rule.minimumFractionDigits)} ${normalized}`;
+  }
+  if (rule.minimumFractionDigits === rule.maximumFractionDigits && rule.minimumFractionDigits > 0) {
+    return `${num.toFixed(rule.minimumFractionDigits)} ${normalized}`;
+  }
   return formatAssetIntl(amount, assetCode);
 }
 

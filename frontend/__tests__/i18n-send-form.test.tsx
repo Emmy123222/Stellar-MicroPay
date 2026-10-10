@@ -24,6 +24,7 @@ jest.mock("@/lib/stellar", () => ({
   submitTransaction: jest.fn(),
   truncateMemoText: jest.fn((memo: string) => memo),
   CONTRACT_ID: "",
+  fetchFeePercentiles: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock("@/lib/wallet", () => ({

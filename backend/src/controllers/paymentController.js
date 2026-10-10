@@ -6,6 +6,7 @@
 "use strict";
 
 const stellarService = require("../services/stellarService");
+const streamService = require("../services/streamService");
 
 const STELLAR_PUBLIC_KEY_RE = /^G[A-Z2-7]{55}$/;
 
@@ -35,8 +36,14 @@ function validateSubmission({ senderPublicKey, recipientPublicKey, amount, asset
     return { ok: false, error: "asset must be XLM or USDC" };
   }
 
-  if (txHash && typeof txHash !== "string") {
-    return { ok: false, error: "txHash must be a string" };
+  if (
+    txHash !== undefined &&
+    (typeof txHash !== "string" || !/^[0-9a-f]{64}$/i.test(txHash))
+  ) {
+    return {
+      ok: false,
+      error: "txHash must be a 64-character hex transaction hash",
+    };
   }
 
   return { ok: true, value: { senderPublicKey, recipientPublicKey, amount: parsed, asset, txHash } };
@@ -163,7 +170,7 @@ async function getStats(req, res, next) {
 async function getStreamStatus(req, res, next) {
   try {
     const { streamId } = req.params;
-    const status = await stellarService.getStreamStatus(streamId);
+    const status = await streamService.getStreamStatus(streamId);
     res.json({ success: true, data: status });
   } catch (err) {
     next(err);

@@ -669,8 +669,6 @@ impl MicroPayContract {
             panic!("Receipt amount must be positive");
         }
 
-        from.require_auth();
-
         let count: u32 = env
             .storage()
             .instance()
@@ -1021,13 +1019,21 @@ impl MicroPayContract {
 
         let current_ledger = env.ledger().sequence();
         let elapsed_ledgers = current_ledger.saturating_sub(stream.start_ledger);
-        let total_streamed = stream.rate_per_ledger * elapsed_ledgers as i128;
+        let total_streamed = stream
+            .rate_per_ledger
+            .checked_mul(elapsed_ledgers as i128)
+            .unwrap_or(stream.deposited)
+            .min(stream.deposited);
         let claimable = total_streamed - stream.claimed;
 
         // Freeze accrual while paused: recompute against pause_ledger.
         let claimable = if let Some(paused_at) = stream.pause_ledger {
             let paused_elapsed = paused_at.saturating_sub(stream.start_ledger);
-            let paused_total = stream.rate_per_ledger * paused_elapsed as i128;
+            let paused_total = stream
+                .rate_per_ledger
+                .checked_mul(paused_elapsed as i128)
+                .unwrap_or(stream.deposited)
+                .min(stream.deposited);
             paused_total - stream.claimed
         } else {
             claimable
@@ -1115,9 +1121,11 @@ impl MicroPayContract {
         // Effective ledger is frozen at pause point while paused.
         let effective = stream.pause_ledger.unwrap_or(current_ledger);
         let elapsed = effective.saturating_sub(stream.start_ledger);
-        let total_streamed = stream.rate_per_ledger * elapsed as i128;
-        // Cap streamed amount at deposited to prevent overspending.
-        let total_streamed = total_streamed.min(stream.deposited);
+        let total_streamed = stream
+            .rate_per_ledger
+            .checked_mul(elapsed as i128)
+            .unwrap_or(stream.deposited)
+            .min(stream.deposited);
 
         // After close the recipient has effectively "claimed" everything that
         // was ever streamable. The `Stream` record carries no token field, so
@@ -1137,7 +1145,7 @@ impl MicroPayContract {
                 payer,
                 stream_id,
             ),
-            refundable,
+            refund,
         );
 
         refund
@@ -1410,8 +1418,11 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
     use soroban_sdk::{
-        testutils::{Address as _, Events as _, Ledger},
-        token, Address, Env,
+        testutils::{
+            Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _, Ledger, MockAuth,
+            MockAuthInvoke,
+        },
+        token, Address, Env, IntoVal, TryFromVal,
     };
 
     fn setup() -> (Env, MicroPayContractClient<'static>, Address, Address, Address) {
@@ -1436,6 +1447,7 @@ mod tests {
         env: &Env,
         funding: i128,
     ) -> (Address, MicroPayContractClient<'_>, Address, Address, Address) {
+        env.mock_all_auths();
         let contract_id = env.register_contract(None, MicroPayContract);
         let client = MicroPayContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
@@ -1443,7 +1455,6 @@ mod tests {
 
         let payer = Address::generate(env);
         let recipient = Address::generate(env);
-        env.mock_all_auths();
         let token_id = env
             .register_stellar_asset_contract_v2(admin.clone())
             .address();
@@ -1893,6 +1904,7 @@ mod tests {
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
+        env.mock_all_auths();
         client.initialize(&admin);
 
         let payer = Address::generate(&env);
@@ -1918,6 +1930,7 @@ mod tests {
     #[test]
     fn test_set_admin_and_rotation() {
         let env = Env::default();
+        env.mock_all_auths();
         let contract_id = env.register_contract(None, MicroPayContract);
         let client = MicroPayContractClient::new(&env, &contract_id);
 
@@ -1926,8 +1939,6 @@ mod tests {
         assert_eq!(client.get_admin(), admin);
 
         let new_admin = Address::generate(&env);
-
-        env.mock_all_auths();
         client.set_admin(&new_admin);
 
         assert_eq!(client.get_admin(), new_admin);
@@ -1937,12 +1948,14 @@ mod tests {
     #[should_panic]
     fn test_upgrade_non_admin_panics() {
         let env = Env::default();
+        env.mock_all_auths();
         let contract_id = env.register_contract(None, MicroPayContract);
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
         client.initialize(&admin);
 
+        env.set_auths(&[]);
         let dummy_hash = BytesN::from_array(&env, &[1u8; 32]);
         // Without admin auth, calling upgrade panics
         client.upgrade(&dummy_hash);
@@ -1951,13 +1964,12 @@ mod tests {
     #[test]
     fn test_upgrade_admin_requires_auth_and_invokes_deployer() {
         let env = Env::default();
+        env.mock_all_auths();
         let contract_id = env.register_contract(None, MicroPayContract);
         let client = MicroPayContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
         client.initialize(&admin);
-
-        env.mock_all_auths();
 
         let dummy_hash = BytesN::from_array(&env, &[1u8; 32]);
         // With admin auth, try_upgrade passes the admin auth check and invokes deployer.
@@ -2049,7 +2061,7 @@ mod tests {
         let refund = client.close_stream(&id, &payer);
         let streamed = rate * 50;
         assert_eq!(refund, deposit - streamed);
-        assert_eq!(client.get_stream(&id).claimed, streamed);
+        assert!(client.try_get_stream(&id).is_err());
     }
 
     // ─── Property test: close_stream invariant (#1085) ───────────────────────
@@ -2362,9 +2374,9 @@ mod tests {
     impl EscrowTest {
         fn new() -> Self {
             let env = Env::default();
+            env.mock_all_auths();
             let contract_id = env.register_contract(None, MicroPayContract);
             MicroPayContractClient::new(&env, &contract_id).initialize(&Address::generate(&env));
-            env.mock_all_auths();
 
             let token = env
                 .register_stellar_asset_contract_v2(Address::generate(&env))

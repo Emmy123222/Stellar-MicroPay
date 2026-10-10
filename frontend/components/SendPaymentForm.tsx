@@ -44,11 +44,9 @@ import { signTransactionWithWallet } from "@/lib/wallet";
 import { submitSignedPayment } from "@/lib/paymentApi";
 import { resolveSNSDomain } from "@/utils/snsResolver";
 import { formatXLM, shortenAddress } from "@/utils/format";
-import { submitSignedPayment } from "@/lib/paymentApi";
 import { useTranslation } from "@/contexts/I18nContext";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "@/contexts/I18nContext";
 
 interface SendPaymentFormProps {
   publicKey?: string;

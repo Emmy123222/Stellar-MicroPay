@@ -38,6 +38,7 @@ Thumbs.db
 *.user
 
 # ─── Misc ─────────────────────────────────────────────────────────────────────
+.worktrees/
 *.log
 .env
 dist/
@@ -49,8 +50,12 @@ test_snapshots
 
 # ─── Local scripts (never push) ───────────────────────────────────────────────
 scripts/create_issues.py
-\n# TypeScript build info\nfrontend/tsconfig.tsbuildinfo
-\n# Codex CI artifacts\n.codex-artifacts/
+
+# TypeScript build info
+frontend/tsconfig.tsbuildinfo
+
+# Codex CI artifacts
+.codex-artifacts/
 
 # ─── Persistent username store (Issue #1056) ────────────────────────────────
 backend/data/

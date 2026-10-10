@@ -56,6 +56,6 @@ router.get("/leaderboard/:creatorPublicKey", strictLimiter, validatePublicKey("c
  * GET /api/tips/leaderboard
  * Get global leaderboard with top recipients and senders.
  */
-router.get("/leaderboard", strictLimiter, tipsController.getGlobalLeaderboard);
+router.get("/leaderboard", strictLimiter, tipsController.getLeaderboard);
 
 module.exports = router;
