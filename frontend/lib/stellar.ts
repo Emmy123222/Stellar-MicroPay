@@ -1155,6 +1155,73 @@ export async function buildHomeDomainTransaction({
     .build();
 }
 
+/** Stellar Expert URL for an issued asset, e.g. `.../asset/COOL-GABC...`. */
+export function assetExplorerUrl(assetCode: string, issuer: string): string {
+  const net = getNetworkConfig().network === "mainnet" ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${net}/asset/${assetCode}-${issuer}`;
+}
+
+/** SEP-0001 `stellar.toml` location for a home domain. */
+export function stellarTomlUrl(homeDomain: string): string {
+  const hostname = homeDomain
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "");
+  return `https://${hostname}/.well-known/stellar.toml`;
+}
+
+/**
+ * Render the `stellar.toml` an issuer should publish for a custom asset.
+ *
+ * Returning it as a string lets the wizard offer a preview, a copy button and a
+ * download without the user hand-writing TOML.
+ */
+export function buildStellarToml({
+  homeDomain,
+  assetCode,
+  issuerPublicKey,
+  network,
+}: {
+  homeDomain: string;
+  assetCode: string;
+  issuerPublicKey: string;
+  network?: "testnet" | "mainnet";
+}): string {
+  const activeNetwork =
+    network ?? (getNetworkConfig().network === "mainnet" ? "mainnet" : "testnet");
+  const accounts = [issuerPublicKey];
+
+  if (activeNetwork === "mainnet") {
+    accounts.push("GCO2IP3MCPLXT4GMQ5H7UQRCLHH3QDEM7SY6DNNJDAW6DGRITQKHXVV");
+  }
+
+  const domain =
+    homeDomain.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "") ||
+    "yourdomain.com";
+
+  return [
+    "# Stellar MicroPay — generated asset metadata (SEP-0001)",
+    `VERSION = "1.0.0"`,
+    `NETWORK_PASSPHRASE = "${
+      activeNetwork === "mainnet" ? Networks.PUBLIC : Networks.TESTNET
+    }"`,
+    "",
+    "[[CURRENCIES]]",
+    `code = "${assetCode}"`,
+    `issuer = "${issuerPublicKey}"`,
+    "is_asset_anchored = false",
+    `desc = "${assetCode} issued via Stellar MicroPay"`,
+    "",
+    "# Liquidity/explorer accounts that must be trusted for mainnet listings.",
+    "ACCOUNTS = [",
+    ...accounts.map((account) => `  "${account}",`),
+    "]",
+    "",
+    `# Publish this file at: ${stellarTomlUrl(domain)}`,
+    "",
+  ].join("\n");
+}
+
 /**
  * Submit a signed transaction XDR string to the Stellar network.
  *

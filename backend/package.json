@@ -48,6 +48,12 @@
     "testEnvironment": "node",
     "testPathIgnorePatterns": [
       "<rootDir>/__tests__/.*\\.ts$"
-    ]
+    ],
+    "moduleNameMapper": {
+      "^@exodus/bytes/base32\\.js$": "<rootDir>/__mocks__/exodus-bytes-base32.js",
+      "^uint8array-extras$": "<rootDir>/__mocks__/uint8array-extras.js",
+      "^@noble/hashes/(.*)$": "<rootDir>/node_modules/@noble/hashes/$1",
+      "^@noble/ed25519$": "<rootDir>/__mocks__/noble-ed25519.js"
+    }
   }
 }

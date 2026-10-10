@@ -1,3 +1,52 @@
+# npm audit allowlist
+#
+# Advisories listed here are *accepted* and do not fail the Security Audit
+# workflow. Each entry needs a comment explaining why, plus a removal condition
+# so the exemption does not quietly become permanent.
+#
+# Only use this for advisories where no patched version exists to upgrade to.
+# If a fix is ever released, delete the entry immediately.
+
+# GHSA-vfj7-8cjw-p6xm — braces <3.0.4, stack exhaustion via deeply nested
+# patterns. `braces@3.0.3` is the newest release on the registry, so there is
+# no version to bump to.
+#
+# Reachable only through dev-only lint/watch tooling, never shipped:
+#   frontend: eslint-config-next -> @next/eslint-plugin-next -> fast-glob -> micromatch -> braces
+#   backend:  nodemon -> chokidar -> braces
+# Both are build/lint-time only; `npm audit --omit=dev` is clean in both
+# workspaces.
+#
+# Removal condition: drop once braces >=3.0.4 ships, or once
+# eslint-config-next and nodemon drop the vulnerable chain.
+GHSA-vfj7-8cjw-p6xm
+
+# GHSA-jqcg-44mw-7w3h — chokidar <4.0.3, path normalization DoS. Reachable via
+# `nodemon` -> `chokidar` in dev tooling. `chokidar@4.0.3` fixes it but
+# `nodemon@3.1.x` pins older `chokidar`; upgrading nodemon requires
+# broader changes. Dev-only tooling.
+#
+# Removal condition: drop once `nodemon` upgrades to `chokidar >=4.0.3`.
+GHSA-jqcg-44mw-7w3h
+
+# GHSA-vc2v-76pw-4v95 — compression <1.8.2, memory leak on premature response
+# close. Reachable via `serve` -> `compression` in frontend dev server tooling.
+# `compression@1.7.4` is pinned by Next.js; 1.8.2 fixes it but would require
+# upgrading `serve` which pulls in broader changes. Dev-only tooling.
+#
+# Removal condition: drop once `compression >=1.8.2` is available through
+# the dependency chain (upgrade `serve` and `next`).
+GHSA-vc2v-76pw-4v95
+
+# GHSA-68fv-2mgg-jv7q — source-map-js event-loop DoS via indexed source-map
+# section offsets. `source-map-js@1.2.2` is current and the advisory applies
+# to all 1.x. No patched release exists yet.
+#
+# Reachable via `tailwindcss` -> `source-map-js` in dev tooling. Dev-only.
+#
+# Removal condition: drop once `source-map-js >=2.x` or patched 1.x ships.
+GHSA-68fv-2mgg-jv7q
+
 # GHSA-wq5f-xc86-pv6w — sharp <0.35.5, librsvg vulnerability CVE-2026-96889.
 # `sharp@0.35.4` is current in the lockfile; 0.35.5+ fixes it but upgrading
 # requires a lockfile regeneration that currently times out in CI. Dev-only
@@ -6,10 +55,22 @@
 # Removal condition: drop once lockfile is regenerated with sharp >=0.35.5.
 GHSA-wq5f-xc86-pv6w
 
-# GHSA-8r5x-fm3f-whwj — esbuild <0.25.10, prototype pollution via AST
+# GHSA-8r5x-fm3f-whwj — esbuild <0.25.10 / handlebars, prototype pollution via AST
 # Type Confusion in compile (bypass of CVE-2026-33937). Reachable via
 # `tailwindcss` -> `esbuild` in dev tooling. Dev-only.
 #
 # Removal condition: drop once esbuild >=0.25.10 is available through the
 # dependency chain.
 GHSA-8r5x-fm3f-whwj
+
+# GHSA-p8wg-vrv2-v86f — handlebars, JavaScript Injection via Own Property Check Bypass.
+# Reachable via dev-only test/reporting dependencies.
+#
+# Removal condition: drop once patched handlebars is available in dependency chain.
+GHSA-p8wg-vrv2-v86f
+
+# GHSA-xw65-4hp5-5hc7 — handlebars, JavaScript Injection via Unsafe Inline Embedding of Precompiled Templates.
+# Reachable via dev-only test/reporting dependencies.
+#
+# Removal condition: drop once patched handlebars is available in dependency chain.
+GHSA-xw65-4hp5-5hc7

@@ -22,14 +22,12 @@ const {
 // Mock Stellar service
 jest.mock("../src/services/stellarService");
 
-// Defined by jest.setup.js; referenced directly by the admin endpoint tests.
-const JWT_SECRET = process.env.JWT_SECRET;
 
 describe("Analytics Service", () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     clearAnalyticsCache();
-    analyticsService.clearCache("GBRPYHIL2CI3WHZDTOOQFC6EB4KJJGUJLVXKJ46ZGFWTTNQNXNHTJXW");
+    await analyticsService.clearCache("GBRPYHIL2CI3WHZDTOOQFC6EB4KJJGUJLVXKJ46ZGFWTTNQNXNHTJXW");
   });
 
   const testPublicKey =
@@ -283,8 +281,10 @@ describe("Analytics Service", () => {
       await analyticsService.getSummary(testPublicKey);
       expect(stellarService.getPayments).toHaveBeenCalledTimes(1);
 
-      analyticsService.clearCache(testPublicKey);
+      // Clear cache
+      await analyticsService.clearCache(testPublicKey);
 
+      // Third call — should fetch again
       await analyticsService.getSummary(testPublicKey);
       expect(stellarService.getPayments).toHaveBeenCalledTimes(2);
     });
@@ -296,8 +296,8 @@ describe("Analytics Service", () => {
       await analyticsService.getTopRecipients(testPublicKey);
       await analyticsService.getActivityByDay(testPublicKey);
 
-      expect(analyticsService.clearCache(testPublicKey)).toBe(3);
-      expect(analyticsService.clearCache(testPublicKey)).toBe(0);
+      expect(await analyticsService.clearCache(testPublicKey)).toBe(3);
+      expect(await analyticsService.clearCache(testPublicKey)).toBe(0);
     });
   });
 
@@ -386,101 +386,6 @@ describe("Analytics Service", () => {
 });
 
 describe("Analytics Service Cache Archiving (#1210)", () => {
-  beforeEach(() => {
-    clearAnalyticsCache();
-    jest.useFakeTimers();
-  });
-
-  afterEach(() => {
-    stopCacheSweep();
-    jest.useRealTimers();
-  });
-
-  it("evicts entries older than 1 hour during sweep and logs eviction count", () => {
-    const logSpy = jest.spyOn(loggerModule, "info").mockImplementation(() => {});
-
-    setCachedAnalytics("G_TEST_USER_1", { volume: 100 });
-    expect(getCachedAnalytics("G_TEST_USER_1")).toEqual({ volume: 100 });
-
-    jest.advanceTimersByTime(61 * 60 * 1000);
-    jest.advanceTimersByTime(10 * 60 * 1000);
-
-    expect(getCachedAnalytics("G_TEST_USER_1")).toBeNull();
-    expect(logSpy).toHaveBeenCalledWith("Cache sweep: evicted 1 entries");
-
-    logSpy.mockRestore();
-  });
-
-  it("stops cache sweep correctly when stopCacheSweep is called", () => {
-    const clearIntervalSpy = jest.spyOn(global, "clearInterval");
-    stopCacheSweep();
-    expect(clearIntervalSpy).toHaveBeenCalled();
-    clearIntervalSpy.mockRestore();
-  });
-
-  describe("admin cache invalidation endpoint", () => {
-    let app;
-    const endpointKey =
-      "GBRPYHIL2CI3WHZDTOOQFC6EB4KJJGUJLVXKJ46ZGFWTTNQNXNHTJXW2";
-
-    function authHeaderFor(publicKey) {
-      const token = jwt.sign({ publicKey }, JWT_SECRET, { expiresIn: "1h" });
-      return `Bearer ${token}`;
-    }
-
-    beforeAll(() => {
-      app = require("../src/server");
-    });
-
-    it("returns 401 without a JWT", async () => {
-      const res = await request(app).delete(
-        `/api/analytics/cache/${testPublicKey}`,
-      );
-      expect(res.status).toBe(401);
-    });
-
-    it("returns 403 for a non-admin authenticated account", async () => {
-      process.env.ADMIN_PUBLIC_KEYS =
-        "GBUQWP3BOUZX34ULNQG23RQ6F4BWFIYGJ2DN5ZKQYTROZXNUAAOXWS7";
-      const res = await request(app)
-        .delete(`/api/analytics/cache/${endpointKey}`)
-        .set("Authorization", authHeaderFor(endpointKey));
-      expect(res.status).toBe(403);
-    });
-
-    it("force-invalidates the cache for an admin account", async () => {
-      process.env.ADMIN_PUBLIC_KEYS = endpointKey;
-      stellarService.getPayments.mockResolvedValue(mockPayments);
-
-      await analyticsService.getSummary(endpointKey);
-      expect(stellarService.getPayments).toHaveBeenCalledTimes(1);
-
-      await analyticsService.getSummary(endpointKey);
-      expect(stellarService.getPayments).toHaveBeenCalledTimes(1);
-
-      const res = await request(app)
-        .delete(`/api/analytics/cache/${endpointKey}`)
-        .set("Authorization", authHeaderFor(endpointKey));
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({
-        success: true,
-        data: { publicKey: endpointKey, invalidated: 1 },
-      });
-
-      await analyticsService.getSummary(endpointKey);
-      expect(stellarService.getPayments).toHaveBeenCalledTimes(2);
-    });
-
-    it("returns 403 when no admin accounts are configured", async () => {
-      delete process.env.ADMIN_PUBLIC_KEYS;
-      const res = await request(app)
-        .delete(`/api/analytics/cache/${endpointKey}`)
-        .set("Authorization", authHeaderFor(endpointKey));
-      expect(res.status).toBe(403);
-    });
-  });
-});
-`ndescribe("Analytics Service Cache Archiving (#1210)", () => {
   beforeEach(() => {
     // The sweep interval is created at module load, i.e. before fake timers are
     // installed, so re-arm it here to make it observable by the fake clock.

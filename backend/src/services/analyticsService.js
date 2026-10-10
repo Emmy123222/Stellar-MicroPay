@@ -34,9 +34,6 @@ function sweepCache() {
     }
   }
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
-const CACHE_MAX_SIZE = Number.parseInt(process.env.ANALYTICS_CACHE_MAX_SIZE, 10) || 500;
-const cache = new Map();
   logger.info(`Cache sweep: evicted ${evictedCount} entries`);
   return evictedCount;
 }
@@ -88,22 +85,6 @@ function clearAnalyticsCache() {
 // ANALYTICS_CACHE_TTL_MS (default 5 minutes).
 
 /**
- * LRU cache backed by a Map. JavaScript Maps preserve insertion order, so
- * re-inserting an entry (delete + set) moves it to the end of the iteration
- * order and the oldest entry can be evicted from the front.
- */
-function setCacheEntry(key, data) {
-  cache.delete(key);
-  cache.set(key, { data, timestamp: Date.now() });
-
-  while (cache.size > CACHE_MAX_SIZE) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey === undefined) break;
-    cache.delete(oldestKey);
-  }
-}
-
-/**
  * Cache wrapper function.
  *
  * On a cache miss the factory function `fn` is invoked and its return value
@@ -116,16 +97,12 @@ function setCacheEntry(key, data) {
 async function withCache(key, fn) {
   const cached = await cache.get(key);
 
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    setCacheEntry(key, cached.data);
-    return cached.data;
   // Return cached data if still fresh
   if (cached !== null) {
     return cached;
   }
 
   const data = await fn();
-  setCacheEntry(key, data);
 
   // Update cache
   await cache.set(key, data);
@@ -301,25 +278,6 @@ async function getActivityByDay(publicKey) {
   });
 }
 
-/**
- * Clear cache for a specific public key.
- * @param {string} publicKey
- * @returns {number} Number of cache entries invalidated.
- */
-function clearCache(publicKey) {
-  cache.delete(`summary:${publicKey}`);
-  cache.delete(`top-recipients:${publicKey}`);
-  cache.delete(`activity:${publicKey}`);
-}module.exports = {
-  getSummary,
-  getTopRecipients,
-  getActivityByDay,
-  clearCache,
-  getCachedAnalytics,
-  setCachedAnalytics,
-  clearAnalyticsCache,
-  stopCacheSweep,
-};
 function normalizeCohortPeriod(period) {
   return period === "week" ? "week" : "month";
 }
