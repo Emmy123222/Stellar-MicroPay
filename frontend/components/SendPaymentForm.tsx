@@ -93,7 +93,6 @@ type FavouriteEntry = {
 };
 
 const ESTIMATED_NETWORK_FEE = `${STELLAR_BASE_FEE_XLM} XLM`;
-const XLM_USD_RATE = 0.11;
 const FAVOURITES_STORAGE_KEY = "stellar-micropay:favourites";
 
 interface BarcodeDetectorResult {
@@ -521,7 +520,7 @@ export default function SendPaymentForm({
   const balance = selectedAsset === "XLM" ? xlmBal : usdcBal;
   const maxSend =
     selectedAsset === "XLM"
-      ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM - networkFeeXlm)
+      ? Math.max(0, xlmBal - STELLAR_MINIMUM_ACCOUNT_BALANCE_XLM)
       : usdcBal;
 
   const isUsernameDestination = /^@?[a-zA-Z0-9]{3,20}$/.test(destination) && !isValidStellarAddress(destination);
@@ -1173,8 +1172,8 @@ export default function SendPaymentForm({
           <div>
             <div className="mb-2 flex items-center justify-between">
               <label className="label mb-0">Amount ({selectedAsset})</label>
-              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"} title="Send Max: balance - 1 XLM base reserve - subentry reserves - current network fee">
-                Send Max: {formatXLM(maxSend)}
+              <button type="button" onClick={setMaxAmount} className="text-xs text-stellar-400 hover:text-stellar-300" disabled={status !== "idle"}>
+                Max: {formatXLM(maxSend)}
               </button>
             </div>
             <input
@@ -1499,10 +1498,10 @@ export default function SendPaymentForm({
         isOpen={isConfirmOpen}
         destination={destination}
         amount={amountNum}
+        asset={selectedAsset}
         memo={memo}
         memoType={memoType}
         estimatedFee={ESTIMATED_NETWORK_FEE}
-        usdValue={amountNum * XLM_USD_RATE}
         isTipOnChain={isTipOnChain}
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={() => { setIsConfirmOpen(false); executeSend(); }}
@@ -1639,6 +1638,7 @@ interface SendConfirmationModalProps {
   isOpen: boolean;
   destination: string;
   amount: number;
+  asset: string;
   memo: string;
   memoType: StellarMemoType;
   estimatedFee: string;
@@ -1687,8 +1687,8 @@ function SendConfirmationModal({ isOpen, destination, amount, memo, memoType, es
           )}
         </div>
         <div className="mt-8 flex gap-3">
-          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Back</button>
-          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm &amp; Sign</button>
+          <button onClick={onCancel} className="flex-1 rounded-xl border border-white/10 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-all">Cancel</button>
+          <button onClick={onConfirm} className="flex-1 btn-primary py-3">Confirm & Send</button>
         </div>
       </div>
     </div>
