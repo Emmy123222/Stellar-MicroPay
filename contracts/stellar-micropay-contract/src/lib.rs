@@ -250,7 +250,56 @@ const MAX_FEE_BPS: u32 = 500;
 /// Basis-point denominator: 1 bps = 1 / 10_000.
 const FEE_BPS_DENOMINATOR: i128 = 10_000;
 
+/// Maximum number of entries accepted by a single batch call (`batch_tip`,
+/// `batch_send`).
+///
+/// A batch costs resources per entry, and a transaction that crosses a network
+/// per-transaction limit aborts in the host's budget accounting with
+/// `HostError: Error(Budget, ExceededLimit)` — an opaque failure that arrives
+/// only after the caller paid for a simulation. Rejecting above this cap turns
+/// that into a clear message, so the value has to stay comfortably below the
+/// point where the limits bind.
+///
+/// Where the limits are: the test host enforces
+/// `InvocationResourceLimits::mainnet()` — 400M instructions, 41,943,040 memory
+/// bytes, 16,384 contract-event bytes, 132,096 write bytes and 200 write entries
+/// per transaction. `test_batch_tip_fits_network_resource_limits` runs a batch
+/// of exactly `MAX_BATCH` and asserts the footprint keeps a wide margin under
+/// each of them, which is the tripwire if the per-entry cost ever grows.
+///
+/// Two things keep the cap conservative relative to those budgets: the test
+/// contract is native Rust rather than WASM, so VM instantiation, WASM
+/// execution and WASM linear-memory reservations go unmetered and the real
+/// on-chain cost per entry is higher; and the duplicate-recipient scan is
+/// quadratic, so the marginal entry gets more expensive as the batch grows. The
+/// dominant term is the ~400-byte event published per entry plus the serialized
+/// `(Address, i128)` vector.
+///
+/// Raising this means re-measuring against the same test, not just editing the
+/// number. Keep the literal in the panic messages in sync with it: `panic!`
+/// takes a `&'static str`, so the constant cannot be interpolated.
+const MAX_BATCH: u32 = 25;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Operator fee for a gross `amount` at `fee_bps`, truncated to whole stroops.
+///
+/// Rounding policy (#1488): the fee is rounded **down** per entry, so a
+/// recipient never receives less than `amount - amount * fee_bps / 10_000` and
+/// the collected fee can never exceed the nominal rate. The consequence is that
+/// a sub-stroop fee rounds to zero, so a batch's total fee is at most the fee on
+/// the batch total, and can fall below it by less than one stroop per entry.
+///
+/// The arithmetic is split so that no intermediate product can overflow:
+/// `amount * fee_bps` would panic for i128-scale amounts (release builds enable
+/// `overflow-checks`), so `amount` is decomposed as `q * 10_000 + r` and each
+/// part is scaled separately. The result is exactly `floor(amount * bps / 10_000)`.
+fn fee_for(amount: i128, fee_bps: u32) -> i128 {
+    let bps = fee_bps as i128;
+    let quotient = amount / FEE_BPS_DENOMINATOR;
+    let remainder = amount % FEE_BPS_DENOMINATOR;
+    quotient * bps + (remainder * bps) / FEE_BPS_DENOMINATOR
+}
 
 /// Bump the contract instance TTL at the start of every entry point so the
 /// instance storage entry is never archived while the contract is actively
@@ -405,6 +454,9 @@ impl MicroPayContract {
     /// If an operator fee is configured (see `set_fee_bps`), `amount * fee_bps / 10000`
     /// is transferred to the admin and the remainder to `to`. This records the tip
     /// on-chain for analytics and emits an event.
+    ///
+    /// The fee is rounded down to whole stroops (see `fee_for`), so the admin can
+    /// never take more than the nominal rate and a sub-stroop fee is simply zero.
     pub fn send_tip(
         env: Env,
         token_address: Address,
@@ -428,7 +480,7 @@ impl MicroPayContract {
             .instance()
             .get(&DataKey::FeeBps)
             .unwrap_or(0);
-        let fee_amount: i128 = (amount * fee_bps as i128) / FEE_BPS_DENOMINATOR;
+        let fee_amount: i128 = fee_for(amount, fee_bps);
         let net_amount: i128 = amount - fee_amount;
 
         // Transfer tokens via the Stellar token interface (SAC)
@@ -491,6 +543,19 @@ impl MicroPayContract {
 
     /// Send several tips atomically. The sender is debited once for the total;
     /// the contract then fans the funds out to each unique recipient.
+    ///
+    /// The configured operator fee applies to every entry exactly as it does to
+    /// a single `send_tip`: `floor(amount * fee_bps / 10000)` is withheld from
+    /// that entry and the withheld sum is credited to the admin in one transfer.
+    /// The payer is debited the gross total, so
+    /// `gross == sum(recipient credits) + fee` holds by construction.
+    ///
+    /// Because each entry is rounded down independently, splitting one tip into a
+    /// batch can only lower the fee, never raise it above the nominal rate.
+    ///
+    /// Batches are capped at `MAX_BATCH` entries: larger batches exceed the
+    /// network's per-transaction resource limits and would otherwise fail with an
+    /// opaque budget error instead of a clear one.
     pub fn batch_tip(
         env: Env,
         token_address: Address,
@@ -502,8 +567,18 @@ impl MicroPayContract {
         if tips.len() == 0 {
             panic!("At least one tip is required");
         }
+        if tips.len() > MAX_BATCH {
+            panic!("Batch size exceeds maximum allowed (25 entries)");
+        }
+
+        let fee_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeBps)
+            .unwrap_or(0);
 
         let mut total = 0i128;
+        let mut fee_total = 0i128;
         let mut i = 0u32;
         while i < tips.len() {
             let (recipient, amount) = tips.get(i).unwrap();
@@ -519,6 +594,9 @@ impl MicroPayContract {
                 j += 1;
             }
             total = total.checked_add(amount).expect("Tip total overflow");
+            fee_total = fee_total
+                .checked_add(fee_for(amount, fee_bps))
+                .expect("Tip fee total overflow");
             i += 1;
         }
 
@@ -526,10 +604,19 @@ impl MicroPayContract {
         let contract = env.current_contract_address();
         token.transfer(&from, &contract, &total);
 
+        if fee_total > 0 {
+            let admin: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::Admin)
+                .expect("Contract not initialized");
+            token.transfer(&contract, &admin, &fee_total);
+        }
+
         let mut index = 0u32;
         while index < tips.len() {
             let (recipient, amount) = tips.get(index).unwrap();
-            token.transfer(&contract, &recipient, &amount);
+            token.transfer(&contract, &recipient, &(amount - fee_for(amount, fee_bps)));
 
             let current_total: i128 = env
                 .storage()
@@ -1397,6 +1484,12 @@ impl MicroPayContract {
     /// it requires no authorization today. The real implementation must
     /// `require_auth` from `from` (the single payer for the whole batch), and
     /// must validate every amount before requesting authorization.
+    ///
+    /// Size limits (#1489) are already enforced here so that callers writing
+    /// against the eventual implementation get the same clear errors they get
+    /// from `batch_tip`, instead of an oversized batch being accepted today and
+    /// rejected later: an empty batch, a length mismatch, and a batch larger
+    /// than `MAX_BATCH` each panic before the placeholder message.
     pub fn batch_send(
         env: Env,
         _from: Address,
@@ -1405,6 +1498,15 @@ impl MicroPayContract {
     ) {
         bump_instance(&env);
         require_not_frozen(&env);
+        if _recipients.len() != _amounts.len() {
+            panic!("Recipient and amount vectors must have the same length");
+        }
+        if _recipients.len() == 0 {
+            panic!("At least one payment is required");
+        }
+        if _recipients.len() > MAX_BATCH {
+            panic!("Batch size exceeds maximum allowed (25 entries)");
+        }
         panic!("Batch payments coming in v2.0 — see ROADMAP.md");
     }
 }
@@ -2850,6 +2952,402 @@ mod tests {
             [(recipient.clone(), 100i128), (recipient, 200i128)],
         );
         client.batch_tip(&token_address, &sender, &tips);
+    }
+
+    // ─── Batch size limits (#1489) ───────────────────────────────────────────
+
+    /// A batch of exactly `MAX_BATCH` entries has to fit inside the network's
+    /// per-transaction resource limits, otherwise the cap would just codify a
+    /// call that cannot be deployed. The test host enforces
+    /// `InvocationResourceLimits::mainnet()` and meters against the network
+    /// budgets, so the successful call below is itself the proof; the explicit
+    /// margins are the tripwire if the per-entry cost ever grows towards those
+    /// budgets.
+    #[test]
+    fn test_batch_tip_fits_network_resource_limits() {
+        let (env, client, token_address, sender) = tip_setup();
+        let mut tips = soroban_sdk::Vec::new(&env);
+        while tips.len() < MAX_BATCH {
+            tips.push_back((Address::generate(&env), 2i128));
+        }
+        assert_eq!(tips.len(), MAX_BATCH);
+
+        client.batch_tip(&token_address, &sender, &tips);
+
+        let mut i = 0u32;
+        while i < tips.len() {
+            let (recipient, amount) = tips.get(i).unwrap();
+            assert_eq!(client.get_tip_total(&recipient), amount);
+            assert_eq!(client.get_tip_count(&recipient), 1);
+            i += 1;
+        }
+
+        // Mainnet per-transaction limits as snapshotted by soroban-sdk 29:
+        // 400M instructions, 41,943,040 memory bytes, 16,384 event bytes,
+        // 132,096 write bytes, 200 write entries.
+        let resources = env.cost_estimate().resources();
+        assert!(
+            resources.instructions < 100_000_000,
+            "instructions {} has no headroom left under the 400M limit",
+            resources.instructions
+        );
+        assert!(
+            resources.mem_bytes < 10_000_000,
+            "memory {} has no headroom left under the 41.9M limit",
+            resources.mem_bytes
+        );
+        assert!(
+            resources.contract_events_size_bytes < 12_288,
+            "event bytes {} has no headroom left under the 16,384 limit",
+            resources.contract_events_size_bytes
+        );
+        assert!(
+            resources.write_bytes < 66_048,
+            "write bytes {} has no headroom left under the 132,096 limit",
+            resources.write_bytes
+        );
+        assert!(
+            resources.write_entries < 100,
+            "write entries {} has no headroom left under the 200 limit",
+            resources.write_entries
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Batch size exceeds maximum allowed (25 entries)")]
+    fn test_batch_tip_rejects_batch_above_cap() {
+        let (env, client, token_address, sender) = tip_setup();
+        let mut tips = soroban_sdk::Vec::new(&env);
+        while tips.len() < MAX_BATCH + 1 {
+            tips.push_back((Address::generate(&env), 1i128));
+        }
+        client.batch_tip(&token_address, &sender, &tips);
+    }
+
+    #[test]
+    #[should_panic(expected = "At least one tip is required")]
+    fn test_batch_tip_rejects_empty_batch() {
+        let (env, client, token_address, sender) = tip_setup();
+        let tips = soroban_sdk::Vec::new(&env);
+        client.batch_tip(&token_address, &sender, &tips);
+    }
+
+    // `batch_send` is still a placeholder, but its batch shape is validated
+    // first so callers of the eventual implementation get the same clear errors.
+
+    #[test]
+    #[should_panic(expected = "At least one payment is required")]
+    fn test_batch_send_rejects_empty_batch() {
+        let (env, client, _admin, payer, _recipient) = setup();
+        client.batch_send(
+            &payer,
+            &soroban_sdk::Vec::new(&env),
+            &soroban_sdk::Vec::new(&env),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Batch size exceeds maximum allowed (25 entries)")]
+    fn test_batch_send_rejects_batch_above_cap() {
+        let (env, client, _admin, payer, _recipient) = setup();
+        let mut recipients = soroban_sdk::Vec::new(&env);
+        let mut amounts = soroban_sdk::Vec::new(&env);
+        while recipients.len() < MAX_BATCH + 1 {
+            recipients.push_back(Address::generate(&env));
+            amounts.push_back(1i128);
+        }
+        client.batch_send(&payer, &recipients, &amounts);
+    }
+
+    #[test]
+    #[should_panic(expected = "Recipient and amount vectors must have the same length")]
+    fn test_batch_send_rejects_length_mismatch() {
+        let (env, client, _admin, payer, _recipient) = setup();
+        let recipients = soroban_sdk::Vec::from_array(&env, [Address::generate(&env)]);
+        let amounts = soroban_sdk::Vec::from_array(&env, [1i128, 2i128]);
+        client.batch_send(&payer, &recipients, &amounts);
+    }
+
+    /// A batch that passes every size check still reports the feature as
+    /// unimplemented — the cap checks do not imply an implementation.
+    #[test]
+    #[should_panic(expected = "Batch payments coming in v2.0")]
+    fn test_batch_send_within_cap_is_still_a_placeholder() {
+        let (env, client, _admin, payer, _recipient) = setup();
+        let recipients = soroban_sdk::Vec::from_array(
+            &env,
+            [Address::generate(&env), Address::generate(&env)],
+        );
+        let amounts = soroban_sdk::Vec::from_array(&env, [1i128, 2i128]);
+        client.batch_send(&payer, &recipients, &amounts);
+    }
+
+    // ─── Tip fee rounding (#1488) ────────────────────────────────────────────
+
+    /// Tipping fixture with a configured operator fee and a funded sender.
+    ///
+    /// Snapshot capture is turned off because the property tests build one
+    /// environment per generated case and would otherwise write a snapshot file
+    /// for every one of them.
+    fn fee_fixture(
+        fee_bps: u32,
+        funding: i128,
+    ) -> (
+        Env,
+        MicroPayContractClient<'static>,
+        Address,
+        Address,
+        Address,
+    ) {
+        let mut env = Env::default();
+        env.set_config(soroban_sdk::testutils::EnvTestConfig {
+            capture_snapshot_at_drop: false,
+        });
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, MicroPayContract);
+        let client = MicroPayContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        let issuer = Address::generate(&env);
+        let token = env.register_stellar_asset_contract_v2(issuer).address();
+        let sender = Address::generate(&env);
+        soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&sender, &funding);
+        if fee_bps > 0 {
+            client.set_fee_bps(&admin, &fee_bps);
+        }
+        (env, client, token, sender, admin)
+    }
+
+    fn balance_of(env: &Env, token: &Address, account: &Address) -> i128 {
+        soroban_sdk::token::Client::new(env, token).balance(account)
+    }
+
+    /// `floor(amount * fee_bps / 10_000)` from the textbook expression. Only
+    /// sound for amounts small enough that the product cannot overflow, which is
+    /// exactly what makes it a useful cross-check of `fee_for`'s decomposed
+    /// arithmetic.
+    fn expected_fee_small(amount: i128, fee_bps: u32) -> i128 {
+        (amount * fee_bps as i128) / FEE_BPS_DENOMINATOR
+    }
+
+    /// `ceil(total * fee_bps / 10_000)`: the upper bound a batch's withheld fee
+    /// may never cross, computed without an intermediate `total * fee_bps`.
+    fn fee_ceiling_for_total(total: i128, fee_bps: u32) -> i128 {
+        let bps = fee_bps as i128;
+        let quotient = total / FEE_BPS_DENOMINATOR;
+        let remainder = total % FEE_BPS_DENOMINATOR;
+        quotient * bps + (remainder * bps + FEE_BPS_DENOMINATOR - 1) / FEE_BPS_DENOMINATOR
+    }
+
+    #[test]
+    fn test_batch_tip_applies_fee_and_conserves_value() {
+        let (env, client, token, sender, admin) = fee_fixture(MAX_FEE_BPS, 10_000);
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        let c = Address::generate(&env);
+        let tips = soroban_sdk::Vec::from_array(
+            &env,
+            [(a.clone(), 1_000i128), (b.clone(), 999i128), (c.clone(), 1i128)],
+        );
+
+        client.batch_tip(&token, &sender, &tips);
+
+        // 500 bps of 1000 is 50, of 999 is 49.95 -> 49, of 1 is 0.0005 -> 0.
+        assert_eq!(balance_of(&env, &token, &a), 950);
+        assert_eq!(balance_of(&env, &token, &b), 950);
+        assert_eq!(balance_of(&env, &token, &c), 1);
+        assert_eq!(balance_of(&env, &token, &admin), 99);
+        // The payer is debited the gross total, not the sum of the net amounts.
+        assert_eq!(balance_of(&env, &token, &sender), 8_000);
+        // Nothing is left in the contract: debit == recipient credits + fee.
+        assert_eq!(balance_of(&env, &token, &client.address), 0);
+        // Analytics keep recording the gross amount, as `send_tip` does.
+        assert_eq!(client.get_tip_total(&b), 999);
+    }
+
+    #[test]
+    fn test_send_tip_and_batch_tip_charge_the_same_fee() {
+        for amount in [1i128, 3, 9_999, 10_000, 12_345, 1_000_000] {
+            for fee_bps in [0u32, 1, 250, MAX_FEE_BPS] {
+                let (env, client, token, sender, admin) = fee_fixture(fee_bps, 4_000_000);
+                let single = Address::generate(&env);
+                let batched = Address::generate(&env);
+
+                client.send_tip(&token, &sender, &single, &amount);
+                client.batch_tip(
+                    &token,
+                    &sender,
+                    &soroban_sdk::Vec::from_array(&env, [(batched.clone(), amount)]),
+                );
+
+                let received = balance_of(&env, &token, &single);
+                assert_eq!(received, amount - expected_fee_small(amount, fee_bps));
+                assert_eq!(balance_of(&env, &token, &batched), received);
+                assert_eq!(balance_of(&env, &token, &admin), 2 * (amount - received));
+                assert_eq!(balance_of(&env, &token, &sender), 4_000_000 - 2 * amount);
+                assert_eq!(balance_of(&env, &token, &client.address), 0);
+            }
+        }
+    }
+
+    /// Sub-stroop fees round down to zero, so splitting a tip across a batch can
+    /// withhold slightly less than the nominal rate. The leakage is bounded by
+    /// `MAX_BATCH - 1` stroops per call, which is a large part of why the cap is
+    /// as low as it is.
+    #[test]
+    fn test_batch_tip_sub_stroop_fees_round_down() {
+        let (env, client, token, sender, admin) = fee_fixture(MAX_FEE_BPS, 10_000);
+        let mut tips = soroban_sdk::Vec::new(&env);
+        while tips.len() < MAX_BATCH {
+            tips.push_back((Address::generate(&env), 1i128));
+        }
+
+        client.batch_tip(&token, &sender, &tips);
+
+        assert_eq!(balance_of(&env, &token, &admin), 0);
+        assert_eq!(balance_of(&env, &token, &sender), 10_000 - MAX_BATCH as i128);
+
+        // The same 25 stroops sent as one tip do pay the fee (1 stroop).
+        let lump = Address::generate(&env);
+        client.send_tip(&token, &sender, &lump, &(MAX_BATCH as i128));
+        assert_eq!(balance_of(&env, &token, &admin), 1);
+        assert_eq!(balance_of(&env, &token, &lump), MAX_BATCH as i128 - 1);
+    }
+
+    /// The old expression `amount * fee_bps / 10_000` panicked on
+    /// `multiply with overflow` for amounts above ~3.4e35 stroops, because
+    /// release builds enable `overflow-checks`. Amounts that large are reachable:
+    /// a custom SAC has no supply cap and `i128` is the amount type.
+    #[test]
+    fn test_huge_tip_amounts_do_not_overflow_fee_math() {
+        let huge = i128::MAX / 4;
+        let (env, client, token, sender, admin) = fee_fixture(MAX_FEE_BPS, huge + 1_000);
+        let recipient = Address::generate(&env);
+        let batched = Address::generate(&env);
+
+        client.send_tip(&token, &sender, &recipient, &huge);
+        client.batch_tip(
+            &token,
+            &sender,
+            &soroban_sdk::Vec::from_array(&env, [(batched.clone(), 1_000i128)]),
+        );
+
+        // floor(huge * 500 / 10_000) == floor(huge / 20)
+        let huge_fee = huge / 20;
+        assert_eq!(balance_of(&env, &token, &recipient), huge - huge_fee);
+        assert_eq!(balance_of(&env, &token, &batched), 950);
+        assert_eq!(balance_of(&env, &token, &admin), huge_fee + 50);
+        assert_eq!(balance_of(&env, &token, &sender), 0);
+        assert_eq!(balance_of(&env, &token, &client.address), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Tip total overflow")]
+    fn test_batch_tip_rejects_amounts_that_overflow_the_total() {
+        let (env, client, token, sender, _admin) = fee_fixture(0, 1_000);
+        let tips = soroban_sdk::Vec::from_array(
+            &env,
+            [
+                (Address::generate(&env), i128::MAX),
+                (Address::generate(&env), 1i128),
+            ],
+        );
+        client.batch_tip(&token, &sender, &tips);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(48))]
+
+        /// For any legal fee rate and any batch of positive amounts — every case
+        /// includes a 1-stroop entry, the rounding edge #1488 asks about — the fee
+        /// withheld never exceeds the nominal rate on the batch total, each
+        /// recipient receives exactly `amount - floor(amount * bps / 10_000)`, and
+        /// the payer's debit is conserved.
+        #[test]
+        fn prop_batch_tip_fee_respects_cap_and_conserves(
+            tail in prop::collection::vec(1i128..1_000_000i128, 1..(MAX_BATCH as usize)),
+            fee_bps in 0u32..=MAX_FEE_BPS,
+        ) {
+            let mut amounts: std::vec::Vec<i128> = std::vec::Vec::new();
+            amounts.push(1);
+            amounts.extend(tail.into_iter());
+
+            let total: i128 = amounts.iter().sum();
+            let funding = total + 1_000_000;
+            let (env, client, token, sender, admin) = fee_fixture(fee_bps, funding);
+
+            let mut recipients: std::vec::Vec<Address> = std::vec::Vec::new();
+            let mut tips = soroban_sdk::Vec::new(&env);
+            for amount in amounts.iter() {
+                let recipient = Address::generate(&env);
+                recipients.push(recipient.clone());
+                tips.push_back((recipient, *amount));
+            }
+
+            client.batch_tip(&token, &sender, &tips);
+
+            let mut withheld = 0i128;
+            for (recipient, amount) in recipients.iter().zip(amounts.iter()) {
+                let fee = expected_fee_small(*amount, fee_bps);
+                withheld += fee;
+                prop_assert!(fee <= *amount, "fee {} exceeds tip {}", fee, *amount);
+                prop_assert_eq!(balance_of(&env, &token, recipient), *amount - fee);
+            }
+
+            prop_assert!(
+                withheld <= fee_ceiling_for_total(total, fee_bps),
+                "batch fee {} exceeds ceil({} * {} / 10000) = {}",
+                withheld,
+                total,
+                fee_bps,
+                fee_ceiling_for_total(total, fee_bps)
+            );
+            prop_assert_eq!(balance_of(&env, &token, &admin), withheld);
+            prop_assert_eq!(balance_of(&env, &token, &sender), funding - total);
+            prop_assert_eq!(balance_of(&env, &token, &client.address), 0);
+        }
+
+        /// The same invariants at i128 scale. Amounts are exact multiples of the
+        /// basis-point denominator, so the expected fee is `amount / 10_000 * bps`
+        /// — a reference the contract cannot satisfy by reusing its own
+        /// arithmetic — and every entry is large enough that the previous
+        /// `amount * fee_bps` product would have overflowed.
+        #[test]
+        fn prop_batch_tip_fee_is_exact_at_i128_scale(
+            units in prop::collection::vec(1i128..(1i128 << 105), 1..=3),
+            fee_bps in 0u32..=MAX_FEE_BPS,
+        ) {
+            let amounts: std::vec::Vec<i128> =
+                units.iter().map(|u| u * FEE_BPS_DENOMINATOR).collect();
+            let total: i128 = amounts.iter().sum();
+            let funding = total + FEE_BPS_DENOMINATOR;
+            let (env, client, token, sender, admin) = fee_fixture(fee_bps, funding);
+
+            let mut recipients: std::vec::Vec<Address> = std::vec::Vec::new();
+            let mut tips = soroban_sdk::Vec::new(&env);
+            for amount in amounts.iter() {
+                let recipient = Address::generate(&env);
+                recipients.push(recipient.clone());
+                tips.push_back((recipient, *amount));
+            }
+
+            client.batch_tip(&token, &sender, &tips);
+
+            let mut withheld = 0i128;
+            for (recipient, unit) in recipients.iter().zip(units.iter()) {
+                let fee = unit * fee_bps as i128;
+                withheld += fee;
+                prop_assert_eq!(
+                    balance_of(&env, &token, recipient),
+                    unit * FEE_BPS_DENOMINATOR - fee
+                );
+            }
+
+            prop_assert!(withheld <= fee_ceiling_for_total(total, fee_bps));
+            prop_assert_eq!(balance_of(&env, &token, &admin), withheld);
+            prop_assert_eq!(balance_of(&env, &token, &sender), funding - total);
+            prop_assert_eq!(balance_of(&env, &token, &client.address), 0);
+        }
     }
 
     // ─── Freeze / unfreeze tests ─────────────────────────────────────────────
