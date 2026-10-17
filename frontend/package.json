@@ -11,7 +11,8 @@
     "test": "jest --runInBand",
     "test:e2e": "playwright test e2e/ci-smoke.spec.ts --project=chromium",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "lint:json": "node scripts/check-json-duplicate-keys.mjs package.json"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.2.0",

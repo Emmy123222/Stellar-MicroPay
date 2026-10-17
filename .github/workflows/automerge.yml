@@ -42,11 +42,12 @@ jobs:
             echo "Skipping: not a Stellar Wave PR"
             exit 0
           fi
-          # Contributors may never change the auto-merge bot itself:
-          # a PR touching this workflow always needs a maintainer merge.
-          if gh pr view "$PR_URL" --json files --jq '.files[].path' | grep -qxF '.github/workflows/automerge.yml'; then
-            gh pr comment "$PR_URL" --body "👋 Hey @$AUTHOR, thanks for the PR! 🙏 Changes to the auto-merge bot itself (\`.github/workflows/automerge.yml\`) can only be merged by a maintainer, so this PR will wait for a manual review."
-            echo "Skipping: PR modifies the automerge workflow"
+          # Any PR that touches a workflow file requires the 'workflow' scope
+          # to merge, which the token used here does not have.  Guard against
+          # this by skipping auto-merge for any change under .github/workflows/.
+          if gh pr view "$PR_URL" --json files --jq '.files[].path' | grep -qE '^\.github/workflows/'; then
+            gh pr comment "$PR_URL" --body "👋 Hey @$AUTHOR, thanks for the PR! 🙏 Changes to workflow files (\`.github/workflows/\`) can only be merged by a maintainer (merging them requires the \`workflow\` token scope), so this PR will wait for a manual review."
+            echo "Skipping: PR modifies workflow files"
             exit 0
           fi
           # Retry a few times: GitHub may still be computing mergeability

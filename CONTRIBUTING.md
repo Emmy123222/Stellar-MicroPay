@@ -94,14 +94,14 @@ npm run dev
 ```bash
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 
-# Install Stellar CLI
-cargo install --locked stellar-cli
+# Install Stellar CLI (see https://developers.stellar.org/docs/tools/cli/stellar-cli)
+curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
 
 # Build the contract
 cd contracts/stellar-micropay-contract
-cargo build --target wasm32-unknown-unknown --release
+stellar contract build
 ```
 
 ---

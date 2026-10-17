@@ -70,7 +70,7 @@ if [[ "$NETWORK" == mainnet && "$CONFIRM_MAINNET" != true ]]; then
 fi
 
 if ! command -v stellar >/dev/null 2>&1; then
-  echo "Error: Stellar CLI not found. Install with: cargo install --locked stellar-cli" >&2
+  echo "Error: Stellar CLI not found. Install from: https://developers.stellar.org/docs/tools/cli/stellar-cli" >&2
   exit 1
 fi
 

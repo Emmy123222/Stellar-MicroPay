@@ -26,11 +26,16 @@
   "engines": {
     "node": "20.19.5"
   },
+  "description": "Cross-border micro-payments platform built on the Stellar network with Soroban smart contracts",
   "keywords": [
     "stellar",
-    "zero-knowledge",
-    "cryptography",
-    "blockchain"
+    "payments",
+    "micropayments",
+    "soroban",
+    "blockchain",
+    "freighter",
+    "stellar-sdk",
+    "dex"
   ],
   "author": "Stellar MicroPay Team",
   "license": "MIT"
