@@ -15,6 +15,10 @@ The contract is written in Rust and compiled to WebAssembly (WASM) for deploymen
 - Time-locked escrow (open/release/cancel)
 - Milestone escrow: funds held by the contract, released by a designated
   approver, or reclaimed by the payer once a dispute times out
+- Batch tips: one authorized transfer pays up to 25 recipients, each charged the
+  same operator fee a single `send_tip` would take
+- Placeholder stub for batch payments
+
 - Placeholder stub for batch payments
 
 ## Prerequisites
@@ -32,18 +36,39 @@ cargo install --locked stellar-cli
 
 ## Build
 
+From the repository root:
+
+```bash
+make contract        # build + optimize the deployable WASM, prints its path and size
+make contract-test   # run only the contract test suite
+```
+
+`make contract` runs `stellar contract build --locked --optimize=true`, which is
+what CI builds the deployable artifact with too. `stellar contract optimize`
+still exists in the CLI but is deprecated — `build --optimize` (on by default)
+replaced it — so the target optimizes in a single step rather than
+build-then-optimize.
+
+Building by hand, from this directory:
+
 ```bash
 stellar contract build
 ```
 
 Output: `target/wasm32v1-none/release/stellar_micropay_contract.wasm`
-(relative to the workspace root, not this directory)
+(relative to the workspace root, not this directory — cargo writes to the
+workspace `target/` even when invoked from a member crate, and that is the same
+path `make contract`, CI and `scripts/deploy-contract.sh` use).
 
 ## Test
 
 ```bash
 cargo test
 ```
+
+or, from the repository root, `make contract-test`. CI runs `cargo test --locked`
+against the committed `Cargo.lock`, so a `Cargo.toml` change has to be committed
+together with its regenerated lock file.
 
 ## Security review (#1121)
 
@@ -56,7 +81,8 @@ and the outcome is documented as a doc comment above each function.
 | `send_tip` | `from` | Auth covers `(token_address, from, to, amount)`; amount validated first |
 | `mint_receipt` | `from` | Auth covers `(from, to, amount, memo)`; records keyed by the authenticated payer |
 | `get_tip_total`, `get_tip_count`, `get_admin`, `get_tip_record`, `get_receipt_count`, `get_receipt` | none (read-only) | No state is written and the values are public |
-| `create_escrow`, `batch_send` | none (stubs) | Always panic before touching state |
+| `batch_tip` | `from` | One authorization covers the whole batch; the size, positivity and duplicate checks all run before the first transfer |
+| `batch_send` | none (stub) | Validates batch shape (equal lengths, non-empty, `<= MAX_BATCH`), then panics — no state is written |
 
 ### Findings fixed
 
@@ -193,6 +219,17 @@ stellar contract invoke \
   --to <RECIPIENT_ADDRESS> \
   --amount 1000000
 
+# Tip several recipients in one transaction (at most 25 entries, and no
+# recipient twice — see "Batch tips and the batch size cap")
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- batch_tip \
+  --token_address <XLM_SAC_ADDRESS> \
+  --from <SENDER_ADDRESS> \
+  --tips '[["<RECIPIENT_1>", 5000], ["<RECIPIENT_2>", 10000]]'
+
 # Check tip total
 stellar contract invoke \
   --id <CONTRACT_ID> \
@@ -283,35 +320,130 @@ A disputed escrow can no longer be approved: once the payer disputes, the only
 ways out are the payer reclaiming the funds after the timeout, or waiting it out
 and creating a new escrow.
 
+## Batch tips and the batch size cap
+
+`batch_tip` pays several recipients under a single authorization. Its cost grows
+with the number of entries, and a transaction that exceeds a network resource
+limit fails outright, so the batch size is capped by the constant `MAX_BATCH`
+(**25**) in `src/lib.rs`. Bigger batches are rejected with
+`Batch size exceeds maximum allowed (25 entries)` rather than burning a
+simulation and then aborting in the host's budget accounting.
+
+### Where 25 comes from
+
+A batch costs resources per entry, and the network aborts a transaction that
+crosses a per-transaction limit inside the host's budget accounting
+(`HostError: Error(Budget, ExceededLimit)`) — an opaque failure that only shows
+up after the caller has paid for a simulation. `MAX_BATCH` turns that into a
+clear rejection, and it is set so far below the point where the budgets bind that
+the margin itself is asserted by a test.
+
+`test_batch_tip_fits_network_resource_limits` runs `batch_tip` at exactly
+`MAX_BATCH` under the test host's default `InvocationResourceLimits::mainnet()`
+enforcement and asserts the footprint stays inside these margins:
+
+| Dimension | Mainnet limit per transaction | Asserted to stay under |
+| --- | --- | --- |
+| CPU instructions | 400,000,000 | 100,000,000 |
+| Memory bytes | 41,943,040 | 10,000,000 |
+| Contract event bytes | 16,384 | 12,288 |
+| Write bytes | 132,096 | 66,048 |
+| Write entries | 200 | 100 |
+
+The call succeeding is the proof; the margins are the tripwire if the per-entry
+cost grows. Two reasons to keep it conservative when revisiting the number: the
+test contract is native Rust rather than WASM, so VM instantiation, WASM
+execution and WASM linear-memory reservations go unmetered and the real on-chain
+cost per entry is higher; and the duplicate-recipient scan is quadratic, so the
+marginal entry gets more expensive as the batch grows. The dominant term is the
+~400-byte event published per entry plus the serialized `(Address, i128)` vector.
+
+Raising the cap means re-measuring with that test, not just editing the number —
+and the literal in the panic messages has to be edited in the same commit, since
+`panic!` takes a `&'static str` and cannot interpolate the constant.
+
+### Rules
+
+| Function | Empty batch | Above the cap | Notes |
+| --- | --- | --- | --- |
+| `batch_tip` | `At least one tip is required` | `Batch size exceeds maximum allowed (25 entries)` | Also rejects `amount <= 0` (`Tip amount must be positive`), a repeated recipient (`Duplicate tip recipient`), and an amount total that overflows i128 |
+| `batch_send` | `At least one payment is required` | `Batch size exceeds maximum allowed (25 entries)` | Mismatched `recipients`/`amounts` lengths fail first (`Recipient and amount vectors must have the same length`). It is still a placeholder, so a valid batch ends in the v2.0 panic — the shape checks run before it |
+
+Both entry points are checked client-side too: `MAX_RECIPIENTS` in
+`frontend/components/BatchPaymentForm.tsx` is kept at the same value.
+
+## Operator fee and rounding
+
+The admin sets a fee in basis points (`set_fee_bps`, capped at 500 bps = 5%).
+`fee_for` computes it as `amount * fee_bps / 10_000` **truncated to whole
+stroops, per entry**, and it is the single source of truth for `send_tip` and
+`batch_tip`; a batch is charged exactly what its entries would have cost
+separately.
+
+Two properties the tests pin down:
+
+- **The cap holds.** Summing truncations can only ever undershoot, so
+  `sum(fee_for(amount_i)) <= floor(total * fee_bps / 10_000) <= ceil(total *
+  fee_bps / 10_000)` for any batch. Rounding *up* per entry would break this:
+  two 1-stroop tips at 500 bps would each cost a stroop (2 total) against a
+  ceiling of `ceil(2 * 500 / 10_000) = 1`. `prop_batch_tip_fee_respects_cap_and_conserves`
+  searches for a counterexample and `test_send_tip_and_batch_tip_charge_the_same_fee`
+  covers the split-by-case.
+- **Value is conserved.** The payer is debited `gross`, the recipients are
+  credited `amount - fee`, and the admin receives the fees, so
+  `debit == sum(credits) + fee` holds by construction and the contract holds
+  nothing back at the end of a batch. Before this was fixed, `batch_tip`
+  collected no fee at all, so splitting a tip across a batch dodged it entirely.
+
+Truncation is not free for the operator: each entry withholds less than a stroop,
+so the largest possible leakage from a full batch is 24 stroops (there is no way
+to round a sub-stroop fee up). The property tests include 1-stroop amounts and
+amounts at `i128` scale (`prop_batch_tip_fee_is_exact_at_i128_scale`, where the
+fee is exact because the amount is a multiple of 10,000).
+
+The multiplication itself is split as `quotient * bps + (remainder * bps) / 10_000`
+so no intermediate exceeds `i128` for legal amounts — `amount * fee_bps` as a
+single product would overflow well before `i128::MAX` (see
+`test_huge_tip_amounts_do_not_overflow_fee_math`).
+
 ## Troubleshooting (#153)
 
-Soroban SDK 28 requires the Stellar CLI to set build metadata and the
+A Soroban SDK release requires the Stellar CLI to set build metadata and the
 `wasm32v1-none` target on current Rust toolchains. Build with
-`stellar contract build` as shown above; a direct `cargo build` or the old
-`wasm32-unknown-unknown` target may fail even when the contract source is valid.
+`make contract` or `stellar contract build` as shown above; a direct
+`cargo build` or the old `wasm32-unknown-unknown` target may fail even when the
+contract source is valid.
 
 ## Error Reference
 
-The contract does not define a `#[contracterror]` enum — every failure is a
-plain `panic!` or `.expect()` call, so there is no numeric error code to
-match on client-side. Instead, catch the failed invocation and match on the
-panic message (available in the transaction's diagnostic events when
-simulated or submitted with debug info enabled).
+Almost every failure is a plain `panic!` or `.expect()` call, so there is no
+numeric error code to match on client-side — catch the failed invocation and
+match on the panic message (available in the transaction's diagnostic events
+when simulated or submitted with debug info enabled). The exceptions are the two
+`#[contracterror]` variants, which the host returns as error codes:
+`ContractError::NotAdmin` (1, `freeze`/`unfreeze` called by a non-admin) and
+`ContractError::Frozen` (2, any state-changing call against a frozen contract).
 
 | Error message                                       | Trigger condition                                                                 | Affected function(s)                          |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------ |
 | `Contract already initialized`                       | `initialize` is called a second time (the `Admin` storage key is already set).      | `initialize`                                      |
 | `Contract not initialized`                            | A function that requires the admin address reads it before `initialize` was called. | `get_admin`, `send_tip`, `set_fee_bps`            |
-| `Tip amount must be positive`                         | `send_tip` is called with `amount <= 0`.                                            | `send_tip`                                        |
+| `Tip amount must be positive`                         | `send_tip` is called with `amount <= 0`, or any `batch_tip` entry has `amount <= 0`. | `send_tip`, `batch_tip`                           |
+| `At least one tip is required`                        | `batch_tip` is called with an empty vector.                                         | `batch_tip`                                       |
+| `Batch size exceeds maximum allowed (25 entries)`     | A batch longer than `MAX_BATCH` (25).                                              | `batch_tip`, `batch_send`                         |
+| `Duplicate tip recipient`                             | The same address appears twice in one `batch_tip` call.                             | `batch_tip`                                       |
+| `Tip total overflow`                                  | The batch amounts do not fit in `i128` together.                                    | `batch_tip`                                       |
+| `Tip fee total overflow`                              | The batch fees do not fit in `i128` together.                                       | `batch_tip`                                       |
 | `Tip record not found`                                | `get_tip_record` is called with a `(recipient, index)` pair that was never stored.  | `get_tip_record`                                  |
 | `Receipt amount must be positive`                     | `mint_receipt` is called with `amount <= 0`.                                        | `mint_receipt`                                    |
 | `Receipt not found`                                   | `get_receipt` is called with a `(payer, index)` pair that was never stored.         | `get_receipt`                                     |
 | `Only the admin can set the fee`                      | `set_fee_bps` is called with an `admin` argument that doesn't match the stored admin, even if that address authorized the call. | `set_fee_bps`      |
 | `Fee exceeds maximum allowed (500 bps)`               | `set_fee_bps` is called with `fee_bps > 500` (the 5% cap).                          | `set_fee_bps`                                     |
-| `Escrow payments coming in v2.1 — see ROADMAP.md`     | `create_escrow` is called at all — it's an unimplemented placeholder.               | `create_escrow`                                   |
-| `Batch payments coming in v2.0 — see ROADMAP.md`      | `batch_send` is called at all — it's an unimplemented placeholder.                  | `batch_send`                                      |
+| `Recipient and amount vectors must have the same length` | `batch_send` is called with differently sized `recipients` and `amounts` vectors. | `batch_send`                                   |
+| `At least one payment is required`                    | `batch_send` is called with empty vectors.                                          | `batch_send`                                      |
+| `Batch payments coming in v2.0 — see ROADMAP.md`      | `batch_send` is called with a well-formed batch — it is still an unimplemented placeholder, so this panic is the last thing it does, after the size checks above. | `batch_send` |
 
-`send_tip` and `mint_receipt` also panic implicitly if the caller isn't the
+`send_tip`, `batch_tip` and `mint_receipt` also panic implicitly if the caller isn't the
 address that authorized the invocation (`from.require_auth()` /
 `admin.require_auth()` failing), which the Soroban host reports as its own
 authorization error rather than one of the messages above.

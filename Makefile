@@ -1,4 +1,4 @@
-.PHONY: dev test build deploy clean help localnet-up localnet-down localnet-network localnet-identity deploy-local smoke-local
+.PHONY: dev test build deploy clean help contract contract-test localnet-up localnet-down localnet-network localnet-identity deploy-local smoke-local
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -10,6 +10,26 @@ test: ## Run all test suites
 	npm run test --prefix frontend --if-present
 	npm run test --prefix backend --if-present
 	cd contracts/stellar-micropay-contract && cargo test
+
+contract-test: ## Run only the Soroban contract test suite
+	cd contracts/stellar-micropay-contract && cargo test
+
+# Deployable contract artifact. `stellar contract build` always compiles the
+# cdylib crates for wasm32v1-none, and cargo writes to the *workspace* target
+# directory even when invoked from a member crate — the same path CI builds and
+# uploads, and the path scripts/deploy-contract.sh deploys from.
+CONTRACT_WASM := target/wasm32v1-none/release/stellar_micropay_contract.wasm
+
+contract: ## Build and optimize the deployable contract WASM
+	@command -v stellar >/dev/null 2>&1 || { \
+		echo "stellar CLI not found. Prerequisites (see contracts/stellar-micropay-contract/README.md):" >&2; \
+		echo "  rustup target add wasm32v1-none" >&2; \
+		echo "  cargo install --locked stellar-cli" >&2; \
+		exit 1; }
+	stellar contract build --locked --optimize=true
+	@test -f "$(CONTRACT_WASM)" || { echo "build succeeded but $(CONTRACT_WASM) is missing" >&2; exit 1; }
+	@echo "Optimized WASM: $(CONTRACT_WASM)"
+	@echo "Size: $$(wc -c < "$(CONTRACT_WASM)") bytes"
 
 build: ## Build frontend and backend for production
 	npm run build --prefix frontend --if-present
@@ -25,7 +45,7 @@ clean: ## Remove node_modules and build artifacts
 	rm -rf node_modules
 	rm -rf frontend/node_modules frontend/.next frontend/out
 	rm -rf backend/node_modules
-	rm -rf contracts/stellar-micropay-contract/target
+	rm -rf target
 
 # ---------------------------------------------------------------------------
 # Local Stellar network (stellar/quickstart in standalone mode)

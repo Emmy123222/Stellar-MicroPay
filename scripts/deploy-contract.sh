@@ -19,7 +19,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 CONTRACT_DIR="$ROOT_DIR/contracts/stellar-micropay-contract"
-WASM="$CONTRACT_DIR/target/wasm32v1-none/release/stellar_micropay_contract.wasm"
+# `cargo` writes to the workspace target directory even when invoked from a
+# member crate, and this is the same path `make contract` and CI use.
+WASM="$ROOT_DIR/target/wasm32v1-none/release/stellar_micropay_contract.wasm"
 NETWORK="${STELLAR_NETWORK:-testnet}"
 IDENTITY="${STELLAR_IDENTITY:-alice}"
 CONFIRM_MAINNET=false

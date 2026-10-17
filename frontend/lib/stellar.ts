@@ -140,6 +140,13 @@ export const STELLAR_MEMO_TEXT_MAX_BYTES = 28;
 export const STELLAR_BASE_ACCOUNT_RESERVE_COUNT = 2;
 
 /**
+ * Largest batch the MicroPay contract accepts, mirroring `MAX_BATCH` in
+ * `contracts/stellar-micropay-contract/src/lib.rs`. Keep the two in sync: the
+ * contract rejects a longer batch before any funds move.
+ */
+export const CONTRACT_MAX_BATCH = 25;
+
+/**
  * Count a memo's UTF-8 bytes according to Stellar's protocol limit.
  * @param memo - Memo text to measure.
  * @returns The encoded byte length.

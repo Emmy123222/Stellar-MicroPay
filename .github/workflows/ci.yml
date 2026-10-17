@@ -213,7 +213,7 @@ jobs:
     permissions:
       contents: read
       checks: write
-    # soroban-sdk 28's build script only accepts a wasm build when the build
+    # soroban-sdk's build script only accepts a wasm build when the build
     # system declares that spec shaking happens out-of-band
     # (SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2). `cargo check` and
     # `cargo test` only type-check/run tests, so they set the marker here; the
@@ -223,10 +223,45 @@ jobs:
       SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
     steps:
       - uses: actions/checkout@v4
+      # The cache key below includes the active rustc, so the toolchain has to
+      # be installed before the cache step. `stable` is used rather than a pin,
+      # which means an upstream rustc release rotates the key and the next run
+      # warms the cache again from its restore-key fallback.
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32v1-none, wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      # Caches `~/.cargo` (registry, compressed crate archives, git deps) and
+      # `./target` (build artifacts of *dependencies* — workspace crates are
+      # deliberately excluded because caching them is generally not effective).
+      # It covers all three cargo steps below: check, test and the wasm build
+      # share one job id and one `target` directory.
+      #
+      # Keying needs no explicit `key:`: the action already hashes the job id,
+      # the rustc version/host, the compiler-relevant env vars, and every
+      # Cargo.toml + Cargo.lock in the repository
+      # (`add-rust-environment-hash-key` defaults to true). Editing a
+      # dependency therefore invalidates the key by itself, so a run can never
+      # be served artifacts that contradict its own lockfile. A key miss is not
+      # a cold start either — the action restores from the previous lockfile's
+      # cache through restore keys, so a version bump only rebuilds what moved.
+      #
+      # Cross-branch poisoning is prevented by the GitHub Actions cache itself,
+      # which this action builds on: a run may read caches from its base branch
+      # but writes only under its own git ref. A PR branch can never overwrite
+      # main's cache, and unrelated branches never see each other's entries.
+      # Total budget is 10 GB per repository; the oldest caches are evicted.
+      - name: Cache cargo registry and build artifacts
+        id: rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Without this the save step is skipped whenever the job fails, so a
+          # PR with a red test run would recompile every dependency from
+          # scratch on its next push despite having built them all already.
+          cache-on-failure: true
+      # Makes cache effectiveness visible per run; `true` means the exact key
+      # (including the lockfile hash) was already stored.
+      - name: Report cache hit
+        run: 'echo "rust-cache exact hit: ${{ steps.rust-cache.outputs.cache-hit }}"'
       # Scans the workspace Cargo.lock, which pins the contract at
       # contracts/stellar-micropay-contract. cargo audit has no severity
       # threshold like npm's --audit-level, so it fails on any vulnerability
@@ -235,12 +270,17 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+      # `--locked` matches `make contract` and the artifact build below: the
+      # committed Cargo.lock is the single source of truth, and a Cargo.toml
+      # edit without a regenerated lock fails here instead of quietly
+      # re-resolving a dependency set that no cached artifact was built for.
       - name: cargo check (wasm32v1-none)
-        run: cargo check --target wasm32v1-none
-      - run: cargo test
-      # Install stellar-cli pinned in lockstep with soroban-sdk (both 28.x):
-      # it is required to produce a deployable wasm with a correctly shaken
-      # spec, and plain `cargo build` is rejected by soroban-sdk's build script.
+        run: cargo check --locked --target wasm32v1-none
+      - run: cargo test --locked
+      # stellar-cli is required to produce a deployable wasm with a correctly
+      # shaken spec; plain `cargo build` is rejected by soroban-sdk's build
+      # script. This release is older than the soroban-sdk in Cargo.lock and is
+      # verified to build the contract with it.
       - name: Install stellar CLI
         run: |
           curl -fL --retry 5 --retry-delay 5 --retry-connrefused \
