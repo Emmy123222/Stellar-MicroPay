@@ -39,14 +39,11 @@ run `npm run dev --prefix backend`, then `npm run dev --prefix frontend`.
 
 ## Prerequisites
 
-1. **Rust and Soroban SDK**: Install Rust and add the correct Soroban target
+1. **Rust and Stellar CLI**: Install Rust and add Stellar contract target
+
    ```bash
    rustup target add wasm32v1-none
-   ```
-   Install the Stellar CLI (replaces the deprecated `soroban-cli`):
-   ```bash
-   # macOS / Linux — see https://developers.stellar.org/docs/tools/cli/stellar-cli
-   curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
+   cargo install --locked stellar-cli
    ```
 
 2. **Stellar Account**: Have a funded Stellar account for deployment
@@ -64,12 +61,14 @@ run `npm run dev --prefix backend`, then `npm run dev --prefix frontend`.
 Before deploying the backend, you must configure the following environment variables:
 
 1. **JWT_SECRET** (REQUIRED): Generate a secure secret for JWT token signing
+
    ```bash
    # Generate a cryptographically secure random secret
    openssl rand -base64 48
    ```
 
    Add this to your `.env` file or environment:
+
    ```bash
    JWT_SECRET=<generated_secret_here>
    ```
@@ -84,11 +83,11 @@ Before deploying the backend, you must configure the following environment varia
 ### 1. Build the Contract
 
 ```bash
-# Navigate to project directory
-cd Stellar-MicroPay
+# Navigate to contract directory
+cd Stellar-MicroPay/contracts/stellar-micropay-contract
 
-# Build using the Stellar CLI (required by soroban-sdk; plain cargo build is rejected)
-stellar contract build
+# Build with stellar CLI (produces correctly shaken spec)
+stellar contract build --locked
 
 # The contract will be available at:
 # target/wasm32v1-none/release/stellar_micropay_contract.wasm
@@ -97,47 +96,54 @@ stellar contract build
 ### 2. Run Tests
 
 ```bash
-# Run all tests to verify implementation
+# From workspace root or contract directory
 cargo test
-
-# Run specific test
-cargo test test_open_stream
 ```
 
 ## Contract Deployment
 
-### 1. Setup Environment
+### 1. Deploy with Script
+
+Use the deployment script for a streamlined experience:
 
 ```bash
-# Set network (testnet or mainnet)
-export STELLAR_NETWORK="testnet"
+# Deploy to testnet with identity 'alice'
+./scripts/deploy-contract.sh testnet alice
 
-# Set contract parameters
-export SOROBAN_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+# Deploy to mainnet (requires --confirm)
+./scripts/deploy-contract.sh mainnet alice --confirm
+
+# Deploy to local network
+./scripts/deploy-contract.sh local alice
 ```
 
-### 2. Deploy Contract
+The script handles building, deployment, initialization, and verification.
+
+### 2. Manual Deployment
+
+If you prefer to deploy manually:
 
 ```bash
-# Deploy the contract
-stellar contract deploy \
-  --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
-  --source <YOUR_STELLAR_IDENTITY> \
-  --network $STELLAR_NETWORK
+# Build the contract
+cd contracts/stellar-micropay-contract
+stellar contract build --locked
+cd ../..
 
-# Note the contract ID for future use
-```
+# Deploy to testnet
+CONTRACT_ID=$(stellar contract deploy \
+  --wasm contracts/stellar-micropay-contract/target/wasm32v1-none/release/stellar_micropay_contract.wasm \
+  --source <YOUR_STELLAR_ACCOUNT> \
+  --network testnet)
 
-### 3. Initialize Contract (if needed)
+echo "Contract deployed with ID: $CONTRACT_ID"
 
-```bash
-# Initialize contract with any required parameters
+# Initialize the contract
 stellar contract invoke \
-  --id <CONTRACT_ID> \
-  --source <YOUR_STELLAR_IDENTITY> \
-  --network $STELLAR_NETWORK \
-  -- function_name \
-  --args ...
+  --id $CONTRACT_ID \
+  --source <YOUR_STELLAR_ACCOUNT> \
+  --network testnet \
+  -- initialize \
+  --admin <YOUR_STELLAR_ADDRESS>
 ```
 
 ## Usage Examples
@@ -147,14 +153,13 @@ stellar contract invoke \
 ```bash
 stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <PAYER_IDENTITY> \
-  --network $STELLAR_NETWORK \
+  --source <PAYER_ACCOUNT> \
+  --network testnet \
   -- open_stream \
-  --args \
-    "<PAYER_ADDRESS>" \
-    "<RECIPIENT_ADDRESS>" \
-    "1000" \
-    "1000000"
+  --payer "<PAYER_ADDRESS>" \
+  --recipient "<RECIPIENT_ADDRESS>" \
+  --rate_per_ledger "1000" \
+  --deposit "1000000"
 ```
 
 ### Claiming from a Stream
@@ -162,12 +167,11 @@ stellar contract invoke \
 ```bash
 stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <RECIPIENT_IDENTITY> \
-  --network $STELLAR_NETWORK \
+  --source <RECIPIENT_ACCOUNT> \
+  --network testnet \
   -- claim_stream \
-  --args \
-    "1" \
-    "<RECIPIENT_ADDRESS>"
+  --stream_id 1 \
+  --recipient "<RECIPIENT_ADDRESS>"
 ```
 
 ### Topping Up a Stream
@@ -175,13 +179,12 @@ stellar contract invoke \
 ```bash
 stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <PAYER_IDENTITY> \
-  --network $STELLAR_NETWORK \
+  --source <PAYER_ACCOUNT> \
+  --network testnet \
   -- top_up_stream \
-  --args \
-    "1" \
-    "<PAYER_ADDRESS>" \
-    "500000"
+  --stream_id 1 \
+  --payer "<PAYER_ADDRESS>" \
+  --amount "500000"
 ```
 
 ### Closing a Stream
@@ -189,12 +192,11 @@ stellar contract invoke \
 ```bash
 stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <PAYER_IDENTITY> \
-  --network $STELLAR_NETWORK \
+  --source <PAYER_ACCOUNT> \
+  --network testnet \
   -- close_stream \
-  --args \
-    "1" \
-    "<PAYER_ADDRESS>"
+  --stream_id 1 \
+  --payer "<PAYER_ADDRESS>"
 ```
 
 ## Creating a Pull Request
@@ -221,6 +223,7 @@ stellar contract invoke \
 ### 3. Create Pull Request
 
 1. Push to your fork:
+
    ```bash
    git push origin main
    ```
@@ -228,6 +231,7 @@ stellar contract invoke \
 2. Create a pull request on GitHub with:
    - **Title**: "Implement streaming payment channels using Soroban"
    - **Description**:
+
      ```
      This PR implements streaming payment channels using Soroban smart contracts.
 
@@ -267,18 +271,21 @@ stellar contract invoke \
 ## Contract Features Summary
 
 ### Core Functionality
+
 - **Stream Creation**: Create payment streams with custom rates and deposits
 - **Claim Payments**: Recipients can claim available funds based on ledger progression
 - **Stream Management**: Top-up existing streams or close them for refunds
 - **Query Functions**: Get stream information and calculate claimable amounts
 
 ### Security Features
+
 - **Authorization**: Only designated recipients can claim, only payers can manage streams
 - **Input Validation**: Positive rates and deposits required
 - **Overflow Protection**: Safe arithmetic operations
 - **Access Control**: Proper authentication for all operations
 
 ### Mathematical Accuracy
+
 - **Ledger-based Calculation**: Claims calculated using ledger progression
 - **Deposit Limits**: Cannot claim more than deposited amount
 - **Refund Logic**: Accurate refund calculations for unstreamed portions
@@ -313,6 +320,7 @@ The implementation includes 13 comprehensive test functions:
 ## Support
 
 For questions or issues:
+
 - Review the contract implementation in `lib.rs`
 - Check the test cases for usage examples
 - Refer to Soroban documentation: https://docs.rs/soroban-sdk/latest/soroban_sdk/

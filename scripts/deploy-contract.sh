@@ -2,8 +2,8 @@
 # Build and deploy the Soroban contract to a local network, testnet or mainnet.
 #
 # Prerequisites:
-#   - Rust + wasm32v1-none target (rustup target add wasm32v1-none)
-#   - Stellar CLI  (https://developers.stellar.org/docs/tools/cli/stellar-cli)
+#   - Rust + wasm32v1-none target
+#   - Stellar CLI (cargo install --locked stellar-cli)
 #   - A funded Stellar identity
 #
 # Usage:
@@ -84,7 +84,8 @@ echo "  Network:  $NETWORK"
 echo "  Identity: $IDENTITY"
 
 echo "Building release WASM..."
-stellar contract build --manifest-path "$CONTRACT_DIR/Cargo.toml"
+cd "$CONTRACT_DIR"
+stellar contract build --locked
 
 if [[ ! -f "$WASM" ]]; then
   echo "Error: WASM file not found after build: $WASM" >&2

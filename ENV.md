@@ -55,4 +55,4 @@ The table below describes how variables in the frontend correspond to or cross-r
 
 ## Key Rotation
 
-For procedures on rotating `JWT_SECRET` and `SERVER_PRIVATE_KEY` without breaking active sessions, see [docs/key-rotation.md](docs/key-rotation.md).
+For detailed procedures on rotating `JWT_SECRET`, `SERVER_PRIVATE_KEY`, and `PAYMENT_SIGNING_SECRET` without breaking active sessions, see [docs/key-rotation.md](docs/key-rotation.md). Each secret has different session and client implications — review the guide before rotating in production.
