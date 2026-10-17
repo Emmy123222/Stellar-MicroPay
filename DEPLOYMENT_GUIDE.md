@@ -39,10 +39,14 @@ run `npm run dev --prefix backend`, then `npm run dev --prefix frontend`.
 
 ## Prerequisites
 
-1. **Rust and Soroban SDK**: Install Rust and add Soroban target
+1. **Rust and Soroban SDK**: Install Rust and add the correct Soroban target
    ```bash
-   rustup target add wasm32-unknown-unknown
-   cargo install soroban-cli
+   rustup target add wasm32v1-none
+   ```
+   Install the Stellar CLI (replaces the deprecated `soroban-cli`):
+   ```bash
+   # macOS / Linux — see https://developers.stellar.org/docs/tools/cli/stellar-cli
+   curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
    ```
 
 2. **Stellar Account**: Have a funded Stellar account for deployment
@@ -75,28 +79,6 @@ Before deploying the backend, you must configure the following environment varia
    - Use a different secret for each environment (dev, staging, production)
    - The application will refuse to start if JWT_SECRET is not set
 
-## Backend Configuration
-
-### Required Environment Variables
-
-Before deploying the backend, you must configure the following environment variables:
-
-1. **JWT_SECRET** (REQUIRED): Generate a secure secret for JWT token signing
-   ```bash
-   # Generate a cryptographically secure random secret
-   openssl rand -base64 48
-   ```
-
-   Add this to your `.env` file or environment:
-   ```bash
-   JWT_SECRET=<generated_secret_here>
-   ```
-
-   **IMPORTANT**:
-   - NEVER commit the JWT_SECRET to version control
-   - Use a different secret for each environment (dev, staging, production)
-   - The application will refuse to start if JWT_SECRET is not set
-
 ## Build Instructions
 
 ### 1. Build the Contract
@@ -105,11 +87,11 @@ Before deploying the backend, you must configure the following environment varia
 # Navigate to project directory
 cd Stellar-MicroPay
 
-# Build for WebAssembly target
-cargo build --release --target wasm32-unknown-unknown
+# Build using the Stellar CLI (required by soroban-sdk; plain cargo build is rejected)
+stellar contract build
 
 # The contract will be available at:
-# target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm
+# target/wasm32v1-none/release/stellar_micropay_contract.wasm
 ```
 
 ### 2. Run Tests
@@ -138,9 +120,9 @@ export SOROBAN_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 
 ```bash
 # Deploy the contract
-soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm \
-  --source <YOUR_STELLAR_SECRET_KEY> \
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/stellar_micropay_contract.wasm \
+  --source <YOUR_STELLAR_IDENTITY> \
   --network $STELLAR_NETWORK
 
 # Note the contract ID for future use
@@ -150,9 +132,9 @@ soroban contract deploy \
 
 ```bash
 # Initialize contract with any required parameters
-soroban contract invoke \
+stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <YOUR_STELLAR_SECRET_KEY> \
+  --source <YOUR_STELLAR_IDENTITY> \
   --network $STELLAR_NETWORK \
   -- function_name \
   --args ...
@@ -163,11 +145,11 @@ soroban contract invoke \
 ### Opening a Stream
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <PAYER_SECRET_KEY> \
+  --source <PAYER_IDENTITY> \
   --network $STELLAR_NETWORK \
-  open_stream \
+  -- open_stream \
   --args \
     "<PAYER_ADDRESS>" \
     "<RECIPIENT_ADDRESS>" \
@@ -178,11 +160,11 @@ soroban contract invoke \
 ### Claiming from a Stream
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <RECIPIENT_SECRET_KEY> \
+  --source <RECIPIENT_IDENTITY> \
   --network $STELLAR_NETWORK \
-  claim_stream \
+  -- claim_stream \
   --args \
     "1" \
     "<RECIPIENT_ADDRESS>"
@@ -191,11 +173,11 @@ soroban contract invoke \
 ### Topping Up a Stream
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <PAYER_SECRET_KEY> \
+  --source <PAYER_IDENTITY> \
   --network $STELLAR_NETWORK \
-  top_up_stream \
+  -- top_up_stream \
   --args \
     "1" \
     "<PAYER_ADDRESS>" \
@@ -205,11 +187,11 @@ soroban contract invoke \
 ### Closing a Stream
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id <CONTRACT_ID> \
-  --source <PAYER_SECRET_KEY> \
+  --source <PAYER_IDENTITY> \
   --network $STELLAR_NETWORK \
-  close_stream \
+  -- close_stream \
   --args \
     "1" \
     "<PAYER_ADDRESS>"

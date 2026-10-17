@@ -2,8 +2,8 @@
 # Build and deploy the Soroban contract to a local network, testnet or mainnet.
 #
 # Prerequisites:
-#   - Rust + wasm32-unknown-unknown target
-#   - Stellar CLI (cargo install --locked stellar-cli)
+#   - Rust + wasm32v1-none target (rustup target add wasm32v1-none)
+#   - Stellar CLI  (https://developers.stellar.org/docs/tools/cli/stellar-cli)
 #   - A funded Stellar identity
 #
 # Usage:
@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 CONTRACT_DIR="$ROOT_DIR/contracts/stellar-micropay-contract"
-WASM="$CONTRACT_DIR/target/wasm32-unknown-unknown/release/stellar_micropay_contract.wasm"
+WASM="$CONTRACT_DIR/target/wasm32v1-none/release/stellar_micropay_contract.wasm"
 NETWORK="${STELLAR_NETWORK:-testnet}"
 IDENTITY="${STELLAR_IDENTITY:-alice}"
 CONFIRM_MAINNET=false
@@ -70,7 +70,7 @@ if [[ "$NETWORK" == mainnet && "$CONFIRM_MAINNET" != true ]]; then
 fi
 
 if ! command -v stellar >/dev/null 2>&1; then
-  echo "Error: Stellar CLI not found. Install with: cargo install --locked stellar-cli" >&2
+  echo "Error: Stellar CLI not found. Install from: https://developers.stellar.org/docs/tools/cli/stellar-cli" >&2
   exit 1
 fi
 
@@ -84,7 +84,7 @@ echo "  Network:  $NETWORK"
 echo "  Identity: $IDENTITY"
 
 echo "Building release WASM..."
-cargo build --manifest-path "$CONTRACT_DIR/Cargo.toml" --target wasm32-unknown-unknown --release
+stellar contract build --manifest-path "$CONTRACT_DIR/Cargo.toml"
 
 if [[ ! -f "$WASM" ]]; then
   echo "Error: WASM file not found after build: $WASM" >&2
